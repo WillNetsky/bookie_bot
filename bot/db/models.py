@@ -54,13 +54,21 @@ async def add_voice_minutes(discord_id: int, minutes: int) -> None:
 
 
 async def create_bet(
-    user_id: int, game_id: str, pick: str, amount: int, odds: float
+    user_id: int,
+    game_id: str,
+    pick: str,
+    amount: int,
+    odds: float,
+    home_team: str | None = None,
+    away_team: str | None = None,
+    sport_title: str | None = None,
 ) -> int:
     db = await get_connection()
     try:
         cursor = await db.execute(
-            "INSERT INTO bets (user_id, game_id, pick, amount, odds) VALUES (?, ?, ?, ?, ?)",
-            (user_id, game_id, pick, amount, odds),
+            "INSERT INTO bets (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title),
         )
         await db.commit()
         return cursor.lastrowid

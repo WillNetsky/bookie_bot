@@ -37,7 +37,19 @@ async def get_connection() -> aiosqlite.Connection:
     return db
 
 
+MIGRATIONS = [
+    "ALTER TABLE bets ADD COLUMN home_team TEXT",
+    "ALTER TABLE bets ADD COLUMN away_team TEXT",
+    "ALTER TABLE bets ADD COLUMN sport_title TEXT",
+]
+
+
 async def init_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
+        for migration in MIGRATIONS:
+            try:
+                await db.execute(migration)
+            except Exception:
+                pass  # column already exists
         await db.commit()

@@ -192,6 +192,7 @@ class Betting(commands.Cog):
         american_odds = odds_entry["american"]
         home_name = game.get("home_team", "Home")
         away_name = game.get("away_team", "Away")
+        sport_title = game.get("sport_title", game.get("sport_key", ""))
         fmt = self.sports_api.format_american
 
         # 4. Store sport_key alongside game_id for later resolution
@@ -200,7 +201,8 @@ class Betting(commands.Cog):
 
         # 5. Place the bet (store decimal odds for payout math)
         bet_id = await betting_service.place_bet(
-            interaction.user.id, composite_id, pick_value, amount, decimal_odds
+            interaction.user.id, composite_id, pick_value, amount, decimal_odds,
+            home_team=home_name, away_team=away_name, sport_title=sport_title,
         )
         if bet_id is None:
             await interaction.followup.send(
@@ -235,23 +237,34 @@ class Betting(commands.Cog):
             status = b["status"]
             if status == "won":
                 icon = "\U0001f7e2"  # green circle
-                status_text = f"Won — {b.get('payout', 0)} coins"
+                status_text = f"Won — **{b.get('payout', 0)} coins**"
             elif status == "lost":
                 icon = "\U0001f534"  # red circle
                 status_text = "Lost"
             else:
                 icon = "\U0001f7e1"  # yellow circle
                 potential = int(b["amount"] * b["odds"])
-                status_text = f"Pending — potential {potential} coins"
+                status_text = f"Pending — potential **{potential} coins**"
 
-            # Display game_id without the sport_key suffix
-            display_game_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
+            # Game info from stored fields
+            home = b.get("home_team")
+            away = b.get("away_team")
+            sport = b.get("sport_title")
+
+            if home and away:
+                matchup = f"{home} vs {away}"
+            else:
+                raw_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
+                matchup = f"Game `{raw_id}`"
+
+            sport_line = f"{sport} · " if sport else ""
+            pick_label = b["pick"].capitalize()
 
             embed.add_field(
-                name=f"{icon} Bet #{b['id']}",
+                name=f"{icon} Bet #{b['id']} · {status_text}",
                 value=(
-                    f"Game `{display_game_id}`\n"
-                    f"{b['pick'].capitalize()} · {b['amount']} coins @ {b['odds']}x · {status_text}"
+                    f"{sport_line}**{matchup}**\n"
+                    f"Pick: **{pick_label}** · {b['amount']} coins @ {b['odds']}x"
                 ),
                 inline=False,
             )

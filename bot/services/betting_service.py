@@ -5,13 +5,23 @@ from bot.services.wallet_service import deposit, withdraw
 
 
 async def place_bet(
-    user_id: int, game_id: str, pick: str, amount: int, odds: float
+    user_id: int,
+    game_id: str,
+    pick: str,
+    amount: int,
+    odds: float,
+    home_team: str | None = None,
+    away_team: str | None = None,
+    sport_title: str | None = None,
 ) -> int | None:
     """Place a bet. Returns bet ID on success, None if insufficient balance."""
     new_balance = await withdraw(user_id, amount)
     if new_balance is None:
         return None
-    bet_id = await models.create_bet(user_id, game_id, pick, amount, odds)
+    bet_id = await models.create_bet(
+        user_id, game_id, pick, amount, odds,
+        home_team=home_team, away_team=away_team, sport_title=sport_title,
+    )
     return bet_id
 
 
