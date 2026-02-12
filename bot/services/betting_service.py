@@ -70,7 +70,7 @@ async def resolve_bet(bet_id: int, won: bool) -> None:
             return
 
         if won:
-            payout = int(bet["amount"] * bet["odds"])
+            payout = round(bet["amount"] * bet["odds"], 2)
             await db.execute(
                 "UPDATE bets SET status = 'won', payout = ? WHERE id = ?",
                 (payout, bet_id),

@@ -210,15 +210,15 @@ class Betting(commands.Cog):
             )
             return
 
-        payout = int(amount * decimal_odds)
+        payout = round(amount * decimal_odds, 2)
 
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#{bet_id}", inline=True)
         embed.add_field(name="Game", value=f"{home_name} vs {away_name}", inline=True)
         embed.add_field(name="Pick", value=pick_value.capitalize(), inline=True)
-        embed.add_field(name="Wager", value=f"${amount}", inline=True)
+        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Odds", value=fmt(american_odds), inline=True)
-        embed.add_field(name="Potential Payout", value=f"${payout}", inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
 
         await interaction.followup.send(embed=embed)
 
@@ -237,14 +237,14 @@ class Betting(commands.Cog):
             status = b["status"]
             if status == "won":
                 icon = "\U0001f7e2"  # green circle
-                status_text = f"Won — **${b.get('payout', 0)}**"
+                status_text = f"Won — **${b.get('payout', 0):.2f}**"
             elif status == "lost":
                 icon = "\U0001f534"  # red circle
                 status_text = "Lost"
             else:
                 icon = "\U0001f7e1"  # yellow circle
-                potential = int(b["amount"] * b["odds"])
-                status_text = f"Pending — potential **${potential}**"
+                potential = round(b["amount"] * b["odds"], 2)
+                status_text = f"Pending — potential **${potential:.2f}**"
 
             # Game info from stored fields
             home = b.get("home_team")
@@ -264,7 +264,7 @@ class Betting(commands.Cog):
                 name=f"{icon} Bet #{b['id']} · {status_text}",
                 value=(
                     f"{sport_line}**{matchup}**\n"
-                    f"Pick: **{pick_label}** · ${b['amount']} @ {b['odds']}x"
+                    f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']}x"
                 ),
                 inline=False,
             )
@@ -305,7 +305,7 @@ class Betting(commands.Cog):
 
         embed = discord.Embed(
             title="Bet Cancelled",
-            description=f"Bet #{bet_id} cancelled. **${result['amount']}** refunded.",
+            description=f"Bet #{bet_id} cancelled. **${result['amount']:.2f}** refunded.",
             color=discord.Color.orange(),
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
