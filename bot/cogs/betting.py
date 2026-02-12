@@ -5,11 +5,33 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from bot.config import BLOCKED_SPORTS
 from bot.services import betting_service, sports_api as sports_api_mod
 
 log = logging.getLogger(__name__)
 
-VALID_PICKS = ("home", "away", "draw")
+VALID_PICKS = ("home", "away", "draw", "spread_home", "spread_away", "over", "under")
+
+# Map pick values to their market type and display labels
+PICK_MARKET = {
+    "home": "h2h",
+    "away": "h2h",
+    "draw": "h2h",
+    "spread_home": "spreads",
+    "spread_away": "spreads",
+    "over": "totals",
+    "under": "totals",
+}
+
+PICK_LABELS = {
+    "home": "Home",
+    "away": "Away",
+    "draw": "Draw",
+    "spread_home": "Home Spread",
+    "spread_away": "Away Spread",
+    "over": "Over",
+    "under": "Under",
+}
 
 # Timezone helpers
 TZ_ET = timezone(timedelta(hours=-5))
@@ -30,6 +52,19 @@ def format_game_time(commence_str: str) -> str:
         return f"{pt_str} / {et_str}"
     except (ValueError, TypeError):
         return "TBD"
+
+
+def format_pick_label(bet: dict) -> str:
+    """Format a bet's pick into a display label including point info."""
+    pick = bet.get("pick", "")
+    label = PICK_LABELS.get(pick, pick.capitalize())
+    point = bet.get("point")
+    if point is not None:
+        if pick in ("spread_home", "spread_away"):
+            label += f" {point:+g}"
+        else:
+            label += f" {point:g}"
+    return label
 
 
 class Betting(commands.Cog):
@@ -67,12 +102,17 @@ class Betting(commands.Cog):
     # ── /odds ────────────────────────────────────────────────────────────
 
     @app_commands.command(name="odds", description="View upcoming games and odds")
-    @app_commands.describe(sport="Sport to view (leave blank for all upcoming)")
+    @app_commands.describe(
+        sport="Sport to view (leave blank for all upcoming)",
+        hours="Only show games starting within this many hours (default: 6)",
+    )
     @app_commands.autocomplete(sport=sport_autocomplete)
-    async def odds(self, interaction: discord.Interaction, sport: str | None = None) -> None:
+    async def odds(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 6) -> None:
         await interaction.response.defer()
 
-        games = await self.sports_api.get_upcoming_games(sport or "upcoming")
+        games = await self.sports_api.get_upcoming_games(sport or "upcoming", hours=hours)
+        if BLOCKED_SPORTS:
+            games = [g for g in games if g.get("sport_key") not in BLOCKED_SPORTS]
         if not games:
             await interaction.followup.send("No upcoming games found.")
             return
@@ -95,16 +135,32 @@ class Betting(commands.Cog):
             if parsed:
                 home_odds = fmt(parsed["home"]["american"]) if "home" in parsed else "—"
                 away_odds = fmt(parsed["away"]["american"]) if "away" in parsed else "—"
-                draw_line = ""
+                extra_lines = ""
                 if "draw" in parsed:
-                    draw_line = f"\n🤝 Draw: {fmt(parsed['draw']['american'])}"
+                    extra_lines += f"\n🤝 Draw: {fmt(parsed['draw']['american'])}"
+                if "spread_home" in parsed and "spread_away" in parsed:
+                    sh = parsed["spread_home"]
+                    sa = parsed["spread_away"]
+                    sp_home_pt = f"{sh['point']:+g}"
+                    sp_away_pt = f"{sa['point']:+g}"
+                    extra_lines += (
+                        f"\n📊 Spread: {home} {sp_home_pt} ({fmt(sh['american'])}) "
+                        f"/ {away} {sp_away_pt} ({fmt(sa['american'])})"
+                    )
+                if "over" in parsed and "under" in parsed:
+                    ov = parsed["over"]
+                    un = parsed["under"]
+                    extra_lines += (
+                        f"\n📈 Total: O {ov['point']:g} ({fmt(ov['american'])}) "
+                        f"/ U {un['point']:g} ({fmt(un['american'])})"
+                    )
 
                 table = (
                     f"```\n"
                     f"🏠 {home:<25} {home_odds:>6}\n"
                     f"📍 {away:<25} {away_odds:>6}\n"
                     f"```"
-                    f"{draw_line}"
+                    f"{extra_lines}"
                 )
             else:
                 table = "```\nOdds unavailable\n```"
@@ -125,14 +181,18 @@ class Betting(commands.Cog):
     @app_commands.command(name="bet", description="Place a bet on a game")
     @app_commands.describe(
         game_id="Game ID from /odds",
-        pick="Your pick: home, away, or draw",
+        pick="Your pick",
         amount="Wager amount in dollars",
     )
     @app_commands.choices(
         pick=[
-            app_commands.Choice(name="Home", value="home"),
-            app_commands.Choice(name="Away", value="away"),
-            app_commands.Choice(name="Draw", value="draw"),
+            app_commands.Choice(name="Home (moneyline)", value="home"),
+            app_commands.Choice(name="Away (moneyline)", value="away"),
+            app_commands.Choice(name="Draw (moneyline)", value="draw"),
+            app_commands.Choice(name="Home Spread", value="spread_home"),
+            app_commands.Choice(name="Away Spread", value="spread_away"),
+            app_commands.Choice(name="Over", value="over"),
+            app_commands.Choice(name="Under", value="under"),
         ]
     )
     async def bet(
@@ -162,6 +222,14 @@ class Betting(commands.Cog):
             )
             return
 
+        # Block bets on sports without score coverage
+        if game.get("sport_key") in BLOCKED_SPORTS:
+            await interaction.followup.send(
+                "Betting is currently disabled for this sport (no score coverage).",
+                ephemeral=True,
+            )
+            return
+
         # 2. Check it hasn't started
         commence = game.get("commence_time", "")
         try:
@@ -181,6 +249,14 @@ class Betting(commands.Cog):
                 await interaction.followup.send(
                     "Draw is not available for this sport.", ephemeral=True
                 )
+            elif pick_value in ("spread_home", "spread_away"):
+                await interaction.followup.send(
+                    "Spread odds are not available for this game.", ephemeral=True
+                )
+            elif pick_value in ("over", "under"):
+                await interaction.followup.send(
+                    "Totals odds are not available for this game.", ephemeral=True
+                )
             else:
                 await interaction.followup.send(
                     "Odds are not available for this game.", ephemeral=True
@@ -190,6 +266,8 @@ class Betting(commands.Cog):
         odds_entry = parsed[pick_value]
         decimal_odds = odds_entry["decimal"]
         american_odds = odds_entry["american"]
+        bet_point = odds_entry.get("point")
+        market = PICK_MARKET[pick_value]
         home_name = game.get("home_team", "Home")
         away_name = game.get("away_team", "Away")
         sport_title = game.get("sport_title", game.get("sport_key", ""))
@@ -203,6 +281,7 @@ class Betting(commands.Cog):
         bet_id = await betting_service.place_bet(
             interaction.user.id, composite_id, pick_value, amount, decimal_odds,
             home_team=home_name, away_team=away_name, sport_title=sport_title,
+            market=market, point=bet_point,
         )
         if bet_id is None:
             await interaction.followup.send(
@@ -212,12 +291,154 @@ class Betting(commands.Cog):
 
         payout = round(amount * decimal_odds, 2)
 
+        # Build pick label with line info for spreads/totals
+        pick_label = PICK_LABELS.get(pick_value, pick_value)
+        if bet_point is not None:
+            if pick_value in ("spread_home", "spread_away"):
+                pick_label += f" {bet_point:+g}"
+            else:
+                pick_label += f" {bet_point:g}"
+
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#{bet_id}", inline=True)
         embed.add_field(name="Game", value=f"{home_name} vs {away_name}", inline=True)
-        embed.add_field(name="Pick", value=pick_value.capitalize(), inline=True)
+        embed.add_field(name="Pick", value=pick_label, inline=True)
         embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Odds", value=fmt(american_odds), inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
+
+        await interaction.followup.send(embed=embed)
+
+    # ── /futures ───────────────────────────────────────────────────────────
+
+    @app_commands.command(name="futures", description="View futures/outrights odds (e.g. championship winner)")
+    @app_commands.describe(sport="Sport to view futures for")
+    @app_commands.autocomplete(sport=sport_autocomplete)
+    async def futures(self, interaction: discord.Interaction, sport: str) -> None:
+        await interaction.response.defer()
+
+        events = await self.sports_api.get_outrights(sport)
+        if not events:
+            await interaction.followup.send("No futures/outrights found for this sport.")
+            return
+
+        fmt = self.sports_api.format_american
+
+        for event in events[:3]:  # limit to 3 outright events
+            title = event.get("sport_title", sport)
+            event_id = event.get("id", "?")
+            outcomes = self.sports_api.parse_outright_odds(event)
+
+            if not outcomes:
+                continue
+
+            embed = discord.Embed(
+                title=title,
+                color=discord.Color.gold(),
+            )
+
+            # Show top 15 outcomes in a code block
+            lines = []
+            for o in outcomes[:15]:
+                lines.append(f"{o['name']:<30} {fmt(o['american']):>6}")
+            if len(outcomes) > 15:
+                lines.append(f"... and {len(outcomes) - 15} more")
+
+            embed.description = f"```\n" + "\n".join(lines) + "\n```"
+            embed.set_footer(text=f"ID: {event_id}\nUse /betfuture <game_id> <team> <amount> to bet")
+
+            await interaction.followup.send(embed=embed)
+
+    # ── /betfuture ────────────────────────────────────────────────────────
+
+    @app_commands.command(name="betfuture", description="Place a futures/outrights bet")
+    @app_commands.describe(
+        game_id="Event ID from /futures",
+        team="Team/outcome name to bet on",
+        amount="Wager amount in dollars",
+    )
+    async def betfuture(
+        self,
+        interaction: discord.Interaction,
+        game_id: str,
+        team: str,
+        amount: int,
+    ) -> None:
+        if amount <= 0:
+            await interaction.response.send_message(
+                "Bet amount must be positive.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+
+        # Find the outright event — search across sports
+        sports = self._sports_cache or await self.sports_api.get_sports()
+        found_event = None
+        found_sport_key = None
+        for s in sports:
+            if not s.get("active"):
+                continue
+            events = await self.sports_api.get_outrights(s["key"])
+            for ev in events:
+                if ev.get("id") == game_id:
+                    found_event = ev
+                    found_sport_key = s["key"]
+                    break
+            if found_event:
+                break
+
+        if not found_event:
+            await interaction.followup.send(
+                "Event not found. Use `/futures` to see available events.", ephemeral=True
+            )
+            return
+
+        # Parse outcomes and find matching team
+        outcomes = self.sports_api.parse_outright_odds(found_event)
+        if not outcomes:
+            await interaction.followup.send(
+                "No odds available for this event.", ephemeral=True
+            )
+            return
+
+        team_lower = team.lower()
+        match = next((o for o in outcomes if o["name"].lower() == team_lower), None)
+        # Fuzzy: try substring match if exact fails
+        if not match:
+            match = next((o for o in outcomes if team_lower in o["name"].lower()), None)
+
+        if not match:
+            # Show available teams
+            available = ", ".join(o["name"] for o in outcomes[:10])
+            await interaction.followup.send(
+                f"Team not found. Available: {available}...", ephemeral=True
+            )
+            return
+
+        sport_title = found_event.get("sport_title", found_sport_key or "")
+        composite_id = f"{game_id}|{found_sport_key}"
+        fmt = self.sports_api.format_american
+
+        bet_id = await betting_service.place_bet(
+            interaction.user.id, composite_id, match["name"], amount, match["decimal"],
+            home_team=None, away_team=None, sport_title=sport_title,
+            market="outrights", point=None,
+        )
+        if bet_id is None:
+            await interaction.followup.send(
+                "Insufficient balance.", ephemeral=True
+            )
+            return
+
+        payout = round(amount * match["decimal"], 2)
+
+        embed = discord.Embed(title="Futures Bet Placed!", color=discord.Color.green())
+        embed.add_field(name="Bet ID", value=f"#{bet_id}", inline=True)
+        embed.add_field(name="Event", value=sport_title, inline=True)
+        embed.add_field(name="Pick", value=match["name"], inline=True)
+        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
+        embed.add_field(name="Odds", value=fmt(match["american"]), inline=True)
         embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
 
         await interaction.followup.send(embed=embed)
@@ -226,10 +447,27 @@ class Betting(commands.Cog):
 
     @app_commands.command(name="mybets", description="View your active bets")
     async def mybets(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
         bets = await betting_service.get_user_bets(interaction.user.id)
         if not bets:
-            await interaction.response.send_message("You have no bets.", ephemeral=True)
+            await interaction.followup.send("You have no bets.")
             return
+
+        # Fetch live scores for pending bets (uses cached data, skip outrights)
+        live_scores: dict[str, dict] = {}
+        for b in bets[:10]:
+            if b["status"] != "pending" or (b.get("market") or "") == "outrights":
+                continue
+            composite = b["game_id"]
+            if composite in live_scores:
+                continue
+            parts = composite.split("|")
+            event_id = parts[0]
+            sport_key = parts[1] if len(parts) > 1 else None
+            status = await self.sports_api.get_fixture_status(event_id, sport_key)
+            if status:
+                live_scores[composite] = status
 
         embed = discord.Embed(title="Your Bets", color=discord.Color.blue())
 
@@ -246,30 +484,113 @@ class Betting(commands.Cog):
                 potential = round(b["amount"] * b["odds"], 2)
                 status_text = f"Pending — potential **${potential:.2f}**"
 
-            # Game info from stored fields
+            # Game info from stored fields, backfill from live data if missing
             home = b.get("home_team")
             away = b.get("away_team")
             sport = b.get("sport_title")
+            live = live_scores.get(b["game_id"]) if status == "pending" else None
 
-            if home and away:
+            if not home and live:
+                home = live.get("home_team")
+            if not away and live:
+                away = live.get("away_team")
+
+            is_outright = (b.get("market") or "") == "outrights"
+
+            if is_outright:
+                matchup = sport or "Futures"
+            elif home and away:
                 matchup = f"{home} vs {away}"
             else:
                 raw_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
                 matchup = f"Game `{raw_id}`"
 
-            sport_line = f"{sport} · " if sport else ""
-            pick_label = b["pick"].capitalize()
+            # Live score for pending bets (not applicable for outrights)
+            score_line = ""
+            if not is_outright and live and live["started"] and live["home_score"] is not None and live["away_score"] is not None:
+                score_line = f"\nScore: **{home}** {live['home_score']} - {live['away_score']} **{away}**"
+
+            sport_line = f"{sport} · " if sport and not is_outright else ""
+            pick_label = b["pick"] if is_outright else format_pick_label(b)
+
+            # Show push status
+            if b["status"] == "push":
+                icon = "🔵"
+                status_text = f"Push — **${b.get('payout', 0):.2f}** refunded"
 
             embed.add_field(
                 name=f"{icon} Bet #{b['id']} · {status_text}",
                 value=(
                     f"{sport_line}**{matchup}**\n"
                     f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']}x"
+                    f"{score_line}"
                 ),
                 inline=False,
             )
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
+
+    # ── /livescores ────────────────────────────────────────────────────────
+
+    @app_commands.command(name="livescores", description="View live scores for your active bets")
+    async def livescores(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        bets = await betting_service.get_user_bets(interaction.user.id, status="pending")
+        if not bets:
+            await interaction.followup.send("You have no pending bets.")
+            return
+
+        # Filter out outrights — no live scores for futures
+        game_bets = [b for b in bets if (b.get("market") or "") != "outrights"]
+
+        # Fetch live status for each unique game
+        seen: dict[str, dict] = {}
+        for b in game_bets:
+            composite = b["game_id"]
+            if composite in seen:
+                continue
+            parts = composite.split("|")
+            event_id = parts[0]
+            sport_key = parts[1] if len(parts) > 1 else None
+            status = await self.sports_api.get_fixture_status(event_id, sport_key)
+            if status:
+                seen[composite] = status
+
+        embed = discord.Embed(title="Live Scores", color=discord.Color.blue())
+        found_any = False
+
+        for b in game_bets:
+            live = seen.get(b["game_id"])
+            if not live or not live["started"]:
+                continue
+
+            home = b.get("home_team") or live.get("home_team", "Home")
+            away = b.get("away_team") or live.get("away_team", "Away")
+            sport = b.get("sport_title") or ""
+            pick_label = format_pick_label(b)
+            potential = round(b["amount"] * b["odds"], 2)
+
+            if live["home_score"] is not None and live["away_score"] is not None:
+                score_text = f"**{home}** {live['home_score']} - {live['away_score']} **{away}**"
+                if live["completed"]:
+                    score_text += "  (Final)"
+            else:
+                score_text = f"**{home}** vs **{away}** — scores unavailable"
+
+            sport_line = f"{sport} · " if sport else ""
+
+            embed.add_field(
+                name=f"Bet #{b['id']} · {sport_line}{pick_label} · ${b['amount']:.2f} → ${potential:.2f}",
+                value=score_text,
+                inline=False,
+            )
+            found_any = True
+
+        if not found_any:
+            embed.description = "None of your bets have started yet."
+
+        await interaction.followup.send(embed=embed)
 
     # ── /cancelbet ───────────────────────────────────────────────────────
 
@@ -310,6 +631,93 @@ class Betting(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # ── /resolve (admin) ───────────────────────────────────────────────
+
+    @app_commands.command(name="resolve", description="[Admin] Manually resolve a game")
+    @app_commands.describe(
+        game_id="Game ID to resolve",
+        winner="The winning side: home, away, or draw",
+        home_score="Home team final score (needed for spread/total bets)",
+        away_score="Away team final score (needed for spread/total bets)",
+        winner_name="For futures: the winning team/outcome name",
+    )
+    @app_commands.choices(
+        winner=[
+            app_commands.Choice(name="Home", value="home"),
+            app_commands.Choice(name="Away", value="away"),
+            app_commands.Choice(name="Draw", value="draw"),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def resolve(
+        self,
+        interaction: discord.Interaction,
+        game_id: str,
+        winner: app_commands.Choice[str],
+        home_score: int | None = None,
+        away_score: int | None = None,
+        winner_name: str | None = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        # Find any pending bets matching this game_id (full or partial match)
+        pending_ids = await betting_service.get_pending_game_ids()
+        matching = [gid for gid in pending_ids if game_id in gid]
+
+        if not matching:
+            await interaction.followup.send(
+                f"No pending bets found for game `{game_id}`.", ephemeral=True
+            )
+            return
+
+        total_resolved = 0
+        for composite_id in matching:
+            count = await betting_service.resolve_game(
+                composite_id, winner.value,
+                home_score=home_score, away_score=away_score,
+                winner_name=winner_name,
+            )
+            total_resolved += count
+
+        if winner_name:
+            desc = (
+                f"Futures event `{game_id}` resolved.\n"
+                f"Winner: **{winner_name}**\n"
+                f"**{total_resolved}** bet(s) settled."
+            )
+        else:
+            score_note = ""
+            if home_score is not None and away_score is not None:
+                score_note = f"\nScore: {home_score} - {away_score} (spread/total bets resolved)"
+            else:
+                score_note = "\nNote: Spread/total bets need scores to resolve — provide home_score and away_score."
+            desc = (
+                f"Game `{game_id}` resolved as **{winner.name}** win.\n"
+                f"**{total_resolved}** bet(s) settled."
+                f"{score_note}"
+            )
+
+        embed = discord.Embed(
+            title="Game Resolved",
+            description=desc,
+            color=discord.Color.green(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @resolve.error
+    async def resolve_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "You need administrator permissions to use this command.", ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "You need administrator permissions to use this command.", ephemeral=True
+                )
+        else:
+            log.exception("Error in /resolve command", exc_info=error)
+
     # ── Background task: check results ───────────────────────────────────
 
     @tasks.loop(minutes=5)
@@ -338,7 +746,10 @@ class Betting(commands.Cog):
                 else:
                     winner = "draw"
 
-                resolved = await betting_service.resolve_game(composite_id, winner)
+                resolved = await betting_service.resolve_game(
+                    composite_id, winner,
+                    home_score=home_score, away_score=away_score,
+                )
                 if resolved:
                     log.info(
                         "Resolved %d bets for game %s (winner: %s)",

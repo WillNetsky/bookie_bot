@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 import aiosqlite
@@ -12,6 +12,7 @@ from bot.db.database import DB_PATH
 
 BASE_URL = "https://api.the-odds-api.com/v4"
 CACHE_TTL = 900  # 15 minutes
+SCORES_CACHE_TTL = 120  # 2 minutes for live scores
 DEFAULT_SPORT = "upcoming"  # special key: returns all in-season sports
 
 
@@ -30,8 +31,9 @@ class SportsAPI:
 
     # ── Caching layer ────────────────────────────────────────────────────
 
-    async def _cached_request(self, url: str, params: dict) -> list | dict | None:
+    async def _cached_request(self, url: str, params: dict, ttl: int | None = None) -> list | dict | None:
         cache_key = f"{url}:{json.dumps(params, sort_keys=True)}"
+        effective_ttl = ttl if ttl is not None else CACHE_TTL
 
         async with aiosqlite.connect(DB_PATH) as db:
             cursor = await db.execute(
@@ -41,9 +43,9 @@ class SportsAPI:
             row = await cursor.fetchone()
             if row:
                 fetched_at = row[1]
-                fetched = datetime.fromisoformat(fetched_at)
-                now = datetime.now()
-                if (now - fetched).total_seconds() < CACHE_TTL:
+                fetched = datetime.fromisoformat(fetched_at).replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if (now - fetched).total_seconds() < effective_ttl:
                     return json.loads(row[0])
 
         session = await self._get_session()
@@ -69,27 +71,32 @@ class SportsAPI:
         data = await self._cached_request(f"{BASE_URL}/sports", {})
         return data if isinstance(data, list) else []
 
-    async def get_upcoming_games(self, sport: str = DEFAULT_SPORT) -> list[dict]:
+    async def get_upcoming_games(self, sport: str = DEFAULT_SPORT, hours: int | None = None) -> list[dict]:
         """Fetch upcoming games with h2h odds.
 
         Each item has: id, sport_key, commence_time, home_team, away_team, bookmakers.
+        If *hours* is given, only games starting within that many hours are returned.
         """
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/odds",
-            {"regions": "us", "markets": "h2h", "oddsFormat": "american"},
+            {"regions": "us", "markets": "h2h,spreads,totals", "oddsFormat": "american"},
         )
         if not isinstance(data, list):
             return []
 
-        # Filter to games that haven't started yet
+        # Filter to games that haven't started yet (and optionally within hours window)
         now = datetime.now(timezone.utc)
+        cutoff = now + timedelta(hours=hours) if hours is not None else None
         upcoming = []
         for game in data:
             commence = game.get("commence_time", "")
             try:
                 ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
-                if ct > now:
-                    upcoming.append(game)
+                if ct <= now:
+                    continue
+                if cutoff and ct > cutoff:
+                    continue
+                upcoming.append(game)
             except (ValueError, TypeError):
                 upcoming.append(game)
 
@@ -110,18 +117,19 @@ class SportsAPI:
             data = await self._cached_request(
                 f"{BASE_URL}/sports/{sk}/scores",
                 {"eventIds": event_id, "daysFrom": 3},
+                ttl=SCORES_CACHE_TTL,
             )
             if isinstance(data, list) and data:
                 return data[0]
         return None
 
     async def get_game_odds(self, event_id: str, sport: str) -> dict[str, float] | None:
-        """Fetch h2h odds for a specific event. Returns {home: x, away: y, draw: z}."""
+        """Fetch odds for a specific event including h2h, spreads, and totals."""
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/odds",
             {
                 "regions": "us",
-                "markets": "h2h",
+                "markets": "h2h,spreads,totals",
                 "oddsFormat": "american",
                 "eventIds": event_id,
             },
@@ -138,7 +146,8 @@ class SportsAPI:
         if days_from:
             params["daysFrom"] = days_from
         data = await self._cached_request(
-            f"{BASE_URL}/sports/{sport}/scores", params
+            f"{BASE_URL}/sports/{sport}/scores", params,
+            ttl=SCORES_CACHE_TTL,
         )
         return data if isinstance(data, list) else []
 
@@ -167,9 +176,9 @@ class SportsAPI:
         if scores:
             for s in scores:
                 if s.get("name") == home_team:
-                    home_score = int(s["score"]) if s.get("score") is not None else None
+                    home_score = self._parse_score(s.get("score"))
                 elif s.get("name") == away_team:
-                    away_score = int(s["score"]) if s.get("score") is not None else None
+                    away_score = self._parse_score(s.get("score"))
 
         return {
             "started": started,
@@ -181,6 +190,20 @@ class SportsAPI:
         }
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_score(raw: str | None) -> int | None:
+        """Parse a score string into an integer.
+
+        Handles cricket-style scores like '234/5' by taking the runs portion.
+        """
+        if raw is None:
+            return None
+        try:
+            # Cricket scores: "234/5" → 234 (runs before slash)
+            return int(raw.split("/")[0])
+        except (ValueError, IndexError):
+            return None
 
     @staticmethod
     def american_to_decimal(american: int | float) -> float:
@@ -198,7 +221,11 @@ class SportsAPI:
         return f"+{odds}" if odds > 0 else str(odds)
 
     def parse_odds(self, game: dict) -> dict[str, dict] | None:
-        """Parse a game dict into {home: {american, decimal}, away: {...}, draw: {...}}."""
+        """Parse a game dict into odds for h2h, spreads, and totals.
+
+        Returns keys: home, away, draw (h2h), spread_home, spread_away,
+        over, under — each with american, decimal, and point (for spreads/totals).
+        """
         bookmakers = game.get("bookmakers", [])
         if not bookmakers:
             return None
@@ -206,30 +233,117 @@ class SportsAPI:
         home_team = game.get("home_team", "")
         away_team = game.get("away_team", "")
 
-        # Use first bookmaker
+        result = {}
+
+        # Use first bookmaker that has markets
         for bookmaker in bookmakers:
             for market in bookmaker.get("markets", []):
-                if market.get("key") != "h2h":
+                market_key = market.get("key")
+
+                if market_key == "h2h" and "home" not in result:
+                    for outcome in market.get("outcomes", []):
+                        name = outcome.get("name", "")
+                        price = outcome.get("price")
+                        if price is None:
+                            continue
+                        entry = {
+                            "american": int(price),
+                            "decimal": self.american_to_decimal(price),
+                        }
+                        if name == home_team:
+                            result["home"] = entry
+                        elif name == away_team:
+                            result["away"] = entry
+                        elif name.lower() == "draw":
+                            result["draw"] = entry
+
+                elif market_key == "spreads" and "spread_home" not in result:
+                    for outcome in market.get("outcomes", []):
+                        name = outcome.get("name", "")
+                        price = outcome.get("price")
+                        point = outcome.get("point")
+                        if price is None or point is None:
+                            continue
+                        entry = {
+                            "american": int(price),
+                            "decimal": self.american_to_decimal(price),
+                            "point": float(point),
+                        }
+                        if name == home_team:
+                            result["spread_home"] = entry
+                        elif name == away_team:
+                            result["spread_away"] = entry
+
+                elif market_key == "totals" and "over" not in result:
+                    for outcome in market.get("outcomes", []):
+                        name = outcome.get("name", "")
+                        price = outcome.get("price")
+                        point = outcome.get("point")
+                        if price is None or point is None:
+                            continue
+                        entry = {
+                            "american": int(price),
+                            "decimal": self.american_to_decimal(price),
+                            "point": float(point),
+                        }
+                        if name.lower() == "over":
+                            result["over"] = entry
+                        elif name.lower() == "under":
+                            result["under"] = entry
+
+            if result:
+                break
+
+        return result if result else None
+
+    async def get_outrights(self, sport: str) -> list[dict]:
+        """Fetch outright (futures) odds for a sport.
+
+        Returns the raw list of outright events, each with bookmakers → markets → outcomes.
+        """
+        data = await self._cached_request(
+            f"{BASE_URL}/sports/{sport}/odds",
+            {"regions": "us", "markets": "outrights", "oddsFormat": "american"},
+        )
+        if not isinstance(data, list):
+            return []
+        return data
+
+    def parse_outright_odds(self, game: dict) -> list[dict] | None:
+        """Parse an outright event into a sorted list of {name, american, decimal}.
+
+        Returns outcomes sorted by decimal odds (favorites first), or None if no data.
+        """
+        bookmakers = game.get("bookmakers", [])
+        if not bookmakers:
+            return None
+
+        outcomes = []
+        for bookmaker in bookmakers:
+            for market in bookmaker.get("markets", []):
+                if market.get("key") != "outrights":
                     continue
-                result = {}
                 for outcome in market.get("outcomes", []):
                     name = outcome.get("name", "")
                     price = outcome.get("price")
                     if price is None:
                         continue
-                    entry = {
+                    outcomes.append({
+                        "name": name,
                         "american": int(price),
                         "decimal": self.american_to_decimal(price),
-                    }
-                    if name == home_team:
-                        result["home"] = entry
-                    elif name == away_team:
-                        result["away"] = entry
-                    elif name.lower() == "draw":
-                        result["draw"] = entry
-                if result:
-                    return result
-        return None
+                    })
+                if outcomes:
+                    break
+            if outcomes:
+                break
+
+        if not outcomes:
+            return None
+
+        # Sort by decimal odds ascending (favorites first)
+        outcomes.sort(key=lambda o: o["decimal"])
+        return outcomes
 
     async def _get_sport_keys_for_event(self, event_id: str) -> list[str]:
         """Try to find which sport an event belongs to by checking cached data."""
