@@ -87,6 +87,51 @@ async def get_user_bets(user_id: int, status: str | None = None) -> list[dict]:
         await db.close()
 
 
+async def get_pending_bets_by_game(game_id: str) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM bets WHERE game_id = ? AND status = 'pending'",
+            (game_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_pending_game_ids() -> list[str]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT DISTINCT game_id FROM bets WHERE status = 'pending'"
+        )
+        rows = await cursor.fetchall()
+        return [row["game_id"] for row in rows]
+    finally:
+        await db.close()
+
+
+async def delete_bet(bet_id: int) -> bool:
+    db = await get_connection()
+    try:
+        cursor = await db.execute("DELETE FROM bets WHERE id = ?", (bet_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_bet_by_id(bet_id: int) -> dict | None:
+    db = await get_connection()
+    try:
+        cursor = await db.execute("SELECT * FROM bets WHERE id = ?", (bet_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
 async def get_leaderboard(limit: int = 10) -> list[dict]:
     db = await get_connection()
     try:

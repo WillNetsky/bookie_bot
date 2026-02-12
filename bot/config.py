@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN", "")
-API_SPORTS_KEY = os.environ.get("API_SPORTS_KEY", "")
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
 
 # Voice reward settings
 COINS_PER_MINUTE = 1
