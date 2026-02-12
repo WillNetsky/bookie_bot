@@ -95,17 +95,25 @@ class Betting(commands.Cog):
             if parsed:
                 home_odds = fmt(parsed["home"]["american"]) if "home" in parsed else "—"
                 away_odds = fmt(parsed["away"]["american"]) if "away" in parsed else "—"
-                lines = f"🏠 {home} **{home_odds}** vs 📍 {away} **{away_odds}**"
+                draw_line = ""
                 if "draw" in parsed:
-                    lines += f" · 🤝 Draw **{fmt(parsed['draw']['american'])}**"
+                    draw_line = f"\n🤝 Draw: {fmt(parsed['draw']['american'])}"
+
+                table = (
+                    f"```\n"
+                    f"🏠 {home:<25} {home_odds:>6}\n"
+                    f"📍 {away:<25} {away_odds:>6}\n"
+                    f"```"
+                    f"{draw_line}"
+                )
             else:
-                lines = "Odds unavailable"
+                table = "```\nOdds unavailable\n```"
 
             header = f"{sport_title} · {display_date}" if not sport else display_date
 
             embed.add_field(
                 name=header,
-                value=f"{lines}\n`{game_id}`",
+                value=f"{table}ID: `{game_id}`",
                 inline=False,
             )
 
