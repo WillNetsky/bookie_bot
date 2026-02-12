@@ -83,7 +83,7 @@ class VoiceRewards(commands.Cog):
                         self._last_payout[member.id] = now
 
                         log.info(
-                            "Paid %d coins to %s (%d min in voice, balance: %d)",
+                            "Paid $%d to %s (%d min in voice, balance: $%d)",
                             reward, member.display_name, minutes, new_balance,
                         )
 

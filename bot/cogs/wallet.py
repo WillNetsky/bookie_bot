@@ -10,10 +10,10 @@ class Wallet(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @app_commands.command(name="balance", description="Check your coin balance")
+    @app_commands.command(name="balance", description="Check your balance")
     async def balance(self, interaction: discord.Interaction) -> None:
         bal = await wallet_service.get_balance(interaction.user.id)
-        await interaction.response.send_message(f"Your balance: **{bal}** coins")
+        await interaction.response.send_message(f"Your balance: **${bal}**")
 
     @app_commands.command(name="leaderboard", description="Top 10 richest users")
     async def leaderboard(self, interaction: discord.Interaction) -> None:
@@ -24,7 +24,7 @@ class Wallet(commands.Cog):
 
         lines = []
         for i, u in enumerate(top, 1):
-            lines.append(f"**{i}.** <@{u['discord_id']}> — {u['balance']} coins")
+            lines.append(f"**{i}.** <@{u['discord_id']}> — ${u['balance']}")
         await interaction.response.send_message("\n".join(lines))
 
 
