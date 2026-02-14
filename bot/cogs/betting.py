@@ -1594,6 +1594,42 @@ class Betting(commands.Cog):
         else:
             log.exception("Error in /pendingbets command", exc_info=error)
 
+    # ── /quota (admin) ────────────────────────────────────────────────────
+
+    @app_commands.command(name="quota", description="[Admin] Check API quota usage")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def quota(self, interaction: discord.Interaction) -> None:
+        q = self.sports_api.get_quota()
+        used = q["used"]
+        remaining = q["remaining"]
+        last = q["last"]
+
+        if used is None and remaining is None:
+            embed = discord.Embed(
+                title="API Quota",
+                description="No API calls made yet this session — quota unknown.",
+                color=discord.Color.greyple(),
+            )
+        else:
+            total = (used or 0) + (remaining or 0)
+            embed = discord.Embed(title="API Quota", color=discord.Color.blue())
+            embed.add_field(name="Used", value=str(used or 0), inline=True)
+            embed.add_field(name="Remaining", value=str(remaining or 0), inline=True)
+            embed.add_field(name="Total", value=str(total), inline=True)
+            if last:
+                embed.set_footer(text=f"Last request: {last}")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @quota.error
+    async def quota_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You need administrator permissions to use this command."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+
     # ── /resolve (admin) ───────────────────────────────────────────────
 
     @app_commands.command(name="resolve", description="[Admin] Manually resolve a game")

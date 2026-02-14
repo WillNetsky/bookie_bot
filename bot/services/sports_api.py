@@ -22,6 +22,10 @@ DEFAULT_SPORT = "upcoming"  # special key: returns all in-season sports
 class SportsAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
+        # Quota tracking from API response headers
+        self.requests_used: int | None = None
+        self.requests_remaining: int | None = None
+        self.requests_last: str | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -31,6 +35,27 @@ class SportsAPI:
     async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
+
+    def _update_quota(self, resp: aiohttp.ClientResponse) -> None:
+        """Read quota headers from an API response."""
+        used = resp.headers.get("x-requests-used")
+        remaining = resp.headers.get("x-requests-remaining")
+        last = resp.headers.get("x-requests-last")
+        if used is not None:
+            self.requests_used = int(used)
+        if remaining is not None:
+            self.requests_remaining = int(remaining)
+        if last is not None:
+            self.requests_last = last
+        log.info("API quota — used: %s, remaining: %s", self.requests_used, self.requests_remaining)
+
+    def get_quota(self) -> dict:
+        """Return current quota info."""
+        return {
+            "used": self.requests_used,
+            "remaining": self.requests_remaining,
+            "last": self.requests_last,
+        }
 
     # ── Caching layer ────────────────────────────────────────────────────
 
@@ -58,6 +83,7 @@ class SportsAPI:
         full_params = {**params, "apiKey": ODDS_API_KEY}
         try:
             async with session.get(url, params=full_params) as resp:
+                self._update_quota(resp)
                 if resp.status != 200:
                     log.warning("API returned %s for %s — using stale cache", resp.status, url)
                     return json.loads(stale_data) if stale_data else None
