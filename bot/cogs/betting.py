@@ -1794,24 +1794,89 @@ class Betting(commands.Cog):
 
     # ── Background task: check results ───────────────────────────────────
 
-    @tasks.loop(minutes=10)
+    # Estimated game durations by sport prefix (hours).
+    # Only check scores once a game is likely near completion.
+    SPORT_DURATION: dict[str, float] = {
+        "americanfootball": 3.5,
+        "baseball": 3.0,
+        "basketball": 2.5,
+        "icehockey": 2.5,
+        "soccer": 2.0,
+        "mma": 1.5,
+        "boxing": 1.5,
+    }
+    DEFAULT_SPORT_DURATION = 2.0  # fallback
+
+    @tasks.loop(minutes=30)
     async def check_results(self) -> None:
+        """Check scores for games likely near completion.
+
+        Budget: 500 credits/month. Each sport check = 1 credit.
+        Only checks sports with games that started long enough ago
+        to be near completion (based on estimated sport duration).
+        Runs every 30 min to conserve quota.
+        """
         try:
-            # Only check games that have already started
+            # Skip if quota is critically low (< 50 remaining)
+            quota = self.sports_api.get_quota()
+            if quota["remaining"] is not None and quota["remaining"] < 50:
+                log.warning("API quota low (%s remaining), skipping score check", quota["remaining"])
+                return
+
             started_games = await betting_service.get_started_pending_games()
             if not started_games:
                 return
 
-            # Group started games by sport_key for batch fetching
-            sport_games: dict[str, list[str]] = {}  # sport_key -> [composite_id, ...]
-            for composite_id in started_games:
+            now = datetime.now(timezone.utc)
+
+            # Filter to games likely near completion based on sport duration
+            ready_games: dict[str, str | None] = {}
+            for composite_id, commence_time in started_games.items():
+                parts = composite_id.split("|")
+                sport_key = parts[1] if len(parts) > 1 else None
+
+                if commence_time is None:
+                    # Legacy bet — always check
+                    ready_games[composite_id] = commence_time
+                    continue
+
+                try:
+                    game_start = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    ready_games[composite_id] = commence_time
+                    continue
+
+                # Determine minimum elapsed time before checking
+                duration = self.DEFAULT_SPORT_DURATION
+                if sport_key:
+                    for prefix, dur in self.SPORT_DURATION.items():
+                        if sport_key.startswith(prefix):
+                            duration = dur
+                            break
+
+                # Start checking 1.5 hours in, or at 75% of expected duration
+                min_elapsed = min(duration * 0.75, 1.5)
+                elapsed_hours = (now - game_start).total_seconds() / 3600
+
+                if elapsed_hours >= min_elapsed:
+                    ready_games[composite_id] = commence_time
+
+            if not ready_games:
+                log.debug("No games ready for score check yet")
+                return
+
+            # Group by sport_key for batch fetching
+            sport_games: dict[str, list[str]] = {}
+            for composite_id in ready_games:
                 parts = composite_id.split("|")
                 sport_key = parts[1] if len(parts) > 1 else None
                 if not sport_key:
                     continue
                 sport_games.setdefault(sport_key, []).append(composite_id)
 
-            # One API call per sport (instead of per game)
+            log.info("Checking scores for %d sport(s): %s", len(sport_games), list(sport_games.keys()))
+
+            # One API call per sport (1 credit each)
             for sport_key, composites in sport_games.items():
                 scores_map = await self.sports_api.get_scores_by_sport(sport_key)
                 if not scores_map:
