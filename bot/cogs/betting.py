@@ -226,25 +226,19 @@ class BackButton(discord.ui.Button["OddsView"]):
         if view is None:
             return
         view.clear_items()
-        view.add_item(OddsGameSelect(view.games, view.parsed_odds, view.sports_api))
+        view.add_item(OddsGameSelect(view.games, view.sports_api))
         await interaction.response.edit_message(view=view)
 
 
 class OddsGameSelect(discord.ui.Select["OddsView"]):
-    """Dropdown listing games from the /odds output."""
+    """Dropdown listing games — fetches odds on-demand when selected."""
 
-    def __init__(
-        self,
-        games: list[dict],
-        parsed_odds: dict[str, dict],
-        sports_api,
-    ) -> None:
+    def __init__(self, games: list[dict], sports_api) -> None:
         self.games_map: dict[str, dict] = {}
-        self.parsed_odds = parsed_odds
         self.sports_api = sports_api
 
         options = []
-        for g in games[:10]:
+        for g in games[:25]:
             game_id = g.get("id", "?")
             home = g.get("home_team", "?")
             away = g.get("away_team", "?")
@@ -265,21 +259,40 @@ class OddsGameSelect(discord.ui.Select["OddsView"]):
             await interaction.response.send_message("Game not found.", ephemeral=True)
             return
 
-        parsed = self.parsed_odds.get(game_id)
-        if not parsed:
-            await interaction.response.send_message("No odds available for this game.", ephemeral=True)
-            return
-
-        fmt = self.sports_api.format_american
-        home = game.get("home_team", "Home")
-        away = game.get("away_team", "Away")
+        await interaction.response.defer()
 
         view = self.view
         if view is None:
             return
+
+        # Fetch odds on-demand for this game's sport (cached 15 min)
+        sport_key = game.get("sport_key", "")
+        parsed = view.odds_cache.get(game_id)
+        if not parsed:
+            # Fetch all odds for this sport (one call covers all games in that sport)
+            sport_odds = await self.sports_api.get_odds_for_sport(sport_key)
+            for g_with_odds in sport_odds:
+                gid = g_with_odds.get("id")
+                if gid:
+                    p = self.sports_api.parse_odds(g_with_odds)
+                    if p:
+                        view.odds_cache[gid] = p
+                    # Merge bookmaker data into the event dict for BetAmountModal
+                    if gid in self.games_map:
+                        self.games_map[gid].update(g_with_odds)
+            parsed = view.odds_cache.get(game_id)
+
+        if not parsed:
+            await interaction.followup.send("No odds available for this game.", ephemeral=True)
+            return
+
+        # Update the game dict with odds data for the modal
+        fmt = self.sports_api.format_american
+        home = game.get("home_team", "Home")
+        away = game.get("away_team", "Away")
+
         view.clear_items()
 
-        # Row 1: moneyline buttons
         row = 0
         if "home" in parsed:
             view.add_item(BetTypeButton(
@@ -297,7 +310,6 @@ class OddsGameSelect(discord.ui.Select["OddsView"]):
                 game, parsed["draw"], self.sports_api, row=row,
             ))
 
-        # Row 2: spread buttons
         row = 1
         if "spread_home" in parsed:
             sh = parsed["spread_home"]
@@ -312,7 +324,6 @@ class OddsGameSelect(discord.ui.Select["OddsView"]):
                 game, sa, self.sports_api, row=row,
             ))
 
-        # Row 3: totals buttons
         row = 2
         if "over" in parsed:
             ov = parsed["over"]
@@ -327,30 +338,27 @@ class OddsGameSelect(discord.ui.Select["OddsView"]):
                 game, un, self.sports_api, row=row,
             ))
 
-        # Row 4: back button
         view.add_item(BackButton(row=3))
 
-        await interaction.response.edit_message(view=view)
+        await interaction.edit_original_response(view=view)
 
 
 class OddsView(discord.ui.View):
-    """View attached to /odds output with game select and bet buttons."""
+    """View attached to /odds output with game select and on-demand odds."""
 
     def __init__(
         self,
         games: list[dict],
-        parsed_odds: dict[str, dict],
         sports_api,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
         self.games = games
-        self.parsed_odds = parsed_odds
         self.sports_api = sports_api
-        self.add_item(OddsGameSelect(games, parsed_odds, sports_api))
+        self.odds_cache: dict[str, dict] = {}  # game_id -> parsed odds
+        self.add_item(OddsGameSelect(games, sports_api))
 
     async def on_timeout(self) -> None:
-        # Disable all items when the view times out
         for item in self.children:
             if hasattr(item, "disabled"):
                 item.disabled = True  # type: ignore[union-attr]
@@ -365,13 +373,12 @@ class ParlayView(discord.ui.View):
     def __init__(
         self,
         games: list[dict],
-        parsed_odds: dict[str, dict],
         sports_api,
     ) -> None:
         super().__init__(timeout=300.0)
         self.games = games
-        self.parsed_odds = parsed_odds
         self.sports_api = sports_api
+        self.odds_cache: dict[str, dict] = {}  # game_id -> parsed odds
         self.legs: list[dict] = []
         self.show_game_select()
 
@@ -418,14 +425,14 @@ class ParlayView(discord.ui.View):
             # All games used — go straight to slip
             self.show_slip()
             return
-        self.add_item(ParlayGameSelect(available, self.parsed_odds, self.sports_api))
+        self.add_item(ParlayGameSelect(available, self.sports_api))
         if self.legs:
             self.add_item(ParlayBackToSlipButton(row=1))
 
     def show_bet_types(self, game: dict) -> None:
         self.clear_items()
         game_id = game.get("id", "")
-        parsed = self.parsed_odds.get(game_id, {})
+        parsed = self.odds_cache.get(game_id, {})
         fmt = self.sports_api.format_american
         home = game.get("home_team", "Home")
         away = game.get("away_team", "Away")
@@ -497,16 +504,10 @@ class ParlayView(discord.ui.View):
 
 
 class ParlayGameSelect(discord.ui.Select["ParlayView"]):
-    """Game dropdown for parlay builder."""
+    """Game dropdown for parlay builder — fetches odds on-demand."""
 
-    def __init__(
-        self,
-        games: list[dict],
-        parsed_odds: dict[str, dict],
-        sports_api,
-    ) -> None:
+    def __init__(self, games: list[dict], sports_api) -> None:
         self.games_map: dict[str, dict] = {}
-        self.parsed_odds = parsed_odds
         self.sports_api = sports_api
 
         options = []
@@ -534,12 +535,30 @@ class ParlayGameSelect(discord.ui.Select["ParlayView"]):
         view = self.view
         if view is None:
             return
+
+        await interaction.response.defer()
+
+        # Fetch odds on-demand for this game's sport (cached 15 min)
+        sport_key = game.get("sport_key", "")
+        if game_id not in view.odds_cache:
+            sport_odds = await self.sports_api.get_odds_for_sport(sport_key)
+            for g_with_odds in sport_odds:
+                gid = g_with_odds.get("id")
+                if gid:
+                    p = self.sports_api.parse_odds(g_with_odds)
+                    if p:
+                        view.odds_cache[gid] = p
+
+        if game_id not in view.odds_cache:
+            await interaction.followup.send("No odds available for this game.", ephemeral=True)
+            return
+
         view.show_bet_types(game)
         embed = view.build_embed()
         embed.description = (
             f"Pick a bet type for **{game.get('home_team', '?')} vs {game.get('away_team', '?')}**"
         )
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class ParlayBetTypeButton(discord.ui.Button["ParlayView"]):
@@ -851,21 +870,18 @@ class Betting(commands.Cog):
     async def odds(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 6) -> None:
         await interaction.response.defer()
 
-        games = await self.sports_api.get_upcoming_games(sport or "upcoming", hours=hours)
+        # Use free /events endpoint for game listing (0 credits)
+        games = await self.sports_api.get_events(sport or "upcoming", hours=hours)
         games = [g for g in games if not is_sport_blocked(g.get("sport_key", ""))]
         if not games:
             await interaction.followup.send("No upcoming games found.")
             return
 
         display_games = games[:10]
-        fmt = self.sports_api.format_american
         embed = discord.Embed(
             title="Upcoming Games" if not sport else f"Upcoming — {games[0].get('sport_title', sport)}",
             color=discord.Color.blue(),
         )
-
-        # Collect parsed odds for the interactive view
-        all_parsed: dict[str, dict] = {}
 
         for g in display_games:
             home = g.get("home_team", "?")
@@ -874,60 +890,15 @@ class Betting(commands.Cog):
             sport_title = g.get("sport_title", g.get("sport_key", ""))
             display_date = format_game_time(g.get("commence_time", ""))
 
-            parsed = self.sports_api.parse_odds(g)
-            if parsed:
-                all_parsed[game_id] = parsed
-
-            if parsed:
-                home_odds = fmt(parsed["home"]["american"]) if "home" in parsed else "—"
-                away_odds = fmt(parsed["away"]["american"]) if "away" in parsed else "—"
-                extra_lines = ""
-                if "draw" in parsed:
-                    extra_lines += f"\n🤝 Draw: {fmt(parsed['draw']['american'])}"
-                if "spread_home" in parsed and "spread_away" in parsed:
-                    sh = parsed["spread_home"]
-                    sa = parsed["spread_away"]
-                    sp_home_pt = f"{sh['point']:+g}"
-                    sp_away_pt = f"{sa['point']:+g}"
-                    extra_lines += (
-                        f"\n📊 Spread: {home} {sp_home_pt} ({fmt(sh['american'])}) "
-                        f"/ {away} {sp_away_pt} ({fmt(sa['american'])})"
-                    )
-                if "over" in parsed and "under" in parsed:
-                    ov = parsed["over"]
-                    un = parsed["under"]
-                    extra_lines += (
-                        f"\n📈 Total: O {ov['point']:g} ({fmt(ov['american'])}) "
-                        f"/ U {un['point']:g} ({fmt(un['american'])})"
-                    )
-
-                table = (
-                    f"```\n"
-                    f"🏠 {home:<25} {home_odds:>6}\n"
-                    f"📍 {away:<25} {away_odds:>6}\n"
-                    f"```"
-                    f"{extra_lines}"
-                )
-            else:
-                table = "```\nOdds unavailable\n```"
-
             header = f"{sport_title} · {display_date}" if not sport else display_date
-
             embed.add_field(
                 name=header,
-                value=f"{table}ID: `{game_id}`",
+                value=f"🏠 {home} vs 📍 {away}\nID: `{game_id}`",
                 inline=False,
             )
 
-        # Only attach interactive view if there are games with odds
-        view = None
-        if all_parsed:
-            # Filter display_games to only those with parsed odds
-            games_with_odds = [g for g in display_games if g.get("id") in all_parsed]
-            view = OddsView(games_with_odds, all_parsed, self.sports_api)
-            embed.set_footer(text="Select a game below to bet, or use /bet <game_id> <pick> <amount>")
-        else:
-            embed.set_footer(text="Use /bet <game_id> <pick> <amount> to place a wager")
+        view = OddsView(display_games, self.sports_api)
+        embed.set_footer(text="Select a game below to see odds and bet")
 
         await interaction.followup.send(embed=embed, view=view)
 
@@ -967,9 +938,9 @@ class Betting(commands.Cog):
 
         await interaction.response.defer()
 
-        # 1. Find the game in upcoming games (validates it exists and has odds)
-        games = await self.sports_api.get_upcoming_games()
-        game = next((g for g in games if g.get("id") == game_id), None)
+        # 1. Find the game via free /events endpoint
+        events = await self.sports_api.get_events()
+        game = next((g for g in events if g.get("id") == game_id), None)
 
         if game is None:
             await interaction.followup.send(
@@ -997,8 +968,10 @@ class Betting(commands.Cog):
         except (ValueError, TypeError):
             pass
 
-        # 3. Parse odds
-        parsed = self.sports_api.parse_odds(game)
+        # 3. Fetch odds on-demand for this game's sport (cached 15 min)
+        sport_key = game.get("sport_key", "")
+        odds_game = await self.sports_api.get_odds_for_event(sport_key, game_id)
+        parsed = self.sports_api.parse_odds(odds_game) if odds_game else None
         if not parsed or pick_value not in parsed:
             if pick_value == "draw" and "draw" not in (parsed or {}):
                 await interaction.followup.send(
@@ -1081,25 +1054,14 @@ class Betting(commands.Cog):
     ) -> None:
         await interaction.response.defer()
 
-        games = await self.sports_api.get_upcoming_games(sport or "upcoming", hours=hours)
+        # Use free /events endpoint (0 credits)
+        games = await self.sports_api.get_events(sport or "upcoming", hours=hours)
         games = [g for g in games if not is_sport_blocked(g.get("sport_key", ""))]
         if not games:
             await interaction.followup.send("No upcoming games found.")
             return
 
-        # Collect parsed odds for games
-        all_parsed: dict[str, dict] = {}
-        for g in games:
-            parsed = self.sports_api.parse_odds(g)
-            if parsed:
-                all_parsed[g.get("id", "")] = parsed
-
-        games_with_odds = [g for g in games if g.get("id") in all_parsed]
-        if not games_with_odds:
-            await interaction.followup.send("No games with odds available.")
-            return
-
-        view = ParlayView(games_with_odds, all_parsed, self.sports_api)
+        view = ParlayView(games, self.sports_api)
         embed = view.build_embed()
         await interaction.followup.send(embed=embed, view=view)
 

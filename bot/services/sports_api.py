@@ -108,11 +108,72 @@ class SportsAPI:
         data = await self._cached_request(f"{BASE_URL}/sports", {})
         return data if isinstance(data, list) else []
 
-    async def get_upcoming_games(self, sport: str = DEFAULT_SPORT, hours: int | None = None) -> list[dict]:
-        """Fetch upcoming games with h2h odds.
+    async def get_events(self, sport: str = DEFAULT_SPORT, hours: int | None = None) -> list[dict]:
+        """Fetch upcoming events (FREE — no quota cost).
 
-        Each item has: id, sport_key, commence_time, home_team, away_team, bookmakers.
-        If *hours* is given, only games starting within that many hours are returned.
+        Returns: id, sport_key, sport_title, commence_time, home_team, away_team.
+        No odds data — use get_odds_for_sport() to fetch odds separately.
+        """
+        data = await self._cached_request(
+            f"{BASE_URL}/sports/{sport}/events",
+            {},
+        )
+        if not isinstance(data, list):
+            return []
+
+        now = datetime.now(timezone.utc)
+        cutoff = now + timedelta(hours=hours) if hours is not None else None
+        upcoming = []
+        for game in data:
+            commence = game.get("commence_time", "")
+            try:
+                ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+                if ct <= now:
+                    continue
+                if cutoff and ct > cutoff:
+                    continue
+                upcoming.append(game)
+            except (ValueError, TypeError):
+                upcoming.append(game)
+
+        upcoming.sort(key=lambda g: g.get("commence_time", ""))
+        return upcoming
+
+    async def get_odds_for_sport(self, sport: str) -> list[dict]:
+        """Fetch odds for all games in a sport (costs markets × regions = 3 credits).
+
+        Cached for 15 min. Use this when user needs actual odds, not for browsing.
+        """
+        data = await self._cached_request(
+            f"{BASE_URL}/sports/{sport}/odds",
+            {"regions": "us", "markets": "h2h,spreads,totals", "oddsFormat": "american"},
+        )
+        return data if isinstance(data, list) else []
+
+    async def get_odds_for_event(self, sport: str, event_id: str) -> dict | None:
+        """Fetch odds for a single event. Costs markets × regions = 3 credits.
+
+        Prefer get_odds_for_sport() if you'll need odds for multiple games in the
+        same sport — it fetches all games for the same cost.
+        """
+        data = await self._cached_request(
+            f"{BASE_URL}/sports/{sport}/odds",
+            {
+                "regions": "us",
+                "markets": "h2h,spreads,totals",
+                "oddsFormat": "american",
+                "eventIds": event_id,
+            },
+        )
+        if isinstance(data, list) and data:
+            return data[0]
+        return None
+
+    async def get_upcoming_games(self, sport: str = DEFAULT_SPORT, hours: int | None = None) -> list[dict]:
+        """Fetch upcoming games with h2h odds (costs 3 credits).
+
+        DEPRECATED for browsing — prefer get_events() (free) + get_odds_for_sport() on demand.
+        Kept for backward compatibility with /bet command.
         """
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/odds",
@@ -121,7 +182,6 @@ class SportsAPI:
         if not isinstance(data, list):
             return []
 
-        # Filter to games that haven't started yet (and optionally within hours window)
         now = datetime.now(timezone.utc)
         cutoff = now + timedelta(hours=hours) if hours is not None else None
         upcoming = []
@@ -153,7 +213,7 @@ class SportsAPI:
         for sk in sports_to_check:
             data = await self._cached_request(
                 f"{BASE_URL}/sports/{sk}/scores",
-                {"eventIds": event_id, "daysFrom": 3},
+                {"eventIds": event_id},
                 ttl=SCORES_CACHE_TTL,
             )
             if isinstance(data, list) and data:
@@ -177,8 +237,11 @@ class SportsAPI:
         game = data[0]
         return self.parse_odds(game)
 
-    async def get_scores(self, sport: str, days_from: int = 3) -> list[dict]:
-        """Get completed/live scores for a sport."""
+    async def get_scores(self, sport: str, days_from: int | None = None) -> list[dict]:
+        """Get completed/live scores for a sport.
+
+        Without daysFrom costs 1 credit; with daysFrom costs 2.
+        """
         params = {}
         if days_from:
             params["daysFrom"] = days_from
@@ -233,10 +296,11 @@ class SportsAPI:
         """Fetch all scores for a sport and return a dict keyed by event ID.
 
         Each value is the parsed fixture status dict. Uses the scores cache TTL.
+        Without daysFrom, costs 1 credit instead of 2.
         """
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/scores",
-            {"daysFrom": 3},
+            {},
             ttl=SCORES_CACHE_TTL,
         )
         if not isinstance(data, list):
