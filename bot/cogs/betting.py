@@ -12,6 +12,17 @@ log = logging.getLogger(__name__)
 
 VALID_PICKS = ("home", "away", "draw", "spread_home", "spread_away", "over", "under")
 
+# Emoji prefixes for bet type buttons
+PICK_EMOJI = {
+    "home": "\U0001f3e0",       # 🏠
+    "away": "\U0001f4cd",       # 📍
+    "draw": "\U0001f91d",       # 🤝
+    "spread_home": "\U0001f4ca",  # 📊
+    "spread_away": "\U0001f4ca",  # 📊
+    "over": "\U0001f4c8",       # 📈
+    "under": "\U0001f4c9",       # 📉
+}
+
 # Map pick values to their market type and display labels
 PICK_MARKET = {
     "home": "h2h",
@@ -67,6 +78,283 @@ def format_pick_label(bet: dict) -> str:
     return label
 
 
+# ── Interactive betting UI components ─────────────────────────────────
+
+
+class BetAmountModal(discord.ui.Modal, title="Place Bet"):
+    """Modal that asks for the wager amount, then places the bet."""
+
+    amount_input = discord.ui.TextInput(
+        label="Wager amount ($)",
+        placeholder="e.g. 50",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(
+        self,
+        game: dict,
+        pick_key: str,
+        odds_entry: dict,
+        sports_api,
+    ) -> None:
+        super().__init__()
+        self.game = game
+        self.pick_key = pick_key
+        self.odds_entry = odds_entry
+        self.sports_api = sports_api
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.amount_input.value.strip().lstrip("$")
+        try:
+            amount = int(raw)
+        except ValueError:
+            await interaction.response.send_message(
+                "Invalid amount — enter a whole number.", ephemeral=True
+            )
+            return
+        if amount <= 0:
+            await interaction.response.send_message(
+                "Bet amount must be positive.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+
+        game = self.game
+        pick_value = self.pick_key
+
+        # Validate game hasn't started
+        commence = game.get("commence_time", "")
+        try:
+            ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+            if ct <= datetime.now(timezone.utc):
+                await interaction.followup.send(
+                    "This game has already started.", ephemeral=True
+                )
+                return
+        except (ValueError, TypeError):
+            pass
+
+        # Check sport isn't blocked
+        if game.get("sport_key") in BLOCKED_SPORTS:
+            await interaction.followup.send(
+                "Betting is currently disabled for this sport.", ephemeral=True
+            )
+            return
+
+        decimal_odds = self.odds_entry["decimal"]
+        american_odds = self.odds_entry["american"]
+        bet_point = self.odds_entry.get("point")
+        market = PICK_MARKET[pick_value]
+        home_name = game.get("home_team", "Home")
+        away_name = game.get("away_team", "Away")
+        sport_title = game.get("sport_title", game.get("sport_key", ""))
+        sport_key = game.get("sport_key", "")
+        game_id = game.get("id", "")
+        composite_id = f"{game_id}|{sport_key}"
+        fmt = self.sports_api.format_american
+
+        bet_id = await betting_service.place_bet(
+            interaction.user.id, composite_id, pick_value, amount, decimal_odds,
+            home_team=home_name, away_team=away_name, sport_title=sport_title,
+            market=market, point=bet_point,
+        )
+        if bet_id is None:
+            await interaction.followup.send(
+                "Insufficient balance.", ephemeral=True
+            )
+            return
+
+        payout = round(amount * decimal_odds, 2)
+        pick_label = PICK_LABELS.get(pick_value, pick_value)
+        if bet_point is not None:
+            if pick_value in ("spread_home", "spread_away"):
+                pick_label += f" {bet_point:+g}"
+            else:
+                pick_label += f" {bet_point:g}"
+
+        embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
+        embed.add_field(name="Bet ID", value=f"#{bet_id}", inline=True)
+        embed.add_field(name="Game", value=f"{home_name} vs {away_name}", inline=True)
+        embed.add_field(name="Pick", value=pick_label, inline=True)
+        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
+        embed.add_field(name="Odds", value=fmt(american_odds), inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
+
+        await interaction.followup.send(embed=embed)
+
+
+class BetTypeButton(discord.ui.Button["OddsView"]):
+    """A button representing one bet type (home, away, spread, etc.)."""
+
+    def __init__(
+        self,
+        pick_key: str,
+        label: str,
+        game: dict,
+        odds_entry: dict,
+        sports_api,
+        row: int,
+    ) -> None:
+        emoji = PICK_EMOJI.get(pick_key)
+        super().__init__(label=label, style=discord.ButtonStyle.primary, emoji=emoji, row=row)
+        self.pick_key = pick_key
+        self.game = game
+        self.odds_entry = odds_entry
+        self.sports_api = sports_api
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        modal = BetAmountModal(
+            game=self.game,
+            pick_key=self.pick_key,
+            odds_entry=self.odds_entry,
+            sports_api=self.sports_api,
+        )
+        await interaction.response.send_modal(modal)
+
+
+class BackButton(discord.ui.Button["OddsView"]):
+    """Returns to the game select dropdown."""
+
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.clear_items()
+        view.add_item(OddsGameSelect(view.games, view.parsed_odds, view.sports_api))
+        await interaction.response.edit_message(view=view)
+
+
+class OddsGameSelect(discord.ui.Select["OddsView"]):
+    """Dropdown listing games from the /odds output."""
+
+    def __init__(
+        self,
+        games: list[dict],
+        parsed_odds: dict[str, dict],
+        sports_api,
+    ) -> None:
+        self.games_map: dict[str, dict] = {}
+        self.parsed_odds = parsed_odds
+        self.sports_api = sports_api
+
+        options = []
+        for g in games[:10]:
+            game_id = g.get("id", "?")
+            home = g.get("home_team", "?")
+            away = g.get("away_team", "?")
+            sport_title = g.get("sport_title", g.get("sport_key", ""))
+            label = f"{home} vs {away}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            desc = sport_title[:100] if sport_title else None
+            options.append(discord.SelectOption(label=label, value=game_id, description=desc))
+            self.games_map[game_id] = g
+
+        super().__init__(placeholder="Select a game to bet on...", options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        game_id = self.values[0]
+        game = self.games_map.get(game_id)
+        if not game:
+            await interaction.response.send_message("Game not found.", ephemeral=True)
+            return
+
+        parsed = self.parsed_odds.get(game_id)
+        if not parsed:
+            await interaction.response.send_message("No odds available for this game.", ephemeral=True)
+            return
+
+        fmt = self.sports_api.format_american
+        home = game.get("home_team", "Home")
+        away = game.get("away_team", "Away")
+
+        view = self.view
+        if view is None:
+            return
+        view.clear_items()
+
+        # Row 1: moneyline buttons
+        row = 0
+        if "home" in parsed:
+            view.add_item(BetTypeButton(
+                "home", f"Home {fmt(parsed['home']['american'])}",
+                game, parsed["home"], self.sports_api, row=row,
+            ))
+        if "away" in parsed:
+            view.add_item(BetTypeButton(
+                "away", f"Away {fmt(parsed['away']['american'])}",
+                game, parsed["away"], self.sports_api, row=row,
+            ))
+        if "draw" in parsed:
+            view.add_item(BetTypeButton(
+                "draw", f"Draw {fmt(parsed['draw']['american'])}",
+                game, parsed["draw"], self.sports_api, row=row,
+            ))
+
+        # Row 2: spread buttons
+        row = 1
+        if "spread_home" in parsed:
+            sh = parsed["spread_home"]
+            view.add_item(BetTypeButton(
+                "spread_home", f"{home} {sh['point']:+g} ({fmt(sh['american'])})",
+                game, sh, self.sports_api, row=row,
+            ))
+        if "spread_away" in parsed:
+            sa = parsed["spread_away"]
+            view.add_item(BetTypeButton(
+                "spread_away", f"{away} {sa['point']:+g} ({fmt(sa['american'])})",
+                game, sa, self.sports_api, row=row,
+            ))
+
+        # Row 3: totals buttons
+        row = 2
+        if "over" in parsed:
+            ov = parsed["over"]
+            view.add_item(BetTypeButton(
+                "over", f"Over {ov['point']:g} ({fmt(ov['american'])})",
+                game, ov, self.sports_api, row=row,
+            ))
+        if "under" in parsed:
+            un = parsed["under"]
+            view.add_item(BetTypeButton(
+                "under", f"Under {un['point']:g} ({fmt(un['american'])})",
+                game, un, self.sports_api, row=row,
+            ))
+
+        # Row 4: back button
+        view.add_item(BackButton(row=3))
+
+        await interaction.response.edit_message(view=view)
+
+
+class OddsView(discord.ui.View):
+    """View attached to /odds output with game select and bet buttons."""
+
+    def __init__(
+        self,
+        games: list[dict],
+        parsed_odds: dict[str, dict],
+        sports_api,
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.games = games
+        self.parsed_odds = parsed_odds
+        self.sports_api = sports_api
+        self.add_item(OddsGameSelect(games, parsed_odds, sports_api))
+
+    async def on_timeout(self) -> None:
+        # Disable all items when the view times out
+        for item in self.children:
+            if hasattr(item, "disabled"):
+                item.disabled = True  # type: ignore[union-attr]
+
+
 class Betting(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -117,13 +405,17 @@ class Betting(commands.Cog):
             await interaction.followup.send("No upcoming games found.")
             return
 
+        display_games = games[:10]
         fmt = self.sports_api.format_american
         embed = discord.Embed(
             title="Upcoming Games" if not sport else f"Upcoming — {games[0].get('sport_title', sport)}",
             color=discord.Color.blue(),
         )
 
-        for g in games[:10]:
+        # Collect parsed odds for the interactive view
+        all_parsed: dict[str, dict] = {}
+
+        for g in display_games:
             home = g.get("home_team", "?")
             away = g.get("away_team", "?")
             game_id = g.get("id", "?")
@@ -131,6 +423,8 @@ class Betting(commands.Cog):
             display_date = format_game_time(g.get("commence_time", ""))
 
             parsed = self.sports_api.parse_odds(g)
+            if parsed:
+                all_parsed[game_id] = parsed
 
             if parsed:
                 home_odds = fmt(parsed["home"]["american"]) if "home" in parsed else "—"
@@ -173,8 +467,17 @@ class Betting(commands.Cog):
                 inline=False,
             )
 
-        embed.set_footer(text="Use /bet <game_id> <pick> <amount> to place a wager")
-        await interaction.followup.send(embed=embed)
+        # Only attach interactive view if there are games with odds
+        view = None
+        if all_parsed:
+            # Filter display_games to only those with parsed odds
+            games_with_odds = [g for g in display_games if g.get("id") in all_parsed]
+            view = OddsView(games_with_odds, all_parsed, self.sports_api)
+            embed.set_footer(text="Select a game below to bet, or use /bet <game_id> <pick> <amount>")
+        else:
+            embed.set_footer(text="Use /bet <game_id> <pick> <amount> to place a wager")
+
+        await interaction.followup.send(embed=embed, view=view)
 
     # ── /bet ─────────────────────────────────────────────────────────────
 
