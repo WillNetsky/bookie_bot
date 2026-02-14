@@ -1870,10 +1870,11 @@ class Betting(commands.Cog):
     async def check_results(self) -> None:
         """Check scores for games likely near completion.
 
-        Budget: 500 credits/month. Each sport check = 1 credit.
+        Budget: 500 credits/month. Each sport check = 2 credits (with daysFrom).
         Only checks sports with games that started long enough ago
         to be near completion (based on estimated sport duration).
-        Runs every 30 min to conserve quota.
+        Runs every 30 min to conserve quota. Caps at 8 sports per cycle
+        with rotation so all sports eventually get checked.
         """
         try:
             # Skip if quota is critically low (< 50 remaining)
@@ -1933,11 +1934,19 @@ class Betting(commands.Cog):
                     continue
                 sport_games.setdefault(sport_key, []).append(composite_id)
 
-            # Cap at 5 sports per cycle to limit credit usage
-            sport_keys = list(sport_games.keys())[:5]
+            # Cap at 8 sports per cycle to limit credit usage, rotate so all get checked
+            all_sport_keys = list(sport_games.keys())
+            if len(all_sport_keys) > 8:
+                # Rotate: sort by sport key and use a rolling offset based on minute
+                all_sport_keys.sort()
+                offset = (now.minute // 30) % len(all_sport_keys)
+                rotated = all_sport_keys[offset:] + all_sport_keys[:offset]
+                sport_keys = rotated[:8]
+            else:
+                sport_keys = all_sport_keys
             log.info("Checking scores for %d sport(s): %s", len(sport_keys), sport_keys)
 
-            # One API call per sport (1 credit each)
+            # One API call per sport (2 credits each with daysFrom)
             for sport_key in sport_keys:
                 composites = sport_games[sport_key]
                 scores_map = await self.sports_api.get_scores_by_sport(sport_key)

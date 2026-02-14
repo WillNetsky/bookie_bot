@@ -317,15 +317,15 @@ class SportsAPI:
             "away_score": away_score,
         }
 
-    async def get_scores_by_sport(self, sport: str) -> dict[str, dict]:
+    async def get_scores_by_sport(self, sport: str, days_from: int = 3) -> dict[str, dict]:
         """Fetch all scores for a sport and return a dict keyed by event ID.
 
         Each value is the parsed fixture status dict. Uses the scores cache TTL.
-        Without daysFrom, costs 1 credit instead of 2.
+        Uses daysFrom to catch games completed between check cycles (costs 2 credits).
         """
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/scores",
-            {},
+            {"daysFrom": days_from},
             ttl=SCORES_CACHE_TTL,
         )
         if not isinstance(data, list):
