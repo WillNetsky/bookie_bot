@@ -142,6 +142,138 @@ async def get_bet_by_id(bet_id: int) -> dict | None:
         await db.close()
 
 
+async def create_parlay(
+    user_id: int, amount: int, total_odds: float, legs: list[dict]
+) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO parlays (user_id, amount, total_odds) VALUES (?, ?, ?)",
+            (user_id, amount, total_odds),
+        )
+        parlay_id = cursor.lastrowid
+        for leg in legs:
+            await db.execute(
+                "INSERT INTO parlay_legs (parlay_id, game_id, pick, odds, home_team, away_team, sport_title, market, point)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    parlay_id,
+                    leg["game_id"],
+                    leg["pick"],
+                    leg["odds"],
+                    leg.get("home_team"),
+                    leg.get("away_team"),
+                    leg.get("sport_title"),
+                    leg.get("market", "h2h"),
+                    leg.get("point"),
+                ),
+            )
+        await db.commit()
+        return parlay_id
+    finally:
+        await db.close()
+
+
+async def get_parlay_by_id(parlay_id: int) -> dict | None:
+    db = await get_connection()
+    try:
+        cursor = await db.execute("SELECT * FROM parlays WHERE id = ?", (parlay_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_parlay_legs(parlay_id: int) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM parlay_legs WHERE parlay_id = ?", (parlay_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_user_parlays(user_id: int, status: str | None = None) -> list[dict]:
+    db = await get_connection()
+    try:
+        if status:
+            cursor = await db.execute(
+                "SELECT * FROM parlays WHERE user_id = ? AND status = ? ORDER BY created_at DESC",
+                (user_id, status),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM parlays WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_pending_parlay_legs_by_game(game_id: str) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM parlay_legs WHERE game_id = ? AND status = 'pending'",
+            (game_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def update_parlay_leg_status(leg_id: int, status: str) -> None:
+    db = await get_connection()
+    try:
+        await db.execute(
+            "UPDATE parlay_legs SET status = ? WHERE id = ?", (status, leg_id)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def update_parlay(parlay_id: int, status: str, payout: int | None = None) -> None:
+    db = await get_connection()
+    try:
+        await db.execute(
+            "UPDATE parlays SET status = ?, payout = ? WHERE id = ?",
+            (status, payout, parlay_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def delete_parlay(parlay_id: int) -> bool:
+    db = await get_connection()
+    try:
+        await db.execute("DELETE FROM parlay_legs WHERE parlay_id = ?", (parlay_id,))
+        cursor = await db.execute("DELETE FROM parlays WHERE id = ?", (parlay_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_pending_parlay_game_ids() -> list[str]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT DISTINCT game_id FROM parlay_legs WHERE status = 'pending'"
+        )
+        rows = await cursor.fetchall()
+        return [row["game_id"] for row in rows]
+    finally:
+        await db.close()
+
+
 async def get_leaderboard(limit: int = 10) -> list[dict]:
     db = await get_connection()
     try:

@@ -46,8 +46,59 @@ async def cancel_bet(bet_id: int, user_id: int) -> dict | None:
     return bet
 
 
+async def place_parlay(
+    user_id: int, legs: list[dict], amount: int
+) -> int | None:
+    """Place a parlay. Returns parlay ID on success, None if insufficient balance."""
+    total_odds = 1.0
+    for leg in legs:
+        total_odds *= leg["odds"]
+    total_odds = round(total_odds, 4)
+
+    new_balance = await withdraw(user_id, amount)
+    if new_balance is None:
+        return None
+    parlay_id = await models.create_parlay(user_id, amount, total_odds, legs)
+    return parlay_id
+
+
+async def cancel_parlay(parlay_id: int, user_id: int) -> dict | None:
+    """Cancel a pending parlay. Returns the parlay dict if successful, None otherwise."""
+    parlay = await models.get_parlay_by_id(parlay_id)
+    if not parlay:
+        return None
+    if parlay["user_id"] != user_id:
+        return None
+    if parlay["status"] != "pending":
+        return None
+    # Ensure all legs are still pending
+    legs = await models.get_parlay_legs(parlay_id)
+    if any(leg["status"] != "pending" for leg in legs):
+        return None
+    await models.delete_parlay(parlay_id)
+    await deposit(user_id, parlay["amount"])
+    parlay["legs"] = legs
+    return parlay
+
+
+async def get_user_parlays(user_id: int, status: str | None = None) -> list[dict]:
+    parlays = await models.get_user_parlays(user_id, status)
+    for p in parlays:
+        p["legs"] = await models.get_parlay_legs(p["id"])
+    return parlays
+
+
 async def get_pending_game_ids() -> list[str]:
-    return await models.get_pending_game_ids()
+    single_ids = await models.get_pending_game_ids()
+    parlay_ids = await models.get_pending_parlay_game_ids()
+    # Combine and deduplicate while preserving order
+    seen = set(single_ids)
+    combined = list(single_ids)
+    for gid in parlay_ids:
+        if gid not in seen:
+            combined.append(gid)
+            seen.add(gid)
+    return combined
 
 
 async def get_bets_by_game(game_id: str) -> list[dict]:
@@ -153,6 +204,12 @@ async def resolve_game(
                 entry["payout"] = 0
             resolved.append(entry)
 
+    # ── Resolve parlay legs for this game ──
+    parlay_results = await _resolve_parlay_legs(
+        game_id, winner, home_score, away_score, winner_name
+    )
+    resolved.extend(parlay_results)
+
     return resolved
 
 
@@ -185,6 +242,123 @@ async def resolve_bet(bet_id: int, won: bool) -> None:
         await db.commit()
     finally:
         await db.close()
+
+
+def _determine_leg_result(
+    leg: dict,
+    winner: str,
+    home_score: int | None,
+    away_score: int | None,
+    winner_name: str | None,
+) -> str | None:
+    """Determine a parlay leg's result. Returns 'won', 'lost', 'push', or None if unresolvable."""
+    market = leg.get("market") or "h2h"
+    have_scores = home_score is not None and away_score is not None
+
+    if market == "outrights":
+        if winner_name is not None:
+            return "won" if leg["pick"].lower() == winner_name.lower() else "lost"
+        return None
+
+    if market == "h2h":
+        return "won" if leg["pick"] == winner else "lost"
+
+    if market == "spreads" and have_scores:
+        point = leg.get("point") or 0.0
+        pick = leg["pick"]
+        if pick == "spread_home":
+            adjusted = home_score + point
+            if adjusted > away_score:
+                return "won"
+            elif adjusted < away_score:
+                return "lost"
+            else:
+                return "push"
+        elif pick == "spread_away":
+            adjusted = away_score + point
+            if adjusted > home_score:
+                return "won"
+            elif adjusted < home_score:
+                return "lost"
+            else:
+                return "push"
+
+    if market == "totals" and have_scores:
+        point = leg.get("point") or 0.0
+        total = home_score + away_score
+        pick = leg["pick"]
+        if pick == "over":
+            if total > point:
+                return "won"
+            elif total < point:
+                return "lost"
+            else:
+                return "push"
+        elif pick == "under":
+            if total < point:
+                return "won"
+            elif total > point:
+                return "lost"
+            else:
+                return "push"
+
+    return None
+
+
+async def _resolve_parlay_legs(
+    game_id: str,
+    winner: str,
+    home_score: int | None = None,
+    away_score: int | None = None,
+    winner_name: str | None = None,
+) -> list[dict]:
+    """Resolve parlay legs for a game. Returns list of resolved parlay dicts."""
+    legs = await models.get_pending_parlay_legs_by_game(game_id)
+    resolved_parlays: list[dict] = []
+    affected_parlay_ids: set[int] = set()
+
+    for leg in legs:
+        result = _determine_leg_result(leg, winner, home_score, away_score, winner_name)
+        if result is None:
+            continue
+        await models.update_parlay_leg_status(leg["id"], result)
+        affected_parlay_ids.add(leg["parlay_id"])
+
+    for parlay_id in affected_parlay_ids:
+        parlay = await models.get_parlay_by_id(parlay_id)
+        if not parlay or parlay["status"] != "pending":
+            continue
+
+        all_legs = await models.get_parlay_legs(parlay_id)
+        statuses = [l["status"] for l in all_legs]
+
+        if "lost" in statuses:
+            await models.update_parlay(parlay_id, "lost", payout=0)
+            entry = dict(parlay)
+            entry["result"] = "lost"
+            entry["payout"] = 0
+            entry["legs"] = all_legs
+            entry["type"] = "parlay"
+            resolved_parlays.append(entry)
+        elif all(s in ("won", "push") for s in statuses):
+            # Calculate payout from non-push legs
+            effective_odds = 1.0
+            for l in all_legs:
+                if l["status"] == "won":
+                    effective_odds *= l["odds"]
+            payout = round(parlay["amount"] * effective_odds)
+            await models.update_parlay(parlay_id, "won", payout=payout)
+            await deposit(parlay["user_id"], payout)
+            entry = dict(parlay)
+            entry["result"] = "won"
+            entry["payout"] = payout
+            entry["total_odds"] = round(effective_odds, 4)
+            entry["legs"] = all_legs
+            entry["type"] = "parlay"
+            resolved_parlays.append(entry)
+        # else: still pending (some legs not yet resolved)
+
+    return resolved_parlays
 
 
 async def refund_bet(bet_id: int) -> None:

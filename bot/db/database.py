@@ -27,6 +27,30 @@ CREATE TABLE IF NOT EXISTS games_cache (
     data       TEXT NOT NULL,
     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS parlays (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(discord_id),
+    amount     INTEGER NOT NULL,
+    total_odds REAL    NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'pending',
+    payout     INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS parlay_legs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    parlay_id  INTEGER NOT NULL REFERENCES parlays(id),
+    game_id    TEXT    NOT NULL,
+    pick       TEXT    NOT NULL,
+    odds       REAL    NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'pending',
+    home_team  TEXT,
+    away_team  TEXT,
+    sport_title TEXT,
+    market     TEXT DEFAULT 'h2h',
+    point      REAL
+);
 """
 
 
