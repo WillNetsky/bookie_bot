@@ -888,26 +888,31 @@ class Betting(commands.Cog):
         )
 
         total_shown = 0
+        embed_len = len(embed.title or "")
         for sport_title, sport_games in by_sport.items():
             if total_shown >= 25:  # embed field limit
                 break
             lines = []
-            for g in sport_games[:8]:
+            for g in sport_games[:5]:
                 home = g.get("home_team", "?")
                 away = g.get("away_team", "?")
                 display_date = format_game_time(g.get("commence_time", ""))
                 lines.append(f"**{home}** vs **{away}**\n{display_date}")
             value = "\n".join(lines)
-            if len(sport_games) > 8:
-                value += f"\n*...and {len(sport_games) - 8} more*"
-            embed.add_field(name=f"{sport_title} ({len(sport_games)})", value=value, inline=False)
+            if len(sport_games) > 5:
+                value += f"\n*...and {len(sport_games) - 5} more*"
+            field_name = f"{sport_title} ({len(sport_games)})"
+            field_len = len(field_name) + len(value)
+            if embed_len + field_len > 5500:  # leave room for footer
+                break
+            embed.add_field(name=field_name, value=value, inline=False)
+            embed_len += field_len
             total_shown += 1
 
         total_games = sum(len(g) for g in by_sport.values())
-        sports_shown = min(len(by_sport), 25)
         footer = f"{total_games} games across {len(by_sport)} sports"
-        if sports_shown < len(by_sport):
-            footer += f" (showing {sports_shown})"
+        if total_shown < len(by_sport):
+            footer += f" (showing {total_shown})"
         footer += " · Use /odds <sport> to see odds and bet"
         embed.set_footer(text=footer)
 
