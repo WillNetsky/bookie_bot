@@ -159,6 +159,7 @@ class BetAmountModal(discord.ui.Modal, title="Place Bet"):
             interaction.user.id, composite_id, pick_value, amount, decimal_odds,
             home_team=home_name, away_team=away_name, sport_title=sport_title,
             market=market, point=bet_point,
+            commence_time=game.get("commence_time"),
         )
         if bet_id is None:
             await interaction.followup.send(
@@ -570,6 +571,7 @@ class ParlayBetTypeButton(discord.ui.Button["ParlayView"]):
             "sport_title": game.get("sport_title", sport_key),
             "market": PICK_MARKET[self.pick_key],
             "point": self.odds_entry.get("point"),
+            "commence_time": game.get("commence_time"),
         })
 
         view.show_slip()
@@ -754,6 +756,7 @@ class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
                 "sport_title": leg.get("sport_title"),
                 "market": leg["market"],
                 "point": leg.get("point"),
+                "commence_time": leg.get("commence_time"),
             })
 
         parlay_id = await betting_service.place_parlay(
@@ -1034,6 +1037,7 @@ class Betting(commands.Cog):
             interaction.user.id, composite_id, pick_value, amount, decimal_odds,
             home_team=home_name, away_team=away_name, sport_title=sport_title,
             market=market, point=bet_point,
+            commence_time=game.get("commence_time"),
         )
         if bet_id is None:
             await interaction.followup.send(
@@ -1831,13 +1835,14 @@ class Betting(commands.Cog):
     @tasks.loop(minutes=10)
     async def check_results(self) -> None:
         try:
-            game_ids = await betting_service.get_pending_game_ids()
-            if not game_ids:
+            # Only check games that have already started
+            started_games = await betting_service.get_started_pending_games()
+            if not started_games:
                 return
 
-            # Group pending games by sport_key for batch fetching
+            # Group started games by sport_key for batch fetching
             sport_games: dict[str, list[str]] = {}  # sport_key -> [composite_id, ...]
-            for composite_id in game_ids:
+            for composite_id in started_games:
                 parts = composite_id.split("|")
                 sport_key = parts[1] if len(parts) > 1 else None
                 if not sport_key:

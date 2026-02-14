@@ -15,6 +15,7 @@ async def place_bet(
     sport_title: str | None = None,
     market: str = "h2h",
     point: float | None = None,
+    commence_time: str | None = None,
 ) -> int | None:
     """Place a bet. Returns bet ID on success, None if insufficient balance."""
     new_balance = await withdraw(user_id, amount)
@@ -23,7 +24,7 @@ async def place_bet(
     bet_id = await models.create_bet(
         user_id, game_id, pick, amount, odds,
         home_team=home_team, away_team=away_team, sport_title=sport_title,
-        market=market, point=point,
+        market=market, point=point, commence_time=commence_time,
     )
     return bet_id
 
@@ -99,6 +100,42 @@ async def get_pending_game_ids() -> list[str]:
             combined.append(gid)
             seen.add(gid)
     return combined
+
+
+async def get_started_pending_games() -> dict[str, str | None]:
+    """Return pending games that have started (commence_time <= now).
+
+    Returns dict of {composite_game_id: commence_time}.
+    Games with no commence_time stored are always included (legacy bets).
+    """
+    from datetime import datetime, timezone
+
+    single = await models.get_pending_games_with_commence()
+    parlay = await models.get_pending_parlay_games_with_commence()
+
+    # Merge, preferring the earliest commence_time
+    merged: dict[str, str | None] = {}
+    for row in single + parlay:
+        gid = row["game_id"]
+        ct = row.get("commence_time")
+        if gid not in merged or (ct and (merged[gid] is None or ct < merged[gid])):
+            merged[gid] = ct
+
+    now = datetime.now(timezone.utc)
+    started: dict[str, str | None] = {}
+    for gid, ct in merged.items():
+        if ct is None:
+            # Legacy bet without commence_time — always check
+            started[gid] = ct
+            continue
+        try:
+            game_start = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+            if game_start <= now:
+                started[gid] = ct
+        except (ValueError, TypeError):
+            started[gid] = ct
+
+    return started
 
 
 async def get_bets_by_game(game_id: str) -> list[dict]:

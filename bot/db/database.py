@@ -67,6 +67,8 @@ MIGRATIONS = [
     "ALTER TABLE bets ADD COLUMN sport_title TEXT",
     "ALTER TABLE bets ADD COLUMN market TEXT DEFAULT 'h2h'",
     "ALTER TABLE bets ADD COLUMN point REAL",
+    "ALTER TABLE bets ADD COLUMN commence_time TEXT",
+    "ALTER TABLE parlay_legs ADD COLUMN commence_time TEXT",
 ]
 
 

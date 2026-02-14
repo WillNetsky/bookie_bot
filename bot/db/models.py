@@ -64,13 +64,14 @@ async def create_bet(
     sport_title: str | None = None,
     market: str = "h2h",
     point: float | None = None,
+    commence_time: str | None = None,
 ) -> int:
     db = await get_connection()
     try:
         cursor = await db.execute(
-            "INSERT INTO bets (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title, market, point)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title, market, point),
+            "INSERT INTO bets (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title, market, point, commence_time)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title, market, point, commence_time),
         )
         await db.commit()
         return cursor.lastrowid
@@ -122,6 +123,36 @@ async def get_pending_game_ids() -> list[str]:
         await db.close()
 
 
+async def get_pending_games_with_commence() -> list[dict]:
+    """Return pending game IDs with their commence times from single bets."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT game_id, MIN(commence_time) as commence_time"
+            " FROM bets WHERE status = 'pending'"
+            " GROUP BY game_id"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_pending_parlay_games_with_commence() -> list[dict]:
+    """Return pending parlay leg game IDs with their commence times."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT game_id, MIN(commence_time) as commence_time"
+            " FROM parlay_legs WHERE status = 'pending'"
+            " GROUP BY game_id"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
 async def delete_bet(bet_id: int) -> bool:
     db = await get_connection()
     try:
@@ -154,8 +185,8 @@ async def create_parlay(
         parlay_id = cursor.lastrowid
         for leg in legs:
             await db.execute(
-                "INSERT INTO parlay_legs (parlay_id, game_id, pick, odds, home_team, away_team, sport_title, market, point)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO parlay_legs (parlay_id, game_id, pick, odds, home_team, away_team, sport_title, market, point, commence_time)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     parlay_id,
                     leg["game_id"],
@@ -166,6 +197,7 @@ async def create_parlay(
                     leg.get("sport_title"),
                     leg.get("market", "h2h"),
                     leg.get("point"),
+                    leg.get("commence_time"),
                 ),
             )
         await db.commit()
