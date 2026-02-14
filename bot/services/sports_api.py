@@ -126,13 +126,25 @@ class SportsAPI:
 
         Returns: id, sport_key, sport_title, commence_time, home_team, away_team.
         No odds data — use get_odds_for_sport() to fetch odds separately.
+
+        The /events endpoint doesn't support the "upcoming" keyword, so when
+        sport is "upcoming" we fetch active sports and query each one.
         """
-        data = await self._cached_request(
-            f"{BASE_URL}/sports/{sport}/events",
-            {},
-        )
-        if not isinstance(data, list):
-            return []
+        if sport == "upcoming":
+            # /events doesn't support "upcoming" keyword, so use /odds
+            # with just h2h market (1 credit instead of 3, cached 2 hours)
+            data = await self._cached_request(
+                f"{BASE_URL}/sports/{sport}/odds",
+                {"regions": "us", "markets": "h2h", "oddsFormat": "american"},
+            )
+            if not isinstance(data, list):
+                return []
+        else:
+            data = await self._cached_request(
+                f"{BASE_URL}/sports/{sport}/events", {},
+            )
+            if not isinstance(data, list):
+                return []
 
         now = datetime.now(timezone.utc)
         cutoff = now + timedelta(hours=hours) if hours is not None else None
