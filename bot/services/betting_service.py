@@ -50,6 +50,10 @@ async def get_pending_game_ids() -> list[str]:
     return await models.get_pending_game_ids()
 
 
+async def get_bets_by_game(game_id: str) -> list[dict]:
+    return await models.get_pending_bets_by_game(game_id)
+
+
 async def resolve_game(
     game_id: str,
     winner: str,

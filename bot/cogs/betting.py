@@ -933,6 +933,69 @@ class Betting(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # ── /pendingbets (admin) ─────────────────────────────────────────────
+
+    @app_commands.command(name="pendingbets", description="[Admin] View all pending bets")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def pendingbets(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        game_ids = await betting_service.get_pending_game_ids()
+        if not game_ids:
+            await interaction.followup.send("No pending bets.", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="Pending Bets", color=discord.Color.orange())
+
+        for composite_id in game_ids[:15]:
+            bets = await betting_service.get_bets_by_game(composite_id)
+            if not bets:
+                continue
+
+            first = bets[0]
+            home = first.get("home_team")
+            away = first.get("away_team")
+            sport = first.get("sport_title") or ""
+            is_outright = (first.get("market") or "") == "outrights"
+
+            if is_outright:
+                matchup = sport or "Futures"
+            elif home and away:
+                matchup = f"{home} vs {away}"
+            else:
+                matchup = "Unknown"
+
+            lines = []
+            total_wagered = 0
+            for b in bets:
+                pick_label = b["pick"] if is_outright else format_pick_label(b)
+                lines.append(
+                    f"<@{b['user_id']}> — {pick_label} · ${b['amount']:.2f} @ {b['odds']}x"
+                )
+                total_wagered += b["amount"]
+
+            raw_id = composite_id.split("|")[0] if "|" in composite_id else composite_id
+            header = f"{matchup} ({len(bets)} bet{'s' if len(bets) != 1 else ''} · ${total_wagered:.2f})"
+            value = "\n".join(lines) + f"\nID: `{raw_id}`"
+
+            embed.add_field(name=header, value=value, inline=False)
+
+        if len(game_ids) > 15:
+            embed.set_footer(text=f"Showing 15 of {len(game_ids)} games")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @pendingbets.error
+    async def pendingbets_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You need administrator permissions to use this command."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            log.exception("Error in /pendingbets command", exc_info=error)
+
     # ── /resolve (admin) ───────────────────────────────────────────────
 
     @app_commands.command(name="resolve", description="[Admin] Manually resolve a game")
