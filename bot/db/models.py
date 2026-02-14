@@ -62,13 +62,15 @@ async def create_bet(
     home_team: str | None = None,
     away_team: str | None = None,
     sport_title: str | None = None,
+    market: str = "h2h",
+    point: float | None = None,
 ) -> int:
     db = await get_connection()
     try:
         cursor = await db.execute(
-            "INSERT INTO bets (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title),
+            "INSERT INTO bets (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title, market, point)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, game_id, pick, amount, odds, home_team, away_team, sport_title, market, point),
         )
         await db.commit()
         return cursor.lastrowid

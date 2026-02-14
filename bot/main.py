@@ -4,7 +4,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from bot.config import DISCORD_TOKEN
+from bot.config import DISCORD_TOKEN, GUILD_ID
 from bot.db.database import init_db
 
 logging.basicConfig(level=logging.INFO)
@@ -30,8 +30,14 @@ class BookieBot(commands.Bot):
         for cog in COGS:
             await self.load_extension(cog)
             log.info("Loaded cog: %s", cog)
-        await self.tree.sync()
-        log.info("Slash commands synced.")
+        if GUILD_ID:
+            guild = discord.Object(id=GUILD_ID)
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            log.info("Slash commands synced to guild %s.", GUILD_ID)
+        else:
+            await self.tree.sync()
+            log.info("Slash commands synced globally.")
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
