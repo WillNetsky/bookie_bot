@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from bot.config import BET_RESULTS_CHANNEL_ID, BLOCKED_SPORTS
+from bot.config import BET_RESULTS_CHANNEL_ID, is_sport_blocked
 from bot.services import betting_service, sports_api as sports_api_mod
 
 log = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ class BetAmountModal(discord.ui.Modal, title="Place Bet"):
             pass
 
         # Check sport isn't blocked
-        if game.get("sport_key") in BLOCKED_SPORTS:
+        if is_sport_blocked(game.get("sport_key", "")):
             await interaction.followup.send(
                 "Betting is currently disabled for this sport.", ephemeral=True
             )
@@ -399,8 +399,7 @@ class Betting(commands.Cog):
         await interaction.response.defer()
 
         games = await self.sports_api.get_upcoming_games(sport or "upcoming", hours=hours)
-        if BLOCKED_SPORTS:
-            games = [g for g in games if g.get("sport_key") not in BLOCKED_SPORTS]
+        games = [g for g in games if not is_sport_blocked(g.get("sport_key", ""))]
         if not games:
             await interaction.followup.send("No upcoming games found.")
             return
@@ -526,7 +525,7 @@ class Betting(commands.Cog):
             return
 
         # Block bets on sports without score coverage
-        if game.get("sport_key") in BLOCKED_SPORTS:
+        if is_sport_blocked(game.get("sport_key", "")):
             await interaction.followup.send(
                 "Betting is currently disabled for this sport (no score coverage).",
                 ephemeral=True,
