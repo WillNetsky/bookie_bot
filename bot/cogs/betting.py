@@ -355,6 +355,456 @@ class OddsView(discord.ui.View):
                 item.disabled = True  # type: ignore[union-attr]
 
 
+# ── Interactive parlay builder UI components ─────────────────────────
+
+
+class ParlayView(discord.ui.View):
+    """Multi-step parlay builder view."""
+
+    def __init__(
+        self,
+        games: list[dict],
+        parsed_odds: dict[str, dict],
+        sports_api,
+    ) -> None:
+        super().__init__(timeout=300.0)
+        self.games = games
+        self.parsed_odds = parsed_odds
+        self.sports_api = sports_api
+        self.legs: list[dict] = []
+        self.show_game_select()
+
+    def _leg_game_ids(self) -> set[str]:
+        """Return game IDs already in the slip."""
+        return {leg["game_id_raw"] for leg in self.legs}
+
+    def _combined_odds(self) -> float:
+        odds = 1.0
+        for leg in self.legs:
+            odds *= leg["odds"]
+        return odds
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Parlay Builder", color=discord.Color.purple())
+        if not self.legs:
+            embed.description = "Select a game below to start building your parlay."
+        else:
+            fmt = self.sports_api.format_american
+            for i, leg in enumerate(self.legs, 1):
+                home = leg.get("home_team") or "?"
+                away = leg.get("away_team") or "?"
+                pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+                point = leg.get("point")
+                if point is not None:
+                    if leg["pick"] in ("spread_home", "spread_away"):
+                        pick_label += f" {point:+g}"
+                    else:
+                        pick_label += f" {point:g}"
+                embed.add_field(
+                    name=f"Leg {i}: {home} vs {away}",
+                    value=f"{pick_label} ({leg['odds']:.2f}x)",
+                    inline=False,
+                )
+            combined = self._combined_odds()
+            embed.set_footer(text=f"{len(self.legs)} leg{'s' if len(self.legs) != 1 else ''} \u00b7 {combined:.2f}x combined odds")
+        return embed
+
+    def show_game_select(self) -> None:
+        self.clear_items()
+        used_ids = self._leg_game_ids()
+        available = [g for g in self.games if g.get("id") not in used_ids][:25]
+        if not available:
+            # All games used — go straight to slip
+            self.show_slip()
+            return
+        self.add_item(ParlayGameSelect(available, self.parsed_odds, self.sports_api))
+        if self.legs:
+            self.add_item(ParlayBackToSlipButton(row=1))
+
+    def show_bet_types(self, game: dict) -> None:
+        self.clear_items()
+        game_id = game.get("id", "")
+        parsed = self.parsed_odds.get(game_id, {})
+        fmt = self.sports_api.format_american
+        home = game.get("home_team", "Home")
+        away = game.get("away_team", "Away")
+
+        row = 0
+        if "home" in parsed:
+            self.add_item(ParlayBetTypeButton(
+                "home", f"Home {fmt(parsed['home']['american'])}",
+                game, parsed["home"], row=row,
+            ))
+        if "away" in parsed:
+            self.add_item(ParlayBetTypeButton(
+                "away", f"Away {fmt(parsed['away']['american'])}",
+                game, parsed["away"], row=row,
+            ))
+        if "draw" in parsed:
+            self.add_item(ParlayBetTypeButton(
+                "draw", f"Draw {fmt(parsed['draw']['american'])}",
+                game, parsed["draw"], row=row,
+            ))
+
+        row = 1
+        if "spread_home" in parsed:
+            sh = parsed["spread_home"]
+            self.add_item(ParlayBetTypeButton(
+                "spread_home", f"{home} {sh['point']:+g} ({fmt(sh['american'])})",
+                game, sh, row=row,
+            ))
+        if "spread_away" in parsed:
+            sa = parsed["spread_away"]
+            self.add_item(ParlayBetTypeButton(
+                "spread_away", f"{away} {sa['point']:+g} ({fmt(sa['american'])})",
+                game, sa, row=row,
+            ))
+
+        row = 2
+        if "over" in parsed:
+            ov = parsed["over"]
+            self.add_item(ParlayBetTypeButton(
+                "over", f"Over {ov['point']:g} ({fmt(ov['american'])})",
+                game, ov, row=row,
+            ))
+        if "under" in parsed:
+            un = parsed["under"]
+            self.add_item(ParlayBetTypeButton(
+                "under", f"Under {un['point']:g} ({fmt(un['american'])})",
+                game, un, row=row,
+            ))
+
+        self.add_item(ParlayBackButton(row=3))
+
+    def show_slip(self) -> None:
+        self.clear_items()
+        used_ids = self._leg_game_ids()
+        available_count = sum(1 for g in self.games if g.get("id") not in used_ids)
+
+        if available_count > 0 and len(self.legs) < 10:
+            self.add_item(ParlayAddLegButton(row=0))
+        if self.legs:
+            self.add_item(ParlayRemoveLegSelect(self.legs, row=1))
+        if len(self.legs) >= 2:
+            self.add_item(ParlayPlaceButton(row=2))
+        self.add_item(ParlayCancelButton(row=2))
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            if hasattr(item, "disabled"):
+                item.disabled = True  # type: ignore[union-attr]
+
+
+class ParlayGameSelect(discord.ui.Select["ParlayView"]):
+    """Game dropdown for parlay builder."""
+
+    def __init__(
+        self,
+        games: list[dict],
+        parsed_odds: dict[str, dict],
+        sports_api,
+    ) -> None:
+        self.games_map: dict[str, dict] = {}
+        self.parsed_odds = parsed_odds
+        self.sports_api = sports_api
+
+        options = []
+        for g in games[:25]:
+            game_id = g.get("id", "?")
+            home = g.get("home_team", "?")
+            away = g.get("away_team", "?")
+            sport_title = g.get("sport_title", g.get("sport_key", ""))
+            label = f"{home} vs {away}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            desc = sport_title[:100] if sport_title else None
+            options.append(discord.SelectOption(label=label, value=game_id, description=desc))
+            self.games_map[game_id] = g
+
+        super().__init__(placeholder="Select a game to add...", options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        game_id = self.values[0]
+        game = self.games_map.get(game_id)
+        if not game:
+            await interaction.response.send_message("Game not found.", ephemeral=True)
+            return
+
+        view = self.view
+        if view is None:
+            return
+        view.show_bet_types(game)
+        embed = view.build_embed()
+        embed.description = (
+            f"Pick a bet type for **{game.get('home_team', '?')} vs {game.get('away_team', '?')}**"
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayBetTypeButton(discord.ui.Button["ParlayView"]):
+    """Button for selecting a bet type to add as a parlay leg."""
+
+    def __init__(self, pick_key: str, label: str, game: dict, odds_entry: dict, row: int) -> None:
+        emoji = PICK_EMOJI.get(pick_key)
+        super().__init__(label=label, style=discord.ButtonStyle.primary, emoji=emoji, row=row)
+        self.pick_key = pick_key
+        self.game = game
+        self.odds_entry = odds_entry
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+
+        game = self.game
+        sport_key = game.get("sport_key", "")
+        game_id = game.get("id", "")
+
+        view.legs.append({
+            "game_id_raw": game_id,
+            "game_id": f"{game_id}|{sport_key}",
+            "pick": self.pick_key,
+            "odds": self.odds_entry["decimal"],
+            "home_team": game.get("home_team"),
+            "away_team": game.get("away_team"),
+            "sport_title": game.get("sport_title", sport_key),
+            "market": PICK_MARKET[self.pick_key],
+            "point": self.odds_entry.get("point"),
+        })
+
+        view.show_slip()
+        embed = view.build_embed()
+        if len(view.legs) < 2:
+            embed.description = "Add at least 2 legs to place a parlay."
+        else:
+            embed.description = "Ready to place, or add more legs."
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayBackButton(discord.ui.Button["ParlayView"]):
+    """Back button to return to game select from bet type view."""
+
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.show_game_select()
+        embed = view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayBackToSlipButton(discord.ui.Button["ParlayView"]):
+    """Button to go back to the slip view from game select."""
+
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Back to Slip", style=discord.ButtonStyle.secondary, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.show_slip()
+        embed = view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayAddLegButton(discord.ui.Button["ParlayView"]):
+    """Button to add another leg (returns to game select)."""
+
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Add Leg", style=discord.ButtonStyle.primary, emoji="\u2795", row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.show_game_select()
+        embed = view.build_embed()
+        embed.description = "Select another game to add to your parlay."
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayRemoveLegSelect(discord.ui.Select["ParlayView"]):
+    """Dropdown to remove a leg from the slip."""
+
+    def __init__(self, legs: list[dict], row: int) -> None:
+        options = []
+        for i, leg in enumerate(legs):
+            home = leg.get("home_team") or "?"
+            away = leg.get("away_team") or "?"
+            pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+            label = f"{home} vs {away} — {pick_label}"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            options.append(discord.SelectOption(label=label, value=str(i)))
+
+        super().__init__(placeholder="Remove a leg...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        idx = int(self.values[0])
+        if 0 <= idx < len(view.legs):
+            view.legs.pop(idx)
+        view.show_slip()
+        embed = view.build_embed()
+        if not view.legs:
+            embed.description = "All legs removed. Add a leg to start building."
+            view.show_game_select()
+        elif len(view.legs) < 2:
+            embed.description = "Add at least 2 legs to place a parlay."
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayPlaceButton(discord.ui.Button["ParlayView"]):
+    """Button to open wager amount modal and place the parlay."""
+
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Place Parlay", style=discord.ButtonStyle.success, emoji="\U0001f4b0", row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        modal = ParlayAmountModal(view)
+        await interaction.response.send_modal(modal)
+
+
+class ParlayCancelButton(discord.ui.Button["ParlayView"]):
+    """Cancel and abandon the parlay slip."""
+
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Cancel", style=discord.ButtonStyle.danger, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.clear_items()
+        embed = discord.Embed(
+            title="Parlay Cancelled",
+            description="Your parlay slip has been abandoned.",
+            color=discord.Color.light_grey(),
+        )
+        view.stop()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
+    """Modal for entering the parlay wager amount."""
+
+    amount_input = discord.ui.TextInput(
+        label="Wager amount ($)",
+        placeholder="e.g. 50",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(self, parlay_view: ParlayView) -> None:
+        super().__init__()
+        self.parlay_view = parlay_view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.amount_input.value.strip().lstrip("$")
+        try:
+            amount = int(raw)
+        except ValueError:
+            await interaction.response.send_message(
+                "Invalid amount \u2014 enter a whole number.", ephemeral=True
+            )
+            return
+        if amount <= 0:
+            await interaction.response.send_message(
+                "Bet amount must be positive.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+
+        pv = self.parlay_view
+        # Re-validate that no games have started
+        for leg in pv.legs:
+            game = next((g for g in pv.games if g.get("id") == leg["game_id_raw"]), None)
+            if game:
+                commence = game.get("commence_time", "")
+                try:
+                    ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+                    if ct <= datetime.now(timezone.utc):
+                        await interaction.followup.send(
+                            f"Game {leg.get('home_team', '?')} vs {leg.get('away_team', '?')} has already started.",
+                            ephemeral=True,
+                        )
+                        return
+                except (ValueError, TypeError):
+                    pass
+
+        # Build legs for betting service
+        service_legs = []
+        for leg in pv.legs:
+            service_legs.append({
+                "game_id": leg["game_id"],
+                "pick": leg["pick"],
+                "odds": leg["odds"],
+                "home_team": leg.get("home_team"),
+                "away_team": leg.get("away_team"),
+                "sport_title": leg.get("sport_title"),
+                "market": leg["market"],
+                "point": leg.get("point"),
+            })
+
+        parlay_id = await betting_service.place_parlay(
+            interaction.user.id, service_legs, amount
+        )
+        if parlay_id is None:
+            await interaction.followup.send("Insufficient balance.", ephemeral=True)
+            return
+
+        total_odds = pv._combined_odds()
+        potential_payout = round(amount * total_odds, 2)
+
+        embed = discord.Embed(title="Parlay Placed!", color=discord.Color.green())
+        embed.add_field(name="Parlay ID", value=f"#{parlay_id}", inline=True)
+        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
+        embed.add_field(name="Combined Odds", value=f"{total_odds:.2f}x", inline=True)
+        embed.add_field(name="Potential Payout", value=f"${potential_payout:.2f}", inline=True)
+
+        leg_lines = []
+        for i, leg in enumerate(pv.legs, 1):
+            home = leg.get("home_team") or "?"
+            away = leg.get("away_team") or "?"
+            pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+            point = leg.get("point")
+            if point is not None:
+                if leg["pick"] in ("spread_home", "spread_away"):
+                    pick_label += f" {point:+g}"
+                else:
+                    pick_label += f" {point:g}"
+            leg_lines.append(f"**{i}.** {home} vs {away} \u2014 {pick_label} ({leg['odds']:.2f}x)")
+
+        embed.add_field(name="Legs", value="\n".join(leg_lines), inline=False)
+
+        # Disable the parlay view and update original message
+        pv.clear_items()
+        pv.stop()
+        try:
+            await interaction.edit_original_response(
+                embed=discord.Embed(
+                    title="Parlay Placed",
+                    description=f"Parlay #{parlay_id} placed successfully!",
+                    color=discord.Color.green(),
+                ),
+                view=pv,
+            )
+        except discord.HTTPException:
+            pass
+
+        await interaction.followup.send(embed=embed)
+
+
 class Betting(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -613,165 +1063,41 @@ class Betting(commands.Cog):
 
     # ── /parlay ────────────────────────────────────────────────────────────
 
-    @app_commands.command(name="parlay", description="Place a parlay bet (2-10 legs)")
+    @app_commands.command(name="parlay", description="Build a parlay bet")
     @app_commands.describe(
-        amount="Wager amount in dollars",
-        legs="Comma-separated legs: game_id pick, game_id pick (e.g. abc123 home, def456 away)",
+        sport="Sport to view (leave blank for all upcoming)",
+        hours="Only show games starting within this many hours (default: 6)",
     )
+    @app_commands.autocomplete(sport=sport_autocomplete)
     async def parlay(
         self,
         interaction: discord.Interaction,
-        amount: int,
-        legs: str,
+        sport: str | None = None,
+        hours: int = 6,
     ) -> None:
-        if amount <= 0:
-            await interaction.response.send_message(
-                "Bet amount must be positive.", ephemeral=True
-            )
-            return
-
         await interaction.response.defer()
 
-        # Parse legs string
-        raw_legs = [l.strip() for l in legs.split(",") if l.strip()]
-        if len(raw_legs) < 2:
-            await interaction.followup.send(
-                "A parlay requires at least 2 legs.", ephemeral=True
-            )
-            return
-        if len(raw_legs) > 10:
-            await interaction.followup.send(
-                "A parlay can have at most 10 legs.", ephemeral=True
-            )
+        games = await self.sports_api.get_upcoming_games(sport or "upcoming", hours=hours)
+        games = [g for g in games if not is_sport_blocked(g.get("sport_key", ""))]
+        if not games:
+            await interaction.followup.send("No upcoming games found.")
             return
 
-        parsed_legs: list[dict] = []
-        seen_game_ids: set[str] = set()
-        games_cache: dict[str, dict] = {}
+        # Collect parsed odds for games
+        all_parsed: dict[str, dict] = {}
+        for g in games:
+            parsed = self.sports_api.parse_odds(g)
+            if parsed:
+                all_parsed[g.get("id", "")] = parsed
 
-        # Fetch upcoming games once
-        all_games = await self.sports_api.get_upcoming_games()
-
-        for raw in raw_legs:
-            parts = raw.split()
-            if len(parts) < 2:
-                await interaction.followup.send(
-                    f"Invalid leg format: `{raw}`. Expected `<game_id> <pick>`.",
-                    ephemeral=True,
-                )
-                return
-
-            game_id = parts[0]
-            pick_value = parts[1].lower()
-
-            if pick_value not in VALID_PICKS:
-                await interaction.followup.send(
-                    f"Invalid pick `{pick_value}` in leg `{raw}`. "
-                    f"Valid picks: {', '.join(VALID_PICKS)}",
-                    ephemeral=True,
-                )
-                return
-
-            # Find the game
-            game = next((g for g in all_games if g.get("id") == game_id), None)
-            if game is None:
-                await interaction.followup.send(
-                    f"Game `{game_id}` not found. Use `/odds` to see available games.",
-                    ephemeral=True,
-                )
-                return
-
-            if is_sport_blocked(game.get("sport_key", "")):
-                await interaction.followup.send(
-                    f"Betting is disabled for {game.get('sport_title', game_id)}.",
-                    ephemeral=True,
-                )
-                return
-
-            # Check game hasn't started
-            commence = game.get("commence_time", "")
-            try:
-                ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
-                if ct <= datetime.now(timezone.utc):
-                    await interaction.followup.send(
-                        f"Game `{game_id}` has already started.", ephemeral=True
-                    )
-                    return
-            except (ValueError, TypeError):
-                pass
-
-            # No same-game parlays
-            if game_id in seen_game_ids:
-                await interaction.followup.send(
-                    f"Duplicate game `{game_id}` — each leg must be a different game.",
-                    ephemeral=True,
-                )
-                return
-            seen_game_ids.add(game_id)
-
-            # Parse odds
-            parsed = self.sports_api.parse_odds(game)
-            if not parsed or pick_value not in parsed:
-                await interaction.followup.send(
-                    f"Odds for `{pick_value}` not available on game `{game_id}`.",
-                    ephemeral=True,
-                )
-                return
-
-            odds_entry = parsed[pick_value]
-            sport_key = game.get("sport_key", "")
-            composite_id = f"{game_id}|{sport_key}"
-
-            parsed_legs.append({
-                "game_id": composite_id,
-                "pick": pick_value,
-                "odds": odds_entry["decimal"],
-                "home_team": game.get("home_team"),
-                "away_team": game.get("away_team"),
-                "sport_title": game.get("sport_title", sport_key),
-                "market": PICK_MARKET[pick_value],
-                "point": odds_entry.get("point"),
-            })
-            games_cache[game_id] = game
-
-        # Place the parlay
-        parlay_id = await betting_service.place_parlay(
-            interaction.user.id, parsed_legs, amount
-        )
-        if parlay_id is None:
-            await interaction.followup.send(
-                "Insufficient balance.", ephemeral=True
-            )
+        games_with_odds = [g for g in games if g.get("id") in all_parsed]
+        if not games_with_odds:
+            await interaction.followup.send("No games with odds available.")
             return
 
-        # Build confirmation embed
-        total_odds = 1.0
-        for leg in parsed_legs:
-            total_odds *= leg["odds"]
-        potential_payout = round(amount * total_odds, 2)
-
-        fmt = self.sports_api.format_american
-        embed = discord.Embed(title="Parlay Placed!", color=discord.Color.green())
-        embed.add_field(name="Parlay ID", value=f"#{parlay_id}", inline=True)
-        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="Combined Odds", value=f"{total_odds:.2f}x", inline=True)
-        embed.add_field(name="Potential Payout", value=f"${potential_payout:.2f}", inline=True)
-
-        leg_lines = []
-        for i, leg in enumerate(parsed_legs, 1):
-            home = leg.get("home_team") or "?"
-            away = leg.get("away_team") or "?"
-            pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
-            point = leg.get("point")
-            if point is not None:
-                if leg["pick"] in ("spread_home", "spread_away"):
-                    pick_label += f" {point:+g}"
-                else:
-                    pick_label += f" {point:g}"
-            leg_lines.append(f"**{i}.** {home} vs {away} — {pick_label} ({leg['odds']:.2f}x)")
-
-        embed.add_field(name="Legs", value="\n".join(leg_lines), inline=False)
-        await interaction.followup.send(embed=embed)
+        view = ParlayView(games_with_odds, all_parsed, self.sports_api)
+        embed = view.build_embed()
+        await interaction.followup.send(embed=embed, view=view)
 
     # ── /myparlays ────────────────────────────────────────────────────────
 
