@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timedelta, timezone
+
+log = logging.getLogger(__name__)
 
 import aiohttp
 import aiosqlite
@@ -35,6 +38,7 @@ class SportsAPI:
         cache_key = f"{url}:{json.dumps(params, sort_keys=True)}"
         effective_ttl = ttl if ttl is not None else CACHE_TTL
 
+        stale_data = None
         async with aiosqlite.connect(DB_PATH) as db:
             cursor = await db.execute(
                 "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
@@ -47,13 +51,20 @@ class SportsAPI:
                 now = datetime.now(timezone.utc)
                 if (now - fetched).total_seconds() < effective_ttl:
                     return json.loads(row[0])
+                # Keep stale data as fallback in case the API call fails
+                stale_data = row[0]
 
         session = await self._get_session()
         full_params = {**params, "apiKey": ODDS_API_KEY}
-        async with session.get(url, params=full_params) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.json()
+        try:
+            async with session.get(url, params=full_params) as resp:
+                if resp.status != 200:
+                    log.warning("API returned %s for %s — using stale cache", resp.status, url)
+                    return json.loads(stale_data) if stale_data else None
+                data = await resp.json()
+        except aiohttp.ClientError:
+            log.warning("API request failed for %s — using stale cache", url)
+            return json.loads(stale_data) if stale_data else None
 
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
