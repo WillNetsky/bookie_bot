@@ -968,10 +968,15 @@ class Betting(commands.Cog):
         except (ValueError, TypeError):
             pass
 
-        # 3. Fetch odds on-demand for this game's sport (cached 15 min)
+        # 3. Fetch odds for this sport (cached 15 min, warms cache for all games)
         sport_key = game.get("sport_key", "")
-        odds_game = await self.sports_api.get_odds_for_event(sport_key, game_id)
-        parsed = self.sports_api.parse_odds(odds_game) if odds_game else None
+        parsed = None
+        sport_odds = await self.sports_api.get_odds_for_sport(sport_key)
+        for g_with_odds in sport_odds:
+            if g_with_odds.get("id") == game_id:
+                parsed = self.sports_api.parse_odds(g_with_odds)
+                game = g_with_odds  # use the richer odds response
+                break
         if not parsed or pick_value not in parsed:
             if pick_value == "draw" and "draw" not in (parsed or {}):
                 await interaction.followup.send(
