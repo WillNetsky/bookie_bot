@@ -859,6 +859,60 @@ class Betting(commands.Cog):
                 break
         return choices
 
+    # ── /games ───────────────────────────────────────────────────────────
+
+    @app_commands.command(name="games", description="Browse upcoming games for the next 24 hours")
+    @app_commands.describe(
+        sport="Filter by sport (leave blank for all)",
+        hours="Hours ahead to show (default: 24)",
+    )
+    @app_commands.autocomplete(sport=sport_autocomplete)
+    async def games(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 24) -> None:
+        await interaction.response.defer()
+
+        events = await self.sports_api.get_events(sport or "upcoming", hours=hours)
+        events = [g for g in events if not is_sport_blocked(g.get("sport_key", ""))]
+        if not events:
+            await interaction.followup.send("No upcoming games found.")
+            return
+
+        # Group by sport for a clean display
+        by_sport: dict[str, list[dict]] = {}
+        for g in events:
+            title = g.get("sport_title", g.get("sport_key", "Other"))
+            by_sport.setdefault(title, []).append(g)
+
+        embed = discord.Embed(
+            title=f"Upcoming Games — next {hours}h" if not sport else f"Upcoming — {list(by_sport.keys())[0]}",
+            color=discord.Color.blue(),
+        )
+
+        total_shown = 0
+        for sport_title, sport_games in by_sport.items():
+            if total_shown >= 25:  # embed field limit
+                break
+            lines = []
+            for g in sport_games[:8]:
+                home = g.get("home_team", "?")
+                away = g.get("away_team", "?")
+                display_date = format_game_time(g.get("commence_time", ""))
+                lines.append(f"**{home}** vs **{away}**\n{display_date}")
+            value = "\n".join(lines)
+            if len(sport_games) > 8:
+                value += f"\n*...and {len(sport_games) - 8} more*"
+            embed.add_field(name=f"{sport_title} ({len(sport_games)})", value=value, inline=False)
+            total_shown += 1
+
+        total_games = sum(len(g) for g in by_sport.values())
+        sports_shown = min(len(by_sport), 25)
+        footer = f"{total_games} games across {len(by_sport)} sports"
+        if sports_shown < len(by_sport):
+            footer += f" (showing {sports_shown})"
+        footer += " · Use /odds <sport> to see odds and bet"
+        embed.set_footer(text=footer)
+
+        await interaction.followup.send(embed=embed)
+
     # ── /odds ────────────────────────────────────────────────────────────
 
     @app_commands.command(name="odds", description="View upcoming games and odds")
