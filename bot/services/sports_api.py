@@ -15,7 +15,7 @@ from bot.db.database import DB_PATH
 
 BASE_URL = "https://api.the-odds-api.com/v4"
 CACHE_TTL = 900  # 15 minutes
-SCORES_CACHE_TTL = 120  # 2 minutes for live scores
+SCORES_CACHE_TTL = 600  # 10 minutes for live scores
 DEFAULT_SPORT = "upcoming"  # special key: returns all in-season sports
 
 
@@ -193,7 +193,10 @@ class SportsAPI:
         game = await self.get_game_by_id(event_id, sport)
         if not game:
             return None
+        return self._parse_fixture_status(game)
 
+    def _parse_fixture_status(self, game: dict) -> dict:
+        """Extract status info from a game/scores dict."""
         now = datetime.now(timezone.utc)
         commence = game.get("commence_time", "")
         try:
@@ -225,6 +228,48 @@ class SportsAPI:
             "home_score": home_score,
             "away_score": away_score,
         }
+
+    async def get_scores_by_sport(self, sport: str) -> dict[str, dict]:
+        """Fetch all scores for a sport and return a dict keyed by event ID.
+
+        Each value is the parsed fixture status dict. Uses the scores cache TTL.
+        """
+        data = await self._cached_request(
+            f"{BASE_URL}/sports/{sport}/scores",
+            {"daysFrom": 3},
+            ttl=SCORES_CACHE_TTL,
+        )
+        if not isinstance(data, list):
+            return {}
+        result = {}
+        for game in data:
+            eid = game.get("id")
+            if eid:
+                result[eid] = self._parse_fixture_status(game)
+        return result
+
+    async def find_outright_in_cache(self, event_id: str) -> tuple[dict, str] | None:
+        """Search cached outright/odds data for an event ID without making API calls.
+
+        Returns (event_dict, sport_key) if found, else None.
+        """
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT game_id, data FROM games_cache WHERE sport = 'odds_api' AND game_id LIKE '%/odds:%'"
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                try:
+                    cached = json.loads(row[1])
+                    if not isinstance(cached, list):
+                        continue
+                    for ev in cached:
+                        if ev.get("id") == event_id:
+                            sport_key = ev.get("sport_key", "")
+                            return ev, sport_key
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        return None
 
     # ── Helpers ───────────────────────────────────────────────────────────
 

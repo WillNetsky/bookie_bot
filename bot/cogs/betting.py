@@ -1228,13 +1228,16 @@ class Betting(commands.Cog):
         game_id="Event ID from /futures",
         team="Team/outcome name to bet on",
         amount="Wager amount in dollars",
+        sport="Sport (speeds up lookup, optional)",
     )
+    @app_commands.autocomplete(sport=sport_autocomplete)
     async def betfuture(
         self,
         interaction: discord.Interaction,
         game_id: str,
         team: str,
         amount: int,
+        sport: str | None = None,
     ) -> None:
         if amount <= 0:
             await interaction.response.send_message(
@@ -1244,21 +1247,36 @@ class Betting(commands.Cog):
 
         await interaction.response.defer()
 
-        # Find the outright event — search across sports
-        sports = self._sports_cache or await self.sports_api.get_sports()
         found_event = None
         found_sport_key = None
-        for s in sports:
-            if not s.get("active"):
-                continue
-            events = await self.sports_api.get_outrights(s["key"])
+
+        # 1. If sport provided, fetch just that one
+        if sport:
+            events = await self.sports_api.get_outrights(sport)
             for ev in events:
                 if ev.get("id") == game_id:
                     found_event = ev
-                    found_sport_key = s["key"]
+                    found_sport_key = sport
                     break
-            if found_event:
-                break
+        else:
+            # 2. Search existing cache first (zero API calls)
+            cached = await self.sports_api.find_outright_in_cache(game_id)
+            if cached:
+                found_event, found_sport_key = cached
+            else:
+                # 3. Fallback: search across sports (expensive)
+                sports_list = self._sports_cache or await self.sports_api.get_sports()
+                for s in sports_list:
+                    if not s.get("active"):
+                        continue
+                    events = await self.sports_api.get_outrights(s["key"])
+                    for ev in events:
+                        if ev.get("id") == game_id:
+                            found_event = ev
+                            found_sport_key = s["key"]
+                            break
+                    if found_event:
+                        break
 
         if not found_event:
             await interaction.followup.send(
@@ -1810,46 +1828,61 @@ class Betting(commands.Cog):
 
     # ── Background task: check results ───────────────────────────────────
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=10)
     async def check_results(self) -> None:
         try:
             game_ids = await betting_service.get_pending_game_ids()
+            if not game_ids:
+                return
+
+            # Group pending games by sport_key for batch fetching
+            sport_games: dict[str, list[str]] = {}  # sport_key -> [composite_id, ...]
             for composite_id in game_ids:
                 parts = composite_id.split("|")
-                event_id = parts[0]
                 sport_key = parts[1] if len(parts) > 1 else None
+                if not sport_key:
+                    continue
+                sport_games.setdefault(sport_key, []).append(composite_id)
 
-                status = await self.sports_api.get_fixture_status(event_id, sport_key)
-                if not status or not status["completed"]:
+            # One API call per sport (instead of per game)
+            for sport_key, composites in sport_games.items():
+                scores_map = await self.sports_api.get_scores_by_sport(sport_key)
+                if not scores_map:
                     continue
 
-                home_score = status["home_score"]
-                away_score = status["away_score"]
+                for composite_id in composites:
+                    event_id = composite_id.split("|")[0]
+                    status = scores_map.get(event_id)
+                    if not status or not status["completed"]:
+                        continue
 
-                if home_score is None or away_score is None:
-                    continue
+                    home_score = status["home_score"]
+                    away_score = status["away_score"]
 
-                if home_score > away_score:
-                    winner = "home"
-                elif away_score > home_score:
-                    winner = "away"
-                else:
-                    winner = "draw"
+                    if home_score is None or away_score is None:
+                        continue
 
-                resolved = await betting_service.resolve_game(
-                    composite_id, winner,
-                    home_score=home_score, away_score=away_score,
-                )
-                if resolved:
-                    log.info(
-                        "Resolved %d bets for game %s (winner: %s)",
-                        len(resolved),
-                        event_id,
-                        winner,
+                    if home_score > away_score:
+                        winner = "home"
+                    elif away_score > home_score:
+                        winner = "away"
+                    else:
+                        winner = "draw"
+
+                    resolved = await betting_service.resolve_game(
+                        composite_id, winner,
+                        home_score=home_score, away_score=away_score,
                     )
-                    await self._post_resolution_announcement(
-                        resolved, home_score=home_score, away_score=away_score,
-                    )
+                    if resolved:
+                        log.info(
+                            "Resolved %d bets for game %s (winner: %s)",
+                            len(resolved),
+                            event_id,
+                            winner,
+                        )
+                        await self._post_resolution_announcement(
+                            resolved, home_score=home_score, away_score=away_score,
+                        )
         except Exception:
             log.exception("Error in check_results loop")
 
