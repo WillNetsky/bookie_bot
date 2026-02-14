@@ -1879,10 +1879,13 @@ class Betting(commands.Cog):
                     continue
                 sport_games.setdefault(sport_key, []).append(composite_id)
 
-            log.info("Checking scores for %d sport(s): %s", len(sport_games), list(sport_games.keys()))
+            # Cap at 5 sports per cycle to limit credit usage
+            sport_keys = list(sport_games.keys())[:5]
+            log.info("Checking scores for %d sport(s): %s", len(sport_keys), sport_keys)
 
             # One API call per sport (1 credit each)
-            for sport_key, composites in sport_games.items():
+            for sport_key in sport_keys:
+                composites = sport_games[sport_key]
                 scores_map = await self.sports_api.get_scores_by_sport(sport_key)
                 if not scores_map:
                     continue

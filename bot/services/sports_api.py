@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -22,6 +23,7 @@ DEFAULT_SPORT = "upcoming"  # special key: returns all in-season sports
 class SportsAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
+        self._last_request_time: float = 0.0  # monotonic timestamp of last API call
         # Quota tracking from API response headers
         self.requests_used: int | None = None
         self.requests_remaining: int | None = None
@@ -47,7 +49,10 @@ class SportsAPI:
             self.requests_remaining = int(remaining)
         if last is not None:
             self.requests_last = last
-        log.info("API quota — used: %s, remaining: %s", self.requests_used, self.requests_remaining)
+        log.info(
+            "API quota — used: %s, remaining: %s, this_call: %s",
+            self.requests_used, self.requests_remaining, last,
+        )
 
     def get_quota(self) -> dict:
         """Return current quota info."""
@@ -79,9 +84,17 @@ class SportsAPI:
                 # Keep stale data as fallback in case the API call fails
                 stale_data = row[0]
 
+        # Rate limit: at least 1 second between API calls to avoid 429s
+        now_mono = time.monotonic()
+        elapsed = now_mono - self._last_request_time
+        if elapsed < 1.0:
+            await asyncio.sleep(1.0 - elapsed)
+
         session = await self._get_session()
         full_params = {**params, "apiKey": ODDS_API_KEY}
+        log.debug("API call: %s", url)
         try:
+            self._last_request_time = time.monotonic()
             async with session.get(url, params=full_params) as resp:
                 self._update_quota(resp)
                 if resp.status != 200:
