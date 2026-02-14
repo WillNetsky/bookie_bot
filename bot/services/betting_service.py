@@ -56,53 +56,62 @@ async def resolve_game(
     home_score: int | None = None,
     away_score: int | None = None,
     winner_name: str | None = None,
-) -> int:
-    """Resolve all pending bets for a game. Returns count of resolved bets.
+) -> list[dict]:
+    """Resolve all pending bets for a game. Returns list of resolved bet dicts.
+
+    Each returned dict contains the original bet fields plus a ``result`` key
+    ("won", "lost", or "push") and a ``payout`` value.
 
     For h2h bets, uses the winner string.
     For spread/total bets, requires home_score and away_score.
     For outrights, uses winner_name to match the pick.
     """
     bets = await models.get_pending_bets_by_game(game_id)
-    count = 0
+    resolved: list[dict] = []
     have_scores = home_score is not None and away_score is not None
 
     for bet in bets:
         market = bet.get("market") or "h2h"
+        result: str | None = None
 
         if market == "outrights":
             if winner_name is not None:
                 won = bet["pick"].lower() == winner_name.lower()
                 await resolve_bet(bet["id"], won)
-                count += 1
-            continue
+                result = "won" if won else "lost"
+            else:
+                continue
 
-        if market == "h2h":
+        elif market == "h2h":
             won = bet["pick"] == winner
             await resolve_bet(bet["id"], won)
-            count += 1
+            result = "won" if won else "lost"
 
         elif market == "spreads" and have_scores:
             point = bet.get("point") or 0.0
             pick = bet["pick"]
-            # Apply spread: home_score + spread vs away_score (for home spread)
             if pick == "spread_home":
                 adjusted = home_score + point
                 if adjusted > away_score:
                     await resolve_bet(bet["id"], True)
+                    result = "won"
                 elif adjusted < away_score:
                     await resolve_bet(bet["id"], False)
+                    result = "lost"
                 else:
                     await refund_bet(bet["id"])
+                    result = "push"
             elif pick == "spread_away":
                 adjusted = away_score + point
                 if adjusted > home_score:
                     await resolve_bet(bet["id"], True)
+                    result = "won"
                 elif adjusted < home_score:
                     await resolve_bet(bet["id"], False)
+                    result = "lost"
                 else:
                     await refund_bet(bet["id"])
-            count += 1
+                    result = "push"
 
         elif market == "totals" and have_scores:
             point = bet.get("point") or 0.0
@@ -111,20 +120,36 @@ async def resolve_game(
             if pick == "over":
                 if total > point:
                     await resolve_bet(bet["id"], True)
+                    result = "won"
                 elif total < point:
                     await resolve_bet(bet["id"], False)
+                    result = "lost"
                 else:
                     await refund_bet(bet["id"])
+                    result = "push"
             elif pick == "under":
                 if total < point:
                     await resolve_bet(bet["id"], True)
+                    result = "won"
                 elif total > point:
                     await resolve_bet(bet["id"], False)
+                    result = "lost"
                 else:
                     await refund_bet(bet["id"])
-            count += 1
+                    result = "push"
 
-    return count
+        if result is not None:
+            entry = dict(bet)
+            entry["result"] = result
+            if result == "won":
+                entry["payout"] = round(bet["amount"] * bet["odds"], 2)
+            elif result == "push":
+                entry["payout"] = bet["amount"]
+            else:
+                entry["payout"] = 0
+            resolved.append(entry)
+
+    return resolved
 
 
 async def resolve_bet(bet_id: int, won: bool) -> None:

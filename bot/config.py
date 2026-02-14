@@ -16,6 +16,9 @@ STARTING_BALANCE = 100
 # Guild ID for instant slash command sync
 GUILD_ID = int(os.environ.get("GUILD_ID", "0")) or None
 
+# Channel ID for posting bet resolution announcements
+BET_RESULTS_CHANNEL_ID = 1315299663464890449
+
 # Sports blocked from betting (no score coverage on the-odds-api)
 # Comma-separated sport keys, e.g. "cricket_icc_world_t20,cricket_big_bash"
 _blocked_raw = os.environ.get("BLOCKED_SPORTS", "")

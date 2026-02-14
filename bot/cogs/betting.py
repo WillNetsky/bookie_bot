@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from bot.config import BLOCKED_SPORTS
+from bot.config import BET_RESULTS_CHANNEL_ID, BLOCKED_SPORTS
 from bot.services import betting_service, sports_api as sports_api_mod
 
 log = logging.getLogger(__name__)
@@ -973,14 +973,20 @@ class Betting(commands.Cog):
             )
             return
 
-        total_resolved = 0
+        all_resolved: list[dict] = []
         for composite_id in matching:
-            count = await betting_service.resolve_game(
+            resolved = await betting_service.resolve_game(
                 composite_id, winner.value,
                 home_score=home_score, away_score=away_score,
                 winner_name=winner_name,
             )
-            total_resolved += count
+            all_resolved.extend(resolved)
+        total_resolved = len(all_resolved)
+
+        if all_resolved:
+            await self._post_resolution_announcement(
+                all_resolved, home_score=home_score, away_score=away_score,
+            )
 
         if winner_name:
             desc = (
@@ -1021,6 +1027,70 @@ class Betting(commands.Cog):
         else:
             log.exception("Error in /resolve command", exc_info=error)
 
+    # ── Resolution announcement ────────────────────────────────────────
+
+    async def _post_resolution_announcement(
+        self,
+        resolved_bets: list[dict],
+        home_score: int | None = None,
+        away_score: int | None = None,
+    ) -> None:
+        """Post an embed announcing resolved bets to the results channel."""
+        if not resolved_bets:
+            return
+
+        channel = self.bot.get_channel(BET_RESULTS_CHANNEL_ID)
+        if channel is None:
+            log.warning("Results channel %s not found", BET_RESULTS_CHANNEL_ID)
+            return
+
+        first = resolved_bets[0]
+        home = first.get("home_team") or "Home"
+        away = first.get("away_team") or "Away"
+        is_outright = (first.get("market") or "") == "outrights"
+
+        if is_outright:
+            title = f"Result: {first.get('sport_title', 'Futures')}"
+            description = ""
+        else:
+            title = f"Game Result: {home} vs {away}"
+            if home_score is not None and away_score is not None:
+                description = f"**{home}** {home_score} - {away_score} **{away}**"
+            else:
+                description = ""
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.blue(),
+        )
+
+        lines = []
+        for bet in resolved_bets:
+            result = bet["result"]
+            if result == "won":
+                icon = "\U0001f7e2"
+                result_text = f"Won **${bet['payout']:.2f}**"
+            elif result == "push":
+                icon = "\U0001f535"
+                result_text = f"Push (${bet['payout']:.2f} refunded)"
+            else:
+                icon = "\U0001f534"
+                result_text = "Lost"
+
+            pick_label = format_pick_label(bet) if not is_outright else bet["pick"]
+            lines.append(
+                f"{icon} <@{bet['user_id']}> — {pick_label} · "
+                f"${bet['amount']:.2f} @ {bet['odds']}x → {result_text}"
+            )
+
+        embed.add_field(name="Bets", value="\n".join(lines), inline=False)
+
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            log.exception("Failed to send resolution announcement")
+
     # ── Background task: check results ───────────────────────────────────
 
     @tasks.loop(minutes=5)
@@ -1056,9 +1126,12 @@ class Betting(commands.Cog):
                 if resolved:
                     log.info(
                         "Resolved %d bets for game %s (winner: %s)",
-                        resolved,
+                        len(resolved),
                         event_id,
                         winner,
+                    )
+                    await self._post_resolution_announcement(
+                        resolved, home_score=home_score, away_score=away_score,
                     )
         except Exception:
             log.exception("Error in check_results loop")
