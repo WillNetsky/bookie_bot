@@ -131,14 +131,19 @@ class SportsAPI:
         sport is "upcoming" we fetch active sports and query each one.
         """
         if sport == "upcoming":
-            # /events doesn't support "upcoming" keyword, so use /odds
-            # with just h2h market (1 credit instead of 3, cached 2 hours)
-            data = await self._cached_request(
-                f"{BASE_URL}/sports/{sport}/odds",
-                {"regions": "us", "markets": "h2h", "oddsFormat": "american"},
-            )
-            if not isinstance(data, list):
-                return []
+            # /events doesn't support "upcoming" keyword, so fetch active
+            # sports and query each one — both endpoints are FREE
+            active_sports = await self.get_sports()
+            data = []
+            for sp in active_sports:
+                sk = sp.get("key")
+                if not sk or not sp.get("active"):
+                    continue
+                sport_events = await self._cached_request(
+                    f"{BASE_URL}/sports/{sk}/events", {},
+                )
+                if isinstance(sport_events, list):
+                    data.extend(sport_events)
         else:
             data = await self._cached_request(
                 f"{BASE_URL}/sports/{sport}/events", {},
