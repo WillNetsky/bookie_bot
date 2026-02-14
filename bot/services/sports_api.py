@@ -14,8 +14,8 @@ from bot.config import ODDS_API_KEY
 from bot.db.database import DB_PATH
 
 BASE_URL = "https://api.the-odds-api.com/v4"
-CACHE_TTL = 900  # 15 minutes
-SCORES_CACHE_TTL = 600  # 10 minutes for live scores
+CACHE_TTL = 7200  # 2 hours — odds don't change fast enough to matter
+SCORES_CACHE_TTL = 1800  # 30 minutes — matches check_results loop interval
 DEFAULT_SPORT = "upcoming"  # special key: returns all in-season sports
 
 
