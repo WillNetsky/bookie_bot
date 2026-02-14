@@ -861,13 +861,13 @@ class Betting(commands.Cog):
 
     # ── /games ───────────────────────────────────────────────────────────
 
-    @app_commands.command(name="games", description="Browse upcoming games for the next 24 hours")
+    @app_commands.command(name="games", description="Browse upcoming games for the next 6 hours")
     @app_commands.describe(
         sport="Filter by sport (leave blank for all)",
-        hours="Hours ahead to show (default: 24)",
+        hours="Hours ahead to show (default: 6)",
     )
     @app_commands.autocomplete(sport=sport_autocomplete)
-    async def games(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 24) -> None:
+    async def games(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 6) -> None:
         await interaction.response.defer()
 
         events = await self.sports_api.get_events(sport or "upcoming", hours=hours)
