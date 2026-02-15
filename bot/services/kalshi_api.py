@@ -247,6 +247,25 @@ def _extract_event_suffix(event_ticker: str) -> str:
     return parts[1] if len(parts) > 1 else event_ticker
 
 
+def _parse_event_ticker_date(event_ticker: str) -> datetime | None:
+    """Parse game date from event ticker.
+
+    e.g. "KXNBAGAME-26FEB14-LAL-BOS" → 2026-02-14 (date only, midnight UTC).
+    Format is YYMMMDD where MMM is 3-letter month abbreviation.
+    """
+    parts = event_ticker.split("-")
+    if len(parts) < 2:
+        return None
+    date_part = parts[1]  # e.g. "26FEB14"
+    if len(date_part) < 7:
+        return None
+    try:
+        dt = datetime.strptime(date_part, "%y%b%d")
+        return dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
 def _decimal_to_american(decimal_odds: float) -> int:
     """Convert decimal odds to American odds."""
     if decimal_odds >= 2.0:
@@ -330,16 +349,13 @@ def _parse_game_from_markets(
     if not home_team or not away_team:
         return None
 
-    # Use close_time as commence_time — Kalshi closes betting at game start.
-    # Fall back to estimating from expected_expiration_time if close_time missing.
-    close_str = first.get("close_time", "")
-    expire_str = first.get("expected_expiration_time", "")
-    if close_str:
-        commence_time = close_str
-    elif expire_str:
-        commence_time = _estimate_commence_time(expire_str, sport_key)
-    else:
-        commence_time = ""
+    # Estimate game start time.
+    # close_time = when betting closes (during/end of game, NOT game start)
+    # expected_expiration_time = when market settles (after game ends)
+    # Best approach: estimate from expected_expiration_time minus game duration.
+    # Validate against event ticker date (e.g. 26FEB14 = Feb 14, 2026).
+    expire_str = first.get("expected_expiration_time") or first.get("close_time", "")
+    commence_time = _estimate_commence_time(expire_str, sport_key, event_ticker)
 
     return {
         "id": event_ticker,
@@ -355,8 +371,13 @@ def _parse_game_from_markets(
     }
 
 
-def _estimate_commence_time(expire_str: str, sport_key: str) -> str:
-    """Estimate game start time from Kalshi's expected_expiration_time."""
+def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str = "") -> str:
+    """Estimate game start time from Kalshi's expected_expiration_time.
+
+    Uses the event ticker date as a sanity check — if the estimated time
+    lands on a different day than the ticker date, use the ticker date
+    with the estimated time-of-day.
+    """
     if not expire_str:
         return ""
     try:
@@ -372,6 +393,18 @@ def _estimate_commence_time(expire_str: str, sport_key: str) -> str:
         }
         hours = offsets.get(sport_key, 3)
         commence = expire - timedelta(hours=hours)
+
+        # Validate against event ticker date if available
+        if event_ticker:
+            ticker_date = _parse_event_ticker_date(event_ticker)
+            if ticker_date and commence.date() != ticker_date.date():
+                # Estimated time landed on wrong day — use ticker date with estimated time
+                commence = commence.replace(
+                    year=ticker_date.year,
+                    month=ticker_date.month,
+                    day=ticker_date.day,
+                )
+
         return commence.isoformat().replace("+00:00", "Z")
     except (ValueError, TypeError):
         return expire_str
@@ -832,7 +865,7 @@ class KalshiAPI:
                         # Find earliest expiration to estimate next game
                         exp = m.get("expected_expiration_time") or m.get("close_time", "")
                         if exp:
-                            est_start = _estimate_commence_time(exp, key)
+                            est_start = _estimate_commence_time(exp, key, et)
                             if est_start and (earliest_time is None or est_start < earliest_time):
                                 earliest_time = est_start
                     games_available[key] = {
