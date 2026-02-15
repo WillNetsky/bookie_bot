@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
+from datetime import datetime, timezone
 
 import aiohttp
 import aiosqlite
@@ -13,7 +13,132 @@ from bot.db.database import DB_PATH
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
-CACHE_TTL = 300  # 5 minutes — prices change faster than sports odds
+CACHE_TTL = 300  # 5 minutes
+
+# ── Sports series tickers ─────────────────────────────────────────────
+# Organized by sport → bet type. Each entry maps to a Kalshi series_ticker
+# that returns individual game markets via GET /markets?series_ticker=X
+
+SPORTS = {
+    "NBA": {
+        "label": "NBA Basketball",
+        "series": {
+            "Game": "KXNBAGAME",
+            "Spread": "KXNBASPREAD",
+            "Total Points": "KXNBATOTAL",
+        },
+    },
+    "NFL": {
+        "label": "NFL Football",
+        "series": {
+            "Game": "KXNFLGAME",
+            "Spread": "KXNFLSPREAD",
+            "Total Points": "KXNFLTOTAL",
+        },
+    },
+    "MLB": {
+        "label": "MLB Baseball",
+        "series": {
+            "Game": "KXMLBGAME",
+            "Spread": "KXMLBSPREAD",
+            "Total Runs": "KXMLBTOTAL",
+        },
+    },
+    "NHL": {
+        "label": "NHL Hockey",
+        "series": {
+            "Game": "KXNHLGAME",
+            "Spread": "KXNHLSPREAD",
+            "Total Goals": "KXNHLTOTAL",
+        },
+    },
+    "NCAAMB": {
+        "label": "College Basketball (M)",
+        "series": {
+            "Game": "KXNCAAMBGAME",
+            "Spread": "KXNCAAMBSPREAD",
+            "Total Points": "KXNCAAMBTOTAL",
+        },
+    },
+    "NCAAWB": {
+        "label": "College Basketball (W)",
+        "series": {
+            "Game": "KXNCAAWBGAME",
+            "Spread": "KXNCAAWBSPREAD",
+            "Total Points": "KXNCAAWBTOTAL",
+        },
+    },
+    "NCAAF": {
+        "label": "College Football",
+        "series": {
+            "Game": "KXNCAAFGAME",
+            "Spread": "KXNCAAFSPREAD",
+            "Total Points": "KXNCAAFTOTAL",
+        },
+    },
+    "EPL": {
+        "label": "English Premier League",
+        "series": {
+            "Game": "KXEPLGAME",
+            "Spread": "KXEPLSPREAD",
+            "Total Goals": "KXEPLTOTAL",
+        },
+    },
+    "La Liga": {
+        "label": "La Liga",
+        "series": {
+            "Game": "KXLALIGAGAME",
+            "Spread": "KXLALIGASPREAD",
+            "Total Goals": "KXLALIGATOTAL",
+        },
+    },
+    "Bundesliga": {
+        "label": "Bundesliga",
+        "series": {
+            "Game": "KXBUNDESLIGAGAME",
+            "Spread": "KXBUNDESLIGASPREAD",
+            "Total Goals": "KXBUNDESLIGATOTAL",
+        },
+    },
+    "Serie A": {
+        "label": "Serie A",
+        "series": {
+            "Game": "KXSERIEAGAME",
+            "Spread": "KXSERIEASPREAD",
+            "Total Goals": "KXSERIEATOTAL",
+        },
+    },
+    "Ligue 1": {
+        "label": "Ligue 1",
+        "series": {
+            "Game": "KXLIGUE1GAME",
+            "Spread": "KXLIGUE1SPREAD",
+            "Total Goals": "KXLIGUE1TOTAL",
+        },
+    },
+    "UCL": {
+        "label": "Champions League",
+        "series": {
+            "Game": "KXUCLGAME",
+            "Spread": "KXUCLSPREAD",
+            "Total Goals": "KXUCLTOTAL",
+        },
+    },
+    "MLS": {
+        "label": "MLS",
+        "series": {
+            "Game": "KXMLSGAME",
+            "Spread": "KXMLSSPREAD",
+            "Total Goals": "KXMLSTOTAL",
+        },
+    },
+    "UFC": {
+        "label": "UFC / MMA",
+        "series": {
+            "Fight Winner": "KXUFCFIGHT",
+        },
+    },
+}
 
 
 class KalshiAPI:
@@ -35,6 +160,7 @@ class KalshiAPI:
         cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
         effective_ttl = ttl if ttl is not None else CACHE_TTL
 
+        stale_data = None
         async with aiosqlite.connect(DB_PATH) as db:
             cursor = await db.execute(
                 "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
@@ -44,7 +170,6 @@ class KalshiAPI:
             if row:
                 fetched_at = row[1]
                 try:
-                    from datetime import datetime, timezone
                     fetched_dt = datetime.fromisoformat(fetched_at)
                     if fetched_dt.tzinfo is None:
                         fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
@@ -53,6 +178,7 @@ class KalshiAPI:
                         return json.loads(row[0])
                 except (ValueError, TypeError):
                     pass
+                stale_data = row[0]
 
         # Cache miss or stale — fetch from API
         session = await self._get_session()
@@ -60,15 +186,14 @@ class KalshiAPI:
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     log.warning("Kalshi API %s returned %s", url, resp.status)
-                    # Try stale cache as fallback
-                    if row:
-                        return json.loads(row[0])
+                    if stale_data:
+                        return json.loads(stale_data)
                     return None
                 data = await resp.json()
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             log.warning("Kalshi API request failed: %s", e)
-            if row:
-                return json.loads(row[0])
+            if stale_data:
+                return json.loads(stale_data)
             return None
 
         # Store in cache
@@ -84,59 +209,59 @@ class KalshiAPI:
 
     # ── Public API methods ────────────────────────────────────────────
 
-    async def get_events(self, status: str = "open", limit: int = 100, cursor: str | None = None) -> dict | None:
-        """Fetch events list. Returns raw API response with 'events' and 'cursor' keys."""
-        params: dict = {"status": status, "limit": limit, "with_nested_markets": "true"}
-        if cursor:
-            params["cursor"] = cursor
-        return await self._cached_request(f"{BASE_URL}/events", params)
-
-    async def get_event(self, event_ticker: str) -> dict | None:
-        """Fetch a single event with its markets."""
+    async def get_markets_by_series(self, series_ticker: str, status: str = "open", limit: int = 100) -> list[dict]:
+        """Fetch open markets for a given series ticker."""
         data = await self._cached_request(
-            f"{BASE_URL}/events/{event_ticker}",
-            {},
+            f"{BASE_URL}/markets",
+            {"series_ticker": series_ticker, "status": status, "limit": limit},
         )
-        if data and "event" in data:
-            return data["event"]
-        return data
-
-    async def get_markets(self, event_ticker: str | None = None, status: str = "open", limit: int = 100) -> dict | None:
-        """Fetch markets list."""
-        params: dict = {"status": status, "limit": limit}
-        if event_ticker:
-            params["event_ticker"] = event_ticker
-        return await self._cached_request(f"{BASE_URL}/markets", params)
+        if not data or "markets" not in data:
+            return []
+        return data["markets"]
 
     async def get_market(self, ticker: str) -> dict | None:
         """Fetch a single market by ticker (for resolution checking). Uses short TTL."""
         data = await self._cached_request(
             f"{BASE_URL}/markets/{ticker}",
             {},
-            ttl=60,  # 1 minute for resolution checks
+            ttl=60,
         )
         if data and "market" in data:
             return data["market"]
         return data
 
-    async def get_categories(self) -> list[str]:
-        """Get unique categories from open events."""
-        data = await self.get_events(limit=200)
-        if not data or "events" not in data:
-            return []
-        categories: dict[str, bool] = {}
-        for event in data["events"]:
-            cat = event.get("category", "")
-            if cat and cat not in categories:
-                categories[cat] = True
-        return list(categories.keys())
+    async def get_sport_markets(self, sport_key: str, bet_type: str) -> list[dict]:
+        """Get open markets for a sport + bet type combo.
 
-    async def get_events_by_category(self, category: str) -> list[dict]:
-        """Get open events filtered by category."""
-        data = await self.get_events(limit=200)
-        if not data or "events" not in data:
+        sport_key: key from SPORTS dict (e.g. "NBA")
+        bet_type: key from series dict (e.g. "Game", "Spread", "Total Points")
+        """
+        sport = SPORTS.get(sport_key)
+        if not sport:
             return []
-        return [e for e in data["events"] if e.get("category") == category]
+        series_ticker = sport["series"].get(bet_type)
+        if not series_ticker:
+            return []
+        return await self.get_markets_by_series(series_ticker)
+
+    async def get_available_sports(self) -> list[str]:
+        """Return sport keys that currently have open markets.
+
+        Checks the first bet type (usually 'Game') for each sport.
+        """
+        available = []
+        # Check all sports concurrently
+        tasks = {}
+        for key, sport in SPORTS.items():
+            first_series = next(iter(sport["series"].values()))
+            tasks[key] = self.get_markets_by_series(first_series, limit=1)
+
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        for key, result in zip(tasks.keys(), results):
+            if isinstance(result, list) and len(result) > 0:
+                available.append(key)
+
+        return available
 
 
 # Singleton instance

@@ -7,7 +7,7 @@ from discord.ext import commands, tasks
 
 from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service
-from bot.services.kalshi_api import kalshi_api
+from bot.services.kalshi_api import kalshi_api, SPORTS
 
 log = logging.getLogger(__name__)
 
@@ -61,89 +61,104 @@ def price_to_percent(price_dollars: str | None) -> str:
 # ── Interactive UI components ─────────────────────────────────────────
 
 
-class KalshiCategorySelect(discord.ui.Select):
-    def __init__(self, categories: list[str]) -> None:
-        options = [
-            discord.SelectOption(label=cat[:100], value=cat[:100])
-            for cat in categories[:25]
-        ]
-        super().__init__(placeholder="Select a category...", options=options, min_values=1, max_values=1)
+class SportSelect(discord.ui.Select):
+    """Step 1: Pick a sport."""
 
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        category = self.values[0]
-        events = await kalshi_api.get_events_by_category(category)
-        if not events:
-            await interaction.followup.send("No open events in this category.", ephemeral=True)
-            return
-
-        view = KalshiEventView(events, category)
-        embed = discord.Embed(
-            title=f"Kalshi — {category}",
-            description=f"Found {len(events)} open event(s). Select one to browse markets.",
-            color=discord.Color.purple(),
-        )
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-
-class KalshiCategoryView(discord.ui.View):
-    def __init__(self, categories: list[str]) -> None:
-        super().__init__(timeout=120)
-        self.add_item(KalshiCategorySelect(categories))
-
-
-class KalshiEventSelect(discord.ui.Select):
-    def __init__(self, events: list[dict], category: str) -> None:
-        self.events_map: dict[str, dict] = {}
+    def __init__(self, available_sports: list[str]) -> None:
         options = []
-        for event in events[:25]:
-            ticker = event["event_ticker"]
-            title = event.get("title", ticker)[:100]
-            self.events_map[ticker] = event
-            options.append(discord.SelectOption(label=title, value=ticker))
-        self.category = category
-        super().__init__(placeholder="Select an event...", options=options, min_values=1, max_values=1)
+        for key in available_sports[:25]:
+            sport = SPORTS[key]
+            options.append(discord.SelectOption(
+                label=sport["label"],
+                value=key,
+            ))
+        super().__init__(placeholder="Select a sport...", options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        sport_key = self.values[0]
+        sport = SPORTS[sport_key]
+        bet_types = list(sport["series"].keys())
+
+        # If only one bet type (e.g. UFC), skip to markets
+        if len(bet_types) == 1:
+            await interaction.response.defer()
+            markets = await kalshi_api.get_sport_markets(sport_key, bet_types[0])
+            if not markets:
+                await interaction.followup.send(f"No open {sport['label']} markets right now.", ephemeral=True)
+                return
+            view = MarketListView(markets, sport_key, bet_types[0])
+            embed = discord.Embed(
+                title=f"{sport['label']} — {bet_types[0]}",
+                description=f"{len(markets)} open market(s). Select one to bet.",
+                color=discord.Color.purple(),
+            )
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            view = BetTypeView(sport_key)
+            embed = discord.Embed(
+                title=sport["label"],
+                description="Select a bet type.",
+                color=discord.Color.purple(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class SportView(discord.ui.View):
+    def __init__(self, available_sports: list[str]) -> None:
+        super().__init__(timeout=120)
+        self.add_item(SportSelect(available_sports))
+
+
+class BetTypeSelect(discord.ui.Select):
+    """Step 2: Pick bet type (Game/Spread/Total)."""
+
+    def __init__(self, sport_key: str) -> None:
+        self.sport_key = sport_key
+        sport = SPORTS[sport_key]
+        options = [
+            discord.SelectOption(label=bt, value=bt)
+            for bt in sport["series"].keys()
+        ]
+        super().__init__(placeholder="Select bet type...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
-        ticker = self.values[0]
-        event = self.events_map.get(ticker)
-        if not event:
-            await interaction.followup.send("Event not found.", ephemeral=True)
-            return
-
-        markets = event.get("markets", [])
-        # Filter to open markets only
-        markets = [m for m in markets if m.get("status") == "open"]
+        bet_type = self.values[0]
+        sport = SPORTS[self.sport_key]
+        markets = await kalshi_api.get_sport_markets(self.sport_key, bet_type)
         if not markets:
-            await interaction.followup.send("No open markets for this event.", ephemeral=True)
+            await interaction.followup.send(f"No open {sport['label']} {bet_type} markets right now.", ephemeral=True)
             return
 
-        view = KalshiMarketView(markets, event)
+        view = MarketListView(markets, self.sport_key, bet_type)
         embed = discord.Embed(
-            title=event.get("title", ticker),
-            description=f"{len(markets)} open market(s). Select one to place a bet.",
+            title=f"{sport['label']} — {bet_type}",
+            description=f"{len(markets)} open market(s). Select one to bet.",
             color=discord.Color.purple(),
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-class KalshiEventView(discord.ui.View):
-    def __init__(self, events: list[dict], category: str) -> None:
+class BetTypeView(discord.ui.View):
+    def __init__(self, sport_key: str) -> None:
         super().__init__(timeout=120)
-        self.add_item(KalshiEventSelect(events, category))
+        self.add_item(BetTypeSelect(sport_key))
 
 
-class KalshiMarketSelect(discord.ui.Select):
-    def __init__(self, markets: list[dict], event: dict) -> None:
+class MarketSelect(discord.ui.Select):
+    """Step 3: Pick a specific market (game)."""
+
+    def __init__(self, markets: list[dict], sport_key: str, bet_type: str) -> None:
         self.markets_map: dict[str, dict] = {}
-        self.event = event
+        self.sport_key = sport_key
+        self.bet_type = bet_type
         options = []
         for market in markets[:25]:
             ticker = market["ticker"]
             title = market.get("title", ticker)
-            yes_pct = price_to_percent(market.get("yes_ask_dollars") or market.get("last_price_dollars"))
-            label = f"{title}"[:95]
+            yes_price = market.get("yes_ask_dollars") or market.get("last_price_dollars")
+            yes_pct = price_to_percent(yes_price)
+            label = title[:95]
             desc = f"Yes: {yes_pct}"
             self.markets_map[ticker] = market
             options.append(discord.SelectOption(label=label, value=ticker, description=desc))
@@ -157,8 +172,8 @@ class KalshiMarketSelect(discord.ui.Select):
             return
 
         yes_price = market.get("yes_ask_dollars") or market.get("last_price_dollars")
-        no_price = market.get("no_ask_dollars") or market.get("last_price_dollars")
-        # For no, if no_ask not available, derive from yes price
+        no_price = market.get("no_ask_dollars")
+        # Derive no price from yes if needed
         if not no_price and yes_price:
             try:
                 no_price = f"{1.0 - float(yes_price):.2f}"
@@ -170,6 +185,9 @@ class KalshiMarketSelect(discord.ui.Select):
 
         close_time = market.get("close_time") or market.get("expected_expiration_time", "")
         close_display = format_close_time(close_time) if close_time else "TBD"
+
+        sport = SPORTS.get(self.sport_key, {})
+        sport_label = sport.get("label", self.sport_key)
 
         embed = discord.Embed(
             title=market.get("title", ticker),
@@ -186,17 +204,20 @@ class KalshiMarketSelect(discord.ui.Select):
             inline=True,
         )
         embed.add_field(name="Closes", value=close_display, inline=False)
-        if market.get("subtitle"):
-            embed.set_footer(text=market["subtitle"])
+        embed.set_footer(text=f"{sport_label} · {self.bet_type}")
 
-        view = KalshiBetView(market, self.event)
+        # Build a fake event dict for bet placement (Kalshi sports markets
+        # may not have a real event_ticker, so we use the series ticker)
+        event_info = {"event_ticker": market.get("event_ticker", ticker)}
+
+        view = KalshiBetView(market, event_info)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
-class KalshiMarketView(discord.ui.View):
-    def __init__(self, markets: list[dict], event: dict) -> None:
+class MarketListView(discord.ui.View):
+    def __init__(self, markets: list[dict], sport_key: str, bet_type: str) -> None:
         super().__init__(timeout=120)
-        self.add_item(KalshiMarketSelect(markets, event))
+        self.add_item(MarketSelect(markets, sport_key, bet_type))
 
 
 class KalshiBetView(discord.ui.View):
@@ -219,8 +240,7 @@ class KalshiBetView(discord.ui.View):
 
     @discord.ui.button(label="Bet NO", style=discord.ButtonStyle.red, emoji="\U0000274c")
     async def bet_no(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        no_price = self.market.get("no_ask_dollars") or self.market.get("last_price_dollars")
-        # Derive from yes price if needed
+        no_price = self.market.get("no_ask_dollars")
         if not no_price:
             yes_price = self.market.get("yes_ask_dollars") or self.market.get("last_price_dollars")
             if yes_price:
@@ -236,7 +256,7 @@ class KalshiBetView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
-class KalshiBetAmountModal(discord.ui.Modal, title="Place Kalshi Bet"):
+class KalshiBetAmountModal(discord.ui.Modal, title="Place Bet"):
     amount_input = discord.ui.TextInput(
         label="Wager amount ($)",
         placeholder="e.g. 50",
@@ -271,7 +291,6 @@ class KalshiBetAmountModal(discord.ui.Modal, title="Place Kalshi Bet"):
         market = self.market
         close_time = market.get("close_time") or market.get("expected_expiration_time")
 
-        # Check market hasn't closed
         if close_time:
             try:
                 ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
@@ -299,7 +318,7 @@ class KalshiBetAmountModal(discord.ui.Modal, title="Place Kalshi Bet"):
         payout = round(amount * self.odds, 2)
         pick_display = self.pick.upper()
 
-        embed = discord.Embed(title="Kalshi Bet Placed!", color=discord.Color.green())
+        embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#K{bet_id}", inline=True)
         embed.add_field(name="Market", value=market.get("title", market["ticker"])[:256], inline=False)
         embed.add_field(name="Pick", value=pick_display, inline=True)
@@ -324,19 +343,19 @@ class KalshiCog(commands.Cog):
         self.check_kalshi_results.cancel()
         await kalshi_api.close()
 
-    @app_commands.command(name="kalshi", description="Browse and bet on Kalshi prediction markets")
+    @app_commands.command(name="kalshi", description="Browse and bet on sports via Kalshi prediction markets")
     async def kalshi(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
 
-        categories = await kalshi_api.get_categories()
-        if not categories:
-            await interaction.followup.send("No open events found on Kalshi right now.", ephemeral=True)
+        available = await kalshi_api.get_available_sports()
+        if not available:
+            await interaction.followup.send("No open sports markets on Kalshi right now.", ephemeral=True)
             return
 
-        view = KalshiCategoryView(categories)
+        view = SportView(available)
         embed = discord.Embed(
-            title="Kalshi Prediction Markets",
-            description="Select a category to browse events.",
+            title="Kalshi Sports Betting",
+            description=f"{len(available)} sport(s) with open markets. Pick one.",
             color=discord.Color.purple(),
         )
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -398,7 +417,7 @@ class KalshiCog(commands.Cog):
                         title = bet.get("title") or ticker
 
                         embed = discord.Embed(
-                            title=f"{emoji} Kalshi Bet #{bet['id']} — {result_text.upper()}",
+                            title=f"{emoji} Bet #K{bet['id']} — {result_text.upper()}",
                             color=discord.Color.green() if won else discord.Color.red(),
                         )
                         embed.add_field(name="Bettor", value=name, inline=True)
