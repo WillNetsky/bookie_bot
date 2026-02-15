@@ -350,6 +350,20 @@ class SportsAPI:
                 result[eid] = self._parse_fixture_status(game)
         return result
 
+    async def get_cached_scores(self, sport: str) -> list[dict]:
+        """Read scores from cache without making API calls. Returns [] if no cached data."""
+        cache_key = f"{BASE_URL}/sports/{sport}/scores:{{}}"
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT data FROM games_cache WHERE game_id = ?",
+                (cache_key,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                data = json.loads(row[0])
+                return data if isinstance(data, list) else []
+        return []
+
     async def find_outright_in_cache(self, event_id: str) -> tuple[dict, str] | None:
         """Search cached outright/odds data for an event ID without making API calls.
 

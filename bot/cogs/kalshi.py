@@ -7,7 +7,8 @@ from discord.ext import commands, tasks
 
 from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service
-from bot.services.kalshi_api import kalshi_api, SPORTS, FUTURES
+from bot.services.kalshi_api import kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API
+from bot.services.sports_api import SportsAPI
 from bot.cogs.betting import (
     format_matchup, format_game_time, PICK_EMOJI,
 )
@@ -900,6 +901,7 @@ class GamesListView(discord.ui.View):
         all_games: list[dict],
         title: str,
         is_live: bool = False,
+        scores: dict[str, dict] | None = None,
         page: int = 0,
         timeout: float = 180.0,
     ) -> None:
@@ -907,6 +909,7 @@ class GamesListView(discord.ui.View):
         self.all_games = all_games
         self.title = title
         self.is_live_mode = is_live
+        self.scores = scores or {}
         self.page = page
         self.message: discord.Message | None = None
 
@@ -924,6 +927,24 @@ class GamesListView(discord.ui.View):
                 self.add_item(GamesPageButton("prev", page - 1, row=1))
             if page < total_pages - 1:
                 self.add_item(GamesPageButton("next", page + 1, row=1))
+
+    def _find_score(self, game: dict) -> dict | None:
+        """Match a Kalshi game to odds-api scores by team name."""
+        if not self.scores:
+            return None
+        home = game.get("home_team", "").lower()
+        away = game.get("away_team", "").lower()
+        if not home or not away:
+            return None
+        for score_data in self.scores.values():
+            s_home = (score_data.get("home_team") or "").lower()
+            s_away = (score_data.get("away_team") or "").lower()
+            if not s_home or not s_away:
+                continue
+            # Match if team names overlap (handles "Celtics" vs "Boston Celtics")
+            if (home in s_home or s_home in home) and (away in s_away or s_away in away):
+                return score_data
+        return None
 
     def build_embed(self) -> discord.Embed:
         total = len(self.all_games)
@@ -943,8 +964,18 @@ class GamesListView(discord.ui.View):
             home = g.get("home_team", "?")
             away = g.get("away_team", "?")
             sport = g.get("sport_title", "")
-            time_str = _format_game_time_with_status(g.get("commence_time", ""))
-            lines.append(f"**{away}** @ **{home}**\n{sport} · {time_str}")
+
+            score = self._find_score(g) if self.is_live_mode else None
+            if score and score.get("started") and score.get("home_score") is not None:
+                score_str = f"**{away}** {score['away_score']} - {score['home_score']} **{home}**"
+                if score.get("completed"):
+                    score_str += "  (Final)"
+                else:
+                    score_str = f"\U0001f534 {score_str}"
+                lines.append(f"{score_str}\n{sport}")
+            else:
+                time_str = _format_game_time_with_status(g.get("commence_time", ""))
+                lines.append(f"**{away}** @ **{home}**\n{sport} · {time_str}")
 
         embed.description = "\n\n".join(lines)
 
@@ -980,6 +1011,7 @@ class GamesPageButton(discord.ui.Button["GamesListView"]):
             all_games=view.all_games,
             title=view.title,
             is_live=view.is_live_mode,
+            scores=view.scores,
             page=self.target_page,
         )
         embed = new_view.build_embed()
@@ -995,6 +1027,7 @@ class GamesPageButton(discord.ui.Button["GamesListView"]):
 class KalshiCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.sports_api = SportsAPI()
 
     async def cog_load(self) -> None:
         self.check_kalshi_results.start()
@@ -1122,7 +1155,7 @@ class KalshiCog(commands.Cog):
 
     # ── /live ─────────────────────────────────────────────────────────
 
-    @app_commands.command(name="live", description="View live games to bet on")
+    @app_commands.command(name="live", description="View live games with scores")
     @app_commands.describe(sport="Filter by sport (leave blank for all)")
     @app_commands.autocomplete(sport=sport_autocomplete)
     async def live(self, interaction: discord.Interaction, sport: str | None = None) -> None:
@@ -1140,7 +1173,26 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("No live games right now.")
             return
 
-        view = GamesListView(all_games=live_games, title="\U0001f534 Live Games", is_live=True)
+        # Fetch cached scores (no API calls) for live sports
+        scores: dict[str, dict] = {}
+        sport_keys_needed = set()
+        for g in live_games:
+            odds_key = KALSHI_TO_ODDS_API.get(g.get("sport_key", ""))
+            if odds_key:
+                sport_keys_needed.add(odds_key)
+
+        for odds_key in sport_keys_needed:
+            cached = await self.sports_api.get_cached_scores(odds_key)
+            for game_data in cached:
+                parsed = self.sports_api._parse_fixture_status(game_data)
+                eid = game_data.get("id", "")
+                if eid:
+                    scores[eid] = parsed
+
+        view = GamesListView(
+            all_games=live_games, title="\U0001f534 Live Games",
+            is_live=True, scores=scores,
+        )
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg

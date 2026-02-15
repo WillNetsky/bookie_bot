@@ -16,6 +16,25 @@ BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CACHE_TTL = 300  # 5 minutes
 DISCOVERY_TTL = 600  # 10 minutes for availability checks
 
+# ── Kalshi → Odds-API sport key mapping (for live scores) ─────────────
+KALSHI_TO_ODDS_API = {
+    "NBA": "basketball_nba",
+    "NFL": "americanfootball_nfl",
+    "MLB": "baseball_mlb",
+    "NHL": "icehockey_nhl",
+    "NCAAMB": "basketball_ncaab",
+    "NCAAWB": "basketball_wncaab",
+    "NCAAF": "americanfootball_ncaaf",
+    "EPL": "soccer_epl",
+    "La Liga": "soccer_spain_la_liga",
+    "Bundesliga": "soccer_germany_bundesliga",
+    "Serie A": "soccer_italy_serie_a",
+    "Ligue 1": "soccer_france_ligue_one",
+    "UCL": "soccer_uefa_champs_league",
+    "MLS": "soccer_usa_mls",
+    "UFC": "mma_mixed_martial_arts",
+}
+
 # ── Sports series tickers ─────────────────────────────────────────────
 # Organized by sport → bet type. Each entry maps to a Kalshi series_ticker
 # that returns individual game markets via GET /markets?series_ticker=X
