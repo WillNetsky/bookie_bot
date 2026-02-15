@@ -24,6 +24,7 @@ class SportsAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
         self._last_request_time: float = 0.0  # monotonic timestamp of last API call
+        self._request_lock: asyncio.Lock = asyncio.Lock()
         # Quota tracking from API response headers
         self.requests_used: int | None = None
         self.requests_remaining: int | None = None
@@ -84,17 +85,19 @@ class SportsAPI:
                 # Keep stale data as fallback in case the API call fails
                 stale_data = row[0]
 
-        # Rate limit: at least 1 second between API calls to avoid 429s
-        now_mono = time.monotonic()
-        elapsed = now_mono - self._last_request_time
-        if elapsed < 1.0:
-            await asyncio.sleep(1.0 - elapsed)
+        # Rate limit: at least 1 second between API calls to avoid 429s.
+        # Lock ensures concurrent gather() calls serialize properly.
+        async with self._request_lock:
+            now_mono = time.monotonic()
+            elapsed = now_mono - self._last_request_time
+            if elapsed < 1.0:
+                await asyncio.sleep(1.0 - elapsed)
+            self._last_request_time = time.monotonic()
 
         session = await self._get_session()
         full_params = {**params, "apiKey": ODDS_API_KEY}
         log.debug("API call: %s", url)
         try:
-            self._last_request_time = time.monotonic()
             async with session.get(url, params=full_params) as resp:
                 self._update_quota(resp)
                 if resp.status != 200:
@@ -132,18 +135,23 @@ class SportsAPI:
         """
         if sport == "upcoming":
             # /events doesn't support "upcoming" keyword, so fetch active
-            # sports and query each one — both endpoints are FREE
+            # sports and query each one — both endpoints are FREE.
+            # Use gather for concurrency (cached hits are instant, only
+            # uncached requests hit the rate limiter).
             active_sports = await self.get_sports()
-            data = []
-            for sp in active_sports:
-                sk = sp.get("key")
-                if not sk or not sp.get("active"):
-                    continue
-                sport_events = await self._cached_request(
+            sport_keys = [
+                sp["key"] for sp in active_sports
+                if sp.get("key") and sp.get("active")
+            ]
+
+            async def _fetch_sport(sk: str) -> list[dict]:
+                result = await self._cached_request(
                     f"{BASE_URL}/sports/{sk}/events", {},
                 )
-                if isinstance(sport_events, list):
-                    data.extend(sport_events)
+                return result if isinstance(result, list) else []
+
+            results = await asyncio.gather(*[_fetch_sport(sk) for sk in sport_keys])
+            data = [game for batch in results for game in batch]
         else:
             data = await self._cached_request(
                 f"{BASE_URL}/sports/{sport}/events", {},
