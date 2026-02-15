@@ -952,10 +952,10 @@ class Betting(commands.Cog):
     @app_commands.command(name="odds", description="View upcoming games and odds")
     @app_commands.describe(
         sport="Sport to view (leave blank for all upcoming)",
-        hours="Only show games starting within this many hours (default: 6)",
+        hours="Only show games starting within this many hours (default: 24)",
     )
     @app_commands.autocomplete(sport=sport_autocomplete)
-    async def odds(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 6) -> None:
+    async def odds(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 24) -> None:
         await interaction.response.defer()
 
         # Use free /events endpoint for game listing (0 credits)
@@ -1137,14 +1137,14 @@ class Betting(commands.Cog):
     @app_commands.command(name="parlay", description="Build a parlay bet")
     @app_commands.describe(
         sport="Sport to view (leave blank for all upcoming)",
-        hours="Only show games starting within this many hours (default: 6)",
+        hours="Only show games starting within this many hours (default: 24)",
     )
     @app_commands.autocomplete(sport=sport_autocomplete)
     async def parlay(
         self,
         interaction: discord.Interaction,
         sport: str | None = None,
-        hours: int = 6,
+        hours: int = 24,
     ) -> None:
         await interaction.response.defer()
 
