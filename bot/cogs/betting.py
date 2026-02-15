@@ -359,12 +359,16 @@ class OddsView(discord.ui.View):
         self.games = games
         self.sports_api = sports_api
         self.odds_cache: dict[str, dict] = {}  # game_id -> parsed odds
+        self.message: discord.Message | None = None
         self.add_item(OddsGameSelect(games, sports_api))
 
     async def on_timeout(self) -> None:
-        for item in self.children:
-            if hasattr(item, "disabled"):
-                item.disabled = True  # type: ignore[union-attr]
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
 
 
 # ── Interactive parlay builder UI components ─────────────────────────
@@ -383,6 +387,7 @@ class ParlayView(discord.ui.View):
         self.sports_api = sports_api
         self.odds_cache: dict[str, dict] = {}  # game_id -> parsed odds
         self.legs: list[dict] = []
+        self.message: discord.Message | None = None
         self.show_game_select()
 
     def _leg_game_ids(self) -> set[str]:
@@ -501,9 +506,12 @@ class ParlayView(discord.ui.View):
         self.add_item(ParlayCancelButton(row=2))
 
     async def on_timeout(self) -> None:
-        for item in self.children:
-            if hasattr(item, "disabled"):
-                item.disabled = True  # type: ignore[union-attr]
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
 
 
 class ParlayGameSelect(discord.ui.Select["ParlayView"]):
@@ -980,7 +988,8 @@ class Betting(commands.Cog):
         view = OddsView(display_games, self.sports_api)
         embed.set_footer(text="Select a game below to see odds and bet")
 
-        await interaction.followup.send(embed=embed, view=view)
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
 
     # ── /bet ─────────────────────────────────────────────────────────────
 
@@ -1148,7 +1157,8 @@ class Betting(commands.Cog):
 
         view = ParlayView(games, self.sports_api)
         embed = view.build_embed()
-        await interaction.followup.send(embed=embed, view=view)
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
 
     # ── /myparlays ────────────────────────────────────────────────────────
 
