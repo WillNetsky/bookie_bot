@@ -5,12 +5,13 @@ A Discord bot for placing wagers on real sporting events using fictional currenc
 ### Features
 
 - **Real odds** — pulls live moneyline, spread, and totals odds from [The Odds API](https://the-odds-api.com) across 70+ sports (NFL, NBA, NHL, MLB, EPL, MMA, and more)
-- **Voice channel rewards** — earn $20/hour in fictional currency just by being in a voice channel (paid every 6 minutes)
+- **Voice channel rewards** — earn $2/hour in fictional currency just by being in a voice channel (paid every 30 minutes)
 - **Interactive betting UI** — browse games, view odds, and place bets through Discord buttons, selects, and modals
 - **Parlay builder** — multi-step flow to build parlays: select games, pick bet types, review slip, confirm wager
 - **Auto-resolution** — background task checks scores every 30 minutes with smart sport-duration filtering and settles bets automatically
 - **Live scores** — check scores for your active bets in real-time
 - **Result announcements** — resolved bets and parlays posted to a dedicated channel with full leg details
+- **Kalshi prediction markets** — browse and bet on real prediction markets (politics, economics, weather, etc.) from [Kalshi](https://kalshi.com) with yes/no bets and automatic settlement
 - **Quota-conscious** — aggressive caching, free endpoint usage, and smart polling to stay within API limits
 
 ### Commands
@@ -20,8 +21,10 @@ A Discord bot for placing wagers on real sporting events using fictional currenc
 | `/games [sport] [hours]` | Browse upcoming games (default: next 6 hours). Free, no API quota cost. |
 | `/odds [sport]` | View upcoming games with American odds. Interactive UI to place bets. |
 | `/parlay [sport]` | Build a parlay bet through an interactive multi-step flow. |
-| `/mybets` | View your bets with color-coded status (pending/won/lost). |
+| `/kalshi` | Browse Kalshi prediction markets and place yes/no bets. |
+| `/mybets` | View your pending bets (sports + Kalshi) with color-coded status. |
 | `/cancelbet <bet_id>` | Cancel a pending bet before game start for a full refund. |
+| `/myhistory` | View resolved bet history with win/loss stats and pagination. |
 | `/livescores` | View live scores for your active bets. |
 | `/balance` | Check your current coin balance. |
 | `/leaderboard` | See the top balances on the server. |
@@ -66,9 +69,11 @@ bot/
 ├── cogs/
 │   ├── betting.py       # All betting commands, interactive UI views, auto-resolution loop
 │   ├── wallet.py        # /balance, /leaderboard
-│   └── voice_rewards.py # Voice channel currency accrual ($20/hr)
+│   ├── kalshi.py        # /kalshi command, prediction market UI, settlement loop
+│   └── voice_rewards.py # Voice channel currency accrual ($2/hr)
 ├── services/
 │   ├── sports_api.py    # The Odds API client with SQLite caching + stale fallback
+│   ├── kalshi_api.py    # Kalshi prediction market API client with caching
 │   ├── betting_service.py # Bet placement, cancellation, and resolution logic
 │   └── wallet_service.py  # Currency management
 └── db/
@@ -79,12 +84,12 @@ bot/
 ### TODO
 
 - [ ] **Daily free bet** — give users a free bet each day to keep engagement up even when balances are low
-- [ ] **Bet history / stats** — `/stats` command showing win rate, biggest win, total wagered, profit/loss over time
+- [x] **Bet history / stats** — `/myhistory` command showing win rate, total wagered, profit/loss with pagination
 - [ ] **Head-to-head challenges** — let two users bet against each other on a game at even odds (or custom)
 - [ ] **Prop bets / custom bets** — admin-created bets on arbitrary events (e.g. "Will X happen during the game?")
 - [ ] **Streak bonuses** — bonus payouts for consecutive winning bets (e.g. 3-win streak = 1.5x next payout)
 - [ ] **Bankrupt recovery** — small trickle income or daily login bonus so broke users can get back in the game
 - [ ] **Bet sharing** — shareable embed when placing a bet so others can tail it with one click
 - [ ] **League standings / favorites** — let users follow specific leagues and get notified when new games are available
-- [ ] **Pagination for /mybets** — paginated view for users with many bets instead of truncating
+- [x] **Pagination for /mybets** — paginated view via `/myhistory` for resolved bets
 - [ ] **Multi-server support** — per-guild wallets and leaderboards for running the bot across multiple servers
