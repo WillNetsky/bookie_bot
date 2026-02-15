@@ -885,100 +885,71 @@ async def _show_sport_hub(interaction: discord.Interaction, sport_key: str) -> N
 
 # ── Games List View (for /games and /livescores) ──────────────────────
 
+GAMES_PER_PAGE = 10
+
 
 class GamesListView(discord.ui.View):
-    """View showing a list of games with a game select dropdown for betting.
-
-    Used by both /games (upcoming) and /livescores (live).
-    """
+    """Compact chronological game list with game select for quick betting."""
 
     def __init__(
         self,
         all_games: list[dict],
         title: str,
         is_live: bool = False,
-        sport_filter: str | None = None,
+        page: int = 0,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
         self.all_games = all_games
         self.title = title
         self.is_live_mode = is_live
-        self.sport_filter = sport_filter
+        self.page = page
         self.message: discord.Message | None = None
 
-        filtered = self._filtered_games()
+        total_pages = max(1, (len(all_games) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE)
+        start = page * GAMES_PER_PAGE
+        page_games = all_games[start:start + GAMES_PER_PAGE]
 
-        # Sport filter dropdown (row 0) if multiple sports
-        sport_keys = list(dict.fromkeys(g.get("sport_key", "") for g in all_games))
-        if len(sport_keys) > 1:
-            sport_options = [
-                discord.SelectOption(label="All Sports", value="all", default=sport_filter is None)
-            ]
-            for sk in sport_keys[:24]:
-                sport_info = SPORTS.get(sk)
-                label = sport_info["label"] if sport_info else sk
-                count = sum(1 for g in all_games if g.get("sport_key") == sk)
-                sport_options.append(discord.SelectOption(
-                    label=f"{label} ({count})",
-                    value=sk,
-                    default=sport_filter == sk,
-                ))
-            self.add_item(SportFilterSelect(sport_options))
+        # Row 0: Game select
+        if page_games:
+            self.add_item(KalshiGameSelect(page_games, row=0))
 
-        # Game select dropdown (row 1)
-        if filtered:
-            self.add_item(KalshiGameSelect(filtered[:25], row=1))
-
-    def _filtered_games(self) -> list[dict]:
-        games = self.all_games
-        if self.sport_filter:
-            games = [g for g in games if g.get("sport_key") == self.sport_filter]
-        return games
+        # Row 1: Pagination
+        if total_pages > 1:
+            if page > 0:
+                self.add_item(GamesPageButton("prev", page - 1, row=1))
+            if page < total_pages - 1:
+                self.add_item(GamesPageButton("next", page + 1, row=1))
 
     def build_embed(self) -> discord.Embed:
-        filtered = self._filtered_games()
-        embed = discord.Embed(title=self.title, color=discord.Color.red() if self.is_live_mode else discord.Color.blue())
+        total = len(self.all_games)
+        total_pages = max(1, (total + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE)
+        start = self.page * GAMES_PER_PAGE
+        page_games = self.all_games[start:start + GAMES_PER_PAGE]
 
-        if not filtered:
+        color = discord.Color.red() if self.is_live_mode else discord.Color.blue()
+        embed = discord.Embed(title=self.title, color=color)
+
+        if not page_games:
             embed.description = "No live games right now." if self.is_live_mode else "No upcoming games right now."
             return embed
 
-        # Group by sport
-        by_sport: dict[str, list[dict]] = {}
-        for g in filtered:
-            sport_title = g.get("sport_title", g.get("sport_key", "Other"))
-            by_sport.setdefault(sport_title, []).append(g)
+        lines = []
+        for g in page_games:
+            home = g.get("home_team", "?")
+            away = g.get("away_team", "?")
+            sport = g.get("sport_title", "")
+            time_str = _format_game_time_with_status(g.get("commence_time", ""))
+            lines.append(f"**{away}** @ **{home}**\n{sport} · {time_str}")
 
-        total_shown = 0
-        embed_len = len(embed.title or "")
-        for sport_title, sport_games in by_sport.items():
-            if total_shown >= 20:
-                break
-            lines = []
-            for g in sport_games[:8]:
-                home = g.get("home_team", "?")
-                away = g.get("away_team", "?")
-                time_str = _format_game_time_with_status(g.get("commence_time", ""))
-                lines.append(f"**{away}** @ **{home}**\n{time_str}")
-            value = "\n".join(lines)
-            if len(sport_games) > 8:
-                value += f"\n*...and {len(sport_games) - 8} more*"
-            field_name = f"{sport_title} ({len(sport_games)})"
-            field_len = len(field_name) + len(value)
-            if embed_len + field_len > 5500:
-                break
-            embed.add_field(name=field_name, value=value, inline=False)
-            embed_len += field_len
-            total_shown += 1
+        embed.description = "\n\n".join(lines)
 
-        total_games = len(filtered)
-        footer = f"{total_games} game{'s' if total_games != 1 else ''}"
-        if self.is_live_mode:
-            footer += " live now — select a game to bet"
-        else:
-            footer += " upcoming — select a game to bet"
-        embed.set_footer(text=footer)
+        parts = []
+        if total_pages > 1:
+            parts.append(f"Page {self.page + 1}/{total_pages}")
+        parts.append(f"{total} game{'s' if total != 1 else ''}")
+        parts.append("Select a game to bet")
+        embed.set_footer(text=" · ".join(parts))
         return embed
 
     async def on_timeout(self) -> None:
@@ -990,25 +961,22 @@ class GamesListView(discord.ui.View):
                 pass
 
 
-class SportFilterSelect(discord.ui.Select["GamesListView"]):
-    """Dropdown to filter games by sport."""
-
-    def __init__(self, options: list[discord.SelectOption]) -> None:
-        super().__init__(placeholder="Filter by sport...", options=options, row=0)
+class GamesPageButton(discord.ui.Button["GamesListView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        val = self.values[0]
-        sport_filter = None if val == "all" else val
-
         view = self.view
         if view is None:
             return
-
         new_view = GamesListView(
             all_games=view.all_games,
             title=view.title,
             is_live=view.is_live_mode,
-            sport_filter=sport_filter,
+            page=self.target_page,
         )
         embed = new_view.build_embed()
         try:
@@ -1137,30 +1105,13 @@ class KalshiCog(commands.Cog):
             all_games = await kalshi_api.get_all_games()
 
         # Filter to upcoming only (not yet started)
-        now = datetime.now(timezone.utc)
-        upcoming = []
-        for g in all_games:
-            ct = g.get("commence_time", "")
-            if not ct:
-                upcoming.append(g)
-                continue
-            try:
-                game_time = datetime.fromisoformat(ct.replace("Z", "+00:00"))
-                if game_time > now:
-                    upcoming.append(g)
-            except (ValueError, TypeError):
-                upcoming.append(g)
+        upcoming = [g for g in all_games if not _is_live(g.get("commence_time", ""))]
 
         if not upcoming:
             await interaction.followup.send("No upcoming games right now.")
             return
 
-        view = GamesListView(
-            all_games=upcoming,
-            title="Upcoming Games",
-            is_live=False,
-            sport_filter=sport if sport and sport in SPORTS else None,
-        )
+        view = GamesListView(all_games=upcoming, title="Upcoming Games")
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
@@ -1185,12 +1136,7 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("No live games right now.")
             return
 
-        view = GamesListView(
-            all_games=live_games,
-            title="\U0001f534 Live Games",
-            is_live=True,
-            sport_filter=sport if sport and sport in SPORTS else None,
-        )
+        view = GamesListView(all_games=live_games, title="\U0001f534 Live Games", is_live=True)
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
