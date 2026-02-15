@@ -1084,65 +1084,6 @@ class Betting(commands.Cog):
                 break
         return choices
 
-    # ── /games ───────────────────────────────────────────────────────────
-
-    @app_commands.command(name="games", description="Browse upcoming games for the next 6 hours")
-    @app_commands.describe(
-        sport="Filter by sport (leave blank for all)",
-        hours="Hours ahead to show (default: 6)",
-    )
-    @app_commands.autocomplete(sport=sport_autocomplete)
-    async def games(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 6) -> None:
-        await interaction.response.defer()
-
-        events = await self.sports_api.get_events(sport or "upcoming", hours=hours)
-        events = [g for g in events if not is_sport_blocked(g.get("sport_key", ""))]
-        if not events:
-            await interaction.followup.send("No upcoming games found.")
-            return
-
-        # Group by sport for a clean display
-        by_sport: dict[str, list[dict]] = {}
-        for g in events:
-            title = g.get("sport_title", g.get("sport_key", "Other"))
-            by_sport.setdefault(title, []).append(g)
-
-        embed = discord.Embed(
-            title=f"Upcoming Games — next {hours}h" if not sport else f"Upcoming — {list(by_sport.keys())[0]}",
-            color=discord.Color.blue(),
-        )
-
-        total_shown = 0
-        embed_len = len(embed.title or "")
-        for sport_title, sport_games in by_sport.items():
-            if total_shown >= 25:  # embed field limit
-                break
-            lines = []
-            for g in sport_games[:5]:
-                home = g.get("home_team", "?")
-                away = g.get("away_team", "?")
-                display_date = format_game_time(g.get("commence_time", ""))
-                lines.append(f"**{away}** @ **{home}**\n{display_date}")
-            value = "\n".join(lines)
-            if len(sport_games) > 5:
-                value += f"\n*...and {len(sport_games) - 5} more*"
-            field_name = f"{sport_title} ({len(sport_games)})"
-            field_len = len(field_name) + len(value)
-            if embed_len + field_len > 5500:  # leave room for footer
-                break
-            embed.add_field(name=field_name, value=value, inline=False)
-            embed_len += field_len
-            total_shown += 1
-
-        total_games = sum(len(g) for g in by_sport.values())
-        footer = f"{total_games} games across {len(by_sport)} sports"
-        if total_shown < len(by_sport):
-            footer += f" (showing {total_shown})"
-        footer += " · Use /odds <sport> to see odds and bet"
-        embed.set_footer(text=footer)
-
-        await interaction.followup.send(embed=embed)
-
     # ── /odds ────────────────────────────────────────────────────────────
 
     @app_commands.command(name="odds", description="View upcoming games and odds")
@@ -1738,68 +1679,6 @@ class Betting(commands.Cog):
         embed = await view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
-
-    # ── /livescores ────────────────────────────────────────────────────────
-
-    @app_commands.command(name="livescores", description="View live scores for your active bets")
-    async def livescores(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-
-        bets = await betting_service.get_user_bets(interaction.user.id, status="pending")
-        if not bets:
-            await interaction.followup.send("You have no pending bets.")
-            return
-
-        # Filter out outrights — no live scores for futures
-        game_bets = [b for b in bets if (b.get("market") or "") != "outrights"]
-
-        # Fetch live status for each unique game
-        seen: dict[str, dict] = {}
-        for b in game_bets:
-            composite = b["game_id"]
-            if composite in seen:
-                continue
-            parts = composite.split("|")
-            event_id = parts[0]
-            sport_key = parts[1] if len(parts) > 1 else None
-            status = await self.sports_api.get_fixture_status(event_id, sport_key)
-            if status:
-                seen[composite] = status
-
-        embed = discord.Embed(title="Live Scores", color=discord.Color.blue())
-        found_any = False
-
-        for b in game_bets:
-            live = seen.get(b["game_id"])
-            if not live or not live["started"]:
-                continue
-
-            home = b.get("home_team") or live.get("home_team", "Home")
-            away = b.get("away_team") or live.get("away_team", "Away")
-            sport = b.get("sport_title") or ""
-            pick_label = format_pick_label(b)
-            potential = round(b["amount"] * b["odds"], 2)
-
-            if live["home_score"] is not None and live["away_score"] is not None:
-                score_text = f"**{home}** {live['home_score']} - {live['away_score']} **{away}**"
-                if live["completed"]:
-                    score_text += "  (Final)"
-            else:
-                score_text = f"**{away}** @ **{home}** — scores unavailable"
-
-            sport_line = f"{sport} · " if sport else ""
-
-            embed.add_field(
-                name=f"Bet #{b['id']} · {sport_line}{pick_label} · ${b['amount']:.2f} → ${potential:.2f}",
-                value=score_text,
-                inline=False,
-            )
-            found_any = True
-
-        if not found_any:
-            embed.description = "None of your bets have started yet."
-
-        await interaction.followup.send(embed=embed)
 
     # ── /cancelbet ───────────────────────────────────────────────────────
 

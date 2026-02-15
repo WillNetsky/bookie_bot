@@ -715,6 +715,24 @@ class KalshiAPI:
 
         return parsed
 
+    async def get_all_games(self) -> list[dict]:
+        """Fetch games across all sports concurrently.
+
+        Returns a flat list of game dicts sorted by commence_time.
+        """
+        tasks = {}
+        for key in SPORTS:
+            tasks[key] = self.get_sport_games(key)
+
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        all_games = []
+        for key, result in zip(tasks.keys(), results):
+            if isinstance(result, list):
+                all_games.extend(result)
+
+        all_games.sort(key=lambda g: g.get("commence_time", "9999"))
+        return all_games
+
     async def get_available_sports(self) -> list[str]:
         """Return sport keys that currently have open markets.
 
