@@ -227,7 +227,10 @@ class BackButton(discord.ui.Button["OddsView"]):
             return
         view.clear_items()
         view.add_item(OddsGameSelect(view.games, view.sports_api))
-        await interaction.response.edit_message(view=view)
+        try:
+            await interaction.response.edit_message(view=view)
+        except discord.NotFound:
+            pass  # interaction token expired
 
 
 class OddsGameSelect(discord.ui.Select["OddsView"]):
@@ -599,7 +602,10 @@ class ParlayBetTypeButton(discord.ui.Button["ParlayView"]):
             embed.description = "Add at least 2 legs to place a parlay."
         else:
             embed.description = "Ready to place, or add more legs."
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class ParlayBackButton(discord.ui.Button["ParlayView"]):
@@ -614,7 +620,10 @@ class ParlayBackButton(discord.ui.Button["ParlayView"]):
             return
         view.show_game_select()
         embed = view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class ParlayBackToSlipButton(discord.ui.Button["ParlayView"]):
@@ -629,7 +638,10 @@ class ParlayBackToSlipButton(discord.ui.Button["ParlayView"]):
             return
         view.show_slip()
         embed = view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class ParlayAddLegButton(discord.ui.Button["ParlayView"]):
@@ -645,7 +657,10 @@ class ParlayAddLegButton(discord.ui.Button["ParlayView"]):
         view.show_game_select()
         embed = view.build_embed()
         embed.description = "Select another game to add to your parlay."
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class ParlayRemoveLegSelect(discord.ui.Select["ParlayView"]):
@@ -678,7 +693,10 @@ class ParlayRemoveLegSelect(discord.ui.Select["ParlayView"]):
             view.show_game_select()
         elif len(view.legs) < 2:
             embed.description = "Add at least 2 legs to place a parlay."
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class ParlayPlaceButton(discord.ui.Button["ParlayView"]):
@@ -712,7 +730,10 @@ class ParlayCancelButton(discord.ui.Button["ParlayView"]):
             color=discord.Color.light_grey(),
         )
         view.stop()
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
