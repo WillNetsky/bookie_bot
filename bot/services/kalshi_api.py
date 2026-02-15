@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CACHE_TTL = 300  # 5 minutes
+DISCOVERY_TTL = 600  # 10 minutes for availability checks
 
 # ── Sports series tickers ─────────────────────────────────────────────
 # Organized by sport → bet type. Each entry maps to a Kalshi series_ticker
@@ -139,6 +140,101 @@ SPORTS = {
         },
     },
 }
+
+# ── Futures / props / specials ────────────────────────────────────────
+# Multi-outcome markets (pick YES on one option from N choices).
+# Maps sport → named market → series_ticker.
+
+FUTURES = {
+    "NBA": {
+        "label": "NBA",
+        "markets": {
+            "Championship": "KXNBA",
+            "MVP": "KXNBAMVP",
+            "All-Star Tournament": "KXNBAALLSTARGAME",
+            "All-Star MVP": "KXNBAALLSTARMVP",
+        },
+    },
+    "NFL": {
+        "label": "NFL",
+        "markets": {
+            "Super Bowl": "KXSB",
+            "MVP": "KXNFLMVP",
+            "AFC Champion": "KXNFLAFCCHAMP",
+            "NFC Champion": "KXNFLNFCCHAMP",
+        },
+    },
+    "NHL": {
+        "label": "NHL",
+        "markets": {
+            "Stanley Cup": "KXNHL",
+        },
+    },
+    "MLB": {
+        "label": "MLB",
+        "markets": {
+            "World Series": "KXMLB",
+            "MVP": "KXMLBMVP",
+        },
+    },
+    "NCAAMB": {
+        "label": "College Basketball (M)",
+        "markets": {
+            "Championship": "KXNCAAMB",
+        },
+    },
+    "NCAAF": {
+        "label": "College Football",
+        "markets": {
+            "Championship": "KXNCAAF",
+        },
+    },
+    "Boxing": {
+        "label": "Boxing",
+        "markets": {
+            "Fights": "KXBOXING",
+        },
+    },
+    "EPL": {
+        "label": "English Premier League",
+        "markets": {
+            "Winner": "KXEPL",
+        },
+    },
+    "UCL": {
+        "label": "Champions League",
+        "markets": {
+            "Winner": "KXUCL",
+        },
+    },
+}
+
+# Map sport keys to their parent sport for grouping futures with games
+FUTURES_SPORT_MAP = {}
+for _fk in FUTURES:
+    FUTURES_SPORT_MAP[_fk] = _fk
+# Boxing is standalone (no SPORTS entry), keep as-is
+
+
+def _team_matches(name1: str, name2: str) -> bool:
+    """Check if two team names refer to the same team.
+
+    Handles abbreviation differences like 'Iowa St.' vs 'Iowa State'.
+    """
+    n1 = name1.lower().strip().rstrip(".")
+    n2 = name2.lower().strip().rstrip(".")
+    if n1 == n2:
+        return True
+    # Check if one contains the other (e.g. "Iowa St" in "Iowa State")
+    if n1 in n2 or n2 in n1:
+        return True
+    # Normalize common abbreviations
+    for short, long in [("st", "state"), ("u", "university")]:
+        n1_norm = n1.replace(short, long)
+        n2_norm = n2.replace(short, long)
+        if n1_norm == n2_norm:
+            return True
+    return False
 
 
 def _extract_event_suffix(event_ticker: str) -> str:
@@ -275,61 +371,85 @@ def _estimate_commence_time(expire_str: str, sport_key: str) -> str:
         return expire_str
 
 
+def _extract_spread_team(yes_sub_title: str) -> str | None:
+    """Extract team name from spread yes_sub_title.
+
+    e.g. "Seattle wins by over 9.5 Points" → "Seattle"
+    """
+    if " wins by" in yes_sub_title:
+        return yes_sub_title.split(" wins by")[0].strip()
+    return None
+
+
 def _pick_best_spread(markets: list[dict]) -> dict | None:
-    """From a list of spread markets for one game, pick the main line."""
+    """From a list of spread markets for one game, pick the main line.
+
+    Spread markets are one-sided: "Team wins by over X Points"
+    YES = that team covers (-X), NO = opposing team covers (+X).
+    Find the market closest to 50/50 and return both sides.
+    """
     if not markets:
         return None
 
-    # Group by floor_strike (the spread line)
-    # Pick the line where yes_ask is closest to 0.50 (most balanced)
+    # Find the single market closest to even (yes_ask ≈ 0.50)
     best = None
     best_diff = 999.0
-    best_pair = {}
 
-    # Markets come in pairs: one for each team at the same line
-    by_strike: dict[float, list[dict]] = {}
     for m in markets:
-        strike = m.get("floor_strike")
-        if strike is None:
-            continue
-        strike = float(strike)
-        if strike not in by_strike:
-            by_strike[strike] = []
-        by_strike[strike].append(m)
-
-    for strike, pair in by_strike.items():
-        for m in pair:
-            yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
-            diff = abs(yes_price - 0.5)
-            if diff < best_diff:
-                best_diff = diff
-                best = m
-                best_pair = {s: p for s, p in by_strike.items() if s == strike}
+        yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+        diff = abs(yes_price - 0.5)
+        if diff < best_diff:
+            best_diff = diff
+            best = m
 
     if not best:
         return None
 
-    # Get the strike and both sides
-    strike = float(best.get("floor_strike", 0))
-    pair = list(best_pair.values())[0] if best_pair else [best]
+    strike = float(best.get("floor_strike") or 0)
+    yes_price = float(best.get("yes_ask_dollars") or best.get("last_price_dollars") or "0.5")
+    ticker = best.get("ticker")
 
-    result = {}
-    for m in pair:
-        sub = m.get("yes_sub_title", "").strip()
-        yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
-        decimal_odds = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-        american = _decimal_to_american(decimal_odds)
+    # YES side: the named team covers at -strike
+    yes_team = _extract_spread_team(best.get("yes_sub_title", ""))
+    if not yes_team:
+        return None
 
-        result[sub] = {
-            "decimal": decimal_odds,
-            "american": american,
-            "point": strike,
-            "team": sub,
-            "_market_ticker": m.get("ticker"),
+    yes_decimal = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
+    yes_american = _decimal_to_american(yes_decimal)
+
+    # NO side: opposing team covers at +strike
+    no_price = 1.0 - yes_price
+    no_decimal = round(1.0 / no_price, 3) if no_price > 0 else 2.0
+    no_american = _decimal_to_american(no_decimal)
+
+    # Find the opposing team name from other markets in this game
+    other_team = None
+    for m in markets:
+        t = _extract_spread_team(m.get("yes_sub_title", ""))
+        if t and t != yes_team:
+            other_team = t
+            break
+
+    if not other_team:
+        # Can't find opposing team — still return with placeholder
+        other_team = "Opponent"
+
+    return {
+        yes_team: {
+            "decimal": yes_decimal,
+            "american": yes_american,
+            "point": -strike,  # negative = favorite
+            "_market_ticker": ticker,
             "_kalshi_pick": "yes",
-        }
-
-    return result if len(result) >= 2 else None
+        },
+        other_team: {
+            "decimal": no_decimal,
+            "american": no_american,
+            "point": strike,  # positive = underdog
+            "_market_ticker": ticker,
+            "_kalshi_pick": "no",
+        },
+    }
 
 
 def _pick_best_total(markets: list[dict]) -> dict | None:
@@ -584,9 +704,9 @@ class KalshiAPI:
                                 "_market_ticker": odds_data.get("_market_ticker"),
                                 "_kalshi_pick": odds_data.get("_kalshi_pick", "yes"),
                             }
-                            if team_name.lower() == home_team.lower():
+                            if _team_matches(team_name, home_team):
                                 parsed["spread_home"] = entry
-                            elif team_name.lower() == away_team.lower():
+                            elif _team_matches(team_name, away_team):
                                 parsed["spread_away"] = entry
                 elif key == "total":
                     total_odds = _pick_best_total(event_markets)
@@ -613,6 +733,77 @@ class KalshiAPI:
                 available.append(key)
 
         return available
+
+    async def get_futures_markets(self, series_ticker: str) -> list[dict]:
+        """Fetch open markets for a futures/props series, sorted by probability.
+
+        Returns list of dicts with: ticker, title, yes_price, american_odds, subtitle.
+        """
+        markets = await self.get_markets_by_series(series_ticker, limit=200)
+        if not markets:
+            return []
+
+        options = []
+        for m in markets:
+            yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0")
+            if yes_price <= 0:
+                continue
+            decimal_odds = round(1.0 / yes_price, 3)
+            american = _decimal_to_american(decimal_odds)
+            options.append({
+                "ticker": m.get("ticker", ""),
+                "title": m.get("yes_sub_title") or m.get("title", ""),
+                "yes_price": yes_price,
+                "decimal_odds": decimal_odds,
+                "american_odds": american,
+                "close_time": m.get("close_time") or m.get("expected_expiration_time"),
+                "event_ticker": m.get("event_ticker", ""),
+            })
+
+        # Sort by probability descending (favorites first)
+        options.sort(key=lambda o: o["yes_price"], reverse=True)
+        return options
+
+    async def discover_available(self) -> dict:
+        """Discover all available markets — games and futures.
+
+        Returns {"games": {sport_key: count, ...}, "futures": {sport_key: {name: count, ...}, ...}}
+        Uses longer cache TTL (10min).
+        """
+        games_tasks = {}
+        for key, sport in SPORTS.items():
+            first_series = next(iter(sport["series"].values()))
+            games_tasks[key] = self.get_markets_by_series(first_series, limit=1)
+
+        futures_tasks = {}
+        for sport_key, sport in FUTURES.items():
+            for market_name, series_ticker in sport["markets"].items():
+                task_key = f"{sport_key}:{market_name}"
+                futures_tasks[task_key] = self.get_markets_by_series(series_ticker, limit=1)
+
+        all_keys = list(games_tasks.keys()) + list(futures_tasks.keys())
+        all_coros = list(games_tasks.values()) + list(futures_tasks.values())
+
+        results = await asyncio.gather(*all_coros, return_exceptions=True)
+
+        games_available = {}
+        futures_available = {}
+
+        n_games = len(games_tasks)
+        for i, key in enumerate(all_keys):
+            result = results[i]
+            has_markets = isinstance(result, list) and len(result) > 0
+            if i < n_games:
+                if has_markets:
+                    games_available[key] = True
+            else:
+                if has_markets:
+                    sport_key, market_name = key.split(":", 1)
+                    if sport_key not in futures_available:
+                        futures_available[sport_key] = {}
+                    futures_available[sport_key][market_name] = True
+
+        return {"games": games_available, "futures": futures_available}
 
 
 # Singleton instance
