@@ -22,6 +22,24 @@ def _fmt_american(odds: int) -> str:
     return f"{odds:+d}" if odds else "?"
 
 
+def _is_live(commence_time: str) -> bool:
+    """Check if a game has already started based on commence_time."""
+    if not commence_time:
+        return False
+    try:
+        ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+        return ct <= datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return False
+
+
+def _format_game_time_with_status(commence_time: str) -> str:
+    """Format game time, showing LIVE if already started."""
+    if _is_live(commence_time):
+        return "\U0001f534 LIVE"
+    return format_game_time(commence_time)
+
+
 # ── Browse View (landing page) ────────────────────────────────────────
 
 
@@ -30,7 +48,7 @@ class BrowseView(discord.ui.View):
 
     def __init__(
         self,
-        games_available: dict[str, bool],
+        games_available: dict[str, dict],
         futures_available: dict[str, dict[str, bool]],
         timeout: float = 180.0,
     ) -> None:
@@ -43,13 +61,23 @@ class BrowseView(discord.ui.View):
         options = []
 
         # Game sports
-        for key in games_available:
+        for key, info in games_available.items():
             sport = SPORTS.get(key)
             if sport:
+                count = info.get("count", 0)
+                next_time = info.get("next_time")
+                desc = f"{count} game{'s' if count != 1 else ''}"
+                if next_time:
+                    if _is_live(next_time):
+                        desc += " — LIVE now"
+                    else:
+                        desc += f" — Next: {format_game_time(next_time)}"
+                if len(desc) > 100:
+                    desc = desc[:100]
                 options.append(discord.SelectOption(
                     label=sport["label"],
                     value=f"games:{key}",
-                    description="Games",
+                    description=desc,
                     emoji="\U0001f3c8",
                 ))
 
@@ -80,10 +108,18 @@ class BrowseView(discord.ui.View):
         # Games section
         if self.games_available:
             game_lines = []
-            for key in self.games_available:
+            for key, info in self.games_available.items():
                 sport = SPORTS.get(key)
                 name = sport["label"] if sport else key
-                game_lines.append(f"\U0001f3c8 **{name}**")
+                count = info.get("count", 0)
+                next_time = info.get("next_time")
+                line = f"\U0001f3c8 **{name}** — {count} game{'s' if count != 1 else ''}"
+                if next_time:
+                    if _is_live(next_time):
+                        line += " \U0001f534 LIVE"
+                    else:
+                        line += f" — Next: {format_game_time(next_time)}"
+                game_lines.append(line)
             embed.add_field(
                 name="Games",
                 value="\n".join(game_lines),
@@ -191,10 +227,10 @@ class SportHubView(discord.ui.View):
             for g in self.games[:15]:
                 home = g.get("home_team", "?")
                 away = g.get("away_team", "?")
-                display_date = format_game_time(g.get("commence_time", ""))
+                time_str = _format_game_time_with_status(g.get("commence_time", ""))
                 embed.add_field(
                     name=f"{away} @ {home}",
-                    value=display_date,
+                    value=time_str,
                     inline=False,
                 )
         if self.futures_markets:
@@ -543,7 +579,7 @@ class KalshiGameSelect(discord.ui.Select["SportHubView"]):
             label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
-            desc = format_game_time(g.get("commence_time", ""))
+            desc = _format_game_time_with_status(g.get("commence_time", ""))
             if len(desc) > 100:
                 desc = desc[:100]
             self.games_map[game_id] = g

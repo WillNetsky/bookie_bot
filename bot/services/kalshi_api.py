@@ -767,13 +767,16 @@ class KalshiAPI:
     async def discover_available(self) -> dict:
         """Discover all available markets — games and futures.
 
-        Returns {"games": {sport_key: count, ...}, "futures": {sport_key: {name: count, ...}, ...}}
-        Uses longer cache TTL (10min).
+        Returns:
+            {
+                "games": {sport_key: {"count": N, "next_time": "ISO str" | None}, ...},
+                "futures": {sport_key: {name: True, ...}, ...},
+            }
         """
         games_tasks = {}
         for key, sport in SPORTS.items():
             first_series = next(iter(sport["series"].values()))
-            games_tasks[key] = self.get_markets_by_series(first_series, limit=1)
+            games_tasks[key] = self.get_markets_by_series(first_series, limit=100)
 
         futures_tasks = {}
         for sport_key, sport in FUTURES.items():
@@ -795,7 +798,23 @@ class KalshiAPI:
             has_markets = isinstance(result, list) and len(result) > 0
             if i < n_games:
                 if has_markets:
-                    games_available[key] = True
+                    # Count unique event_tickers = number of games
+                    event_tickers = set()
+                    earliest_time = None
+                    for m in result:
+                        et = m.get("event_ticker", "")
+                        if et:
+                            event_tickers.add(et)
+                        # Find earliest expiration to estimate next game
+                        exp = m.get("expected_expiration_time") or m.get("close_time", "")
+                        if exp:
+                            est_start = _estimate_commence_time(exp, key)
+                            if est_start and (earliest_time is None or est_start < earliest_time):
+                                earliest_time = est_start
+                    games_available[key] = {
+                        "count": len(event_tickers),
+                        "next_time": earliest_time,
+                    }
             else:
                 if has_markets:
                     sport_key, market_name = key.split(":", 1)
