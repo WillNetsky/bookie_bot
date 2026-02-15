@@ -51,6 +51,21 @@ CREATE TABLE IF NOT EXISTS parlay_legs (
     market     TEXT DEFAULT 'h2h',
     point      REAL
 );
+
+CREATE TABLE IF NOT EXISTS kalshi_bets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(discord_id),
+    market_ticker TEXT NOT NULL,
+    event_ticker  TEXT NOT NULL,
+    pick          TEXT NOT NULL,
+    amount        INTEGER NOT NULL,
+    odds          REAL NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    payout        INTEGER,
+    title         TEXT,
+    close_time    TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 

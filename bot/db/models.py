@@ -416,3 +416,163 @@ async def get_leaderboard(limit: int = 10) -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+# ── Kalshi bets ───────────────────────────────────────────────────────
+
+
+async def create_kalshi_bet(
+    user_id: int,
+    market_ticker: str,
+    event_ticker: str,
+    pick: str,
+    amount: int,
+    odds: float,
+    title: str | None = None,
+    close_time: str | None = None,
+) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO kalshi_bets (user_id, market_ticker, event_ticker, pick, amount, odds, title, close_time)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, market_ticker, event_ticker, pick, amount, odds, title, close_time),
+        )
+        await db.commit()
+        return cursor.lastrowid
+    finally:
+        await db.close()
+
+
+async def get_user_kalshi_bets(user_id: int, status: str | None = None) -> list[dict]:
+    db = await get_connection()
+    try:
+        if status:
+            cursor = await db.execute(
+                "SELECT * FROM kalshi_bets WHERE user_id = ? AND status = ? ORDER BY created_at DESC",
+                (user_id, status),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM kalshi_bets WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_kalshi_bet_by_id(bet_id: int) -> dict | None:
+    db = await get_connection()
+    try:
+        cursor = await db.execute("SELECT * FROM kalshi_bets WHERE id = ?", (bet_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def delete_kalshi_bet(bet_id: int) -> bool:
+    db = await get_connection()
+    try:
+        cursor = await db.execute("DELETE FROM kalshi_bets WHERE id = ?", (bet_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_pending_kalshi_market_tickers() -> list[str]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT DISTINCT market_ticker FROM kalshi_bets WHERE status = 'pending'"
+        )
+        rows = await cursor.fetchall()
+        return [row["market_ticker"] for row in rows]
+    finally:
+        await db.close()
+
+
+async def get_pending_kalshi_bets_by_market(market_ticker: str) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM kalshi_bets WHERE market_ticker = ? AND status = 'pending'",
+            (market_ticker,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def resolve_kalshi_bet(bet_id: int, won: bool, payout: int) -> None:
+    db = await get_connection()
+    try:
+        status = "won" if won else "lost"
+        await db.execute(
+            "UPDATE kalshi_bets SET status = ?, payout = ? WHERE id = ?",
+            (status, payout, bet_id),
+        )
+        if won:
+            cursor = await db.execute("SELECT user_id FROM kalshi_bets WHERE id = ?", (bet_id,))
+            row = await cursor.fetchone()
+            if row:
+                await db.execute(
+                    "UPDATE users SET balance = balance + ? WHERE discord_id = ?",
+                    (payout, row["user_id"]),
+                )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_user_resolved_kalshi_bets(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM kalshi_bets WHERE user_id = ? AND status != 'pending'"
+            " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def count_user_resolved_kalshi_bets(user_id: int) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM kalshi_bets WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        await db.close()
+
+
+async def get_user_kalshi_bet_stats(user_id: int) -> dict:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT"
+            " COUNT(*) as total,"
+            " SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as wins,"
+            " SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as losses,"
+            " SUM(amount) as total_wagered,"
+            " SUM(CASE WHEN status != 'pending' THEN COALESCE(payout, 0) ELSE 0 END) as total_payout"
+            " FROM kalshi_bets WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else {
+            "total": 0, "wins": 0, "losses": 0,
+            "total_wagered": 0, "total_payout": 0,
+        }
+    finally:
+        await db.close()

@@ -14,6 +14,7 @@ COGS = [
     "bot.cogs.betting",
     "bot.cogs.wallet",
     "bot.cogs.voice_rewards",
+    "bot.cogs.kalshi",
 ]
 
 

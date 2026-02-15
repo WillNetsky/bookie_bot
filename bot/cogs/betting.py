@@ -911,6 +911,8 @@ class HistoryView(discord.ui.View):
             for item in items:
                 if item.get("type") == "parlay":
                     self._add_parlay_field(embed, item)
+                elif item.get("type") == "kalshi":
+                    self._add_kalshi_field(embed, item)
                 else:
                     self._add_bet_field(embed, item)
 
@@ -990,6 +992,26 @@ class HistoryView(discord.ui.View):
             value=(
                 f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
                 + "\n".join(leg_lines)
+            ),
+            inline=False,
+        )
+
+    def _add_kalshi_field(self, embed: discord.Embed, b: dict) -> None:
+        status = b["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${b.get('payout', 0):.2f}**"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        title = b.get("title") or b.get("market_ticker", "Unknown")
+
+        embed.add_field(
+            name=f"{icon} Kalshi #{b['id']} · {status_text}",
+            value=(
+                f"**{title}**\n"
+                f"Pick: **{b['pick'].upper()}** · ${b['amount']:.2f} @ {b['odds']:.2f}x"
             ),
             inline=False,
         )
@@ -1575,8 +1597,9 @@ class Betting(commands.Cog):
 
         bets = await betting_service.get_user_bets(interaction.user.id, status="pending")
         parlays = await betting_service.get_user_parlays(interaction.user.id, status="pending")
+        kalshi_bets = await betting_service.get_user_kalshi_bets(interaction.user.id, status="pending")
 
-        if not bets and not parlays:
+        if not bets and not parlays and not kalshi_bets:
             await interaction.followup.send("You have no pending bets. Use `/myhistory` to view past bets.")
             return
 
@@ -1673,6 +1696,22 @@ class Betting(commands.Cog):
                 value=(
                     f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
                     + "\n".join(leg_lines)
+                ),
+                inline=False,
+            )
+
+        # Show pending Kalshi bets
+        for kb in kalshi_bets:
+            icon = "\U0001f7e3"  # purple circle
+            potential = round(kb["amount"] * kb["odds"], 2)
+            status_text = f"Pending — potential **${potential:.2f}**"
+            title = kb.get("title") or kb["market_ticker"]
+
+            embed.add_field(
+                name=f"{icon} Kalshi #{kb['id']} · {status_text}",
+                value=(
+                    f"**{title}**\n"
+                    f"Pick: **{kb['pick'].upper()}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
                 ),
                 inline=False,
             )

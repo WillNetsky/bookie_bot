@@ -108,22 +108,69 @@ async def get_user_history(user_id: int, page: int = 0, page_size: int = 10) -> 
     # Fetch more than needed from each, then merge and sort
     bets = await models.get_user_resolved_bets(user_id, limit=page_size, offset=offset)
     parlays = await models.get_user_resolved_parlays(user_id, limit=page_size, offset=offset)
+    kalshi = await models.get_user_resolved_kalshi_bets(user_id, limit=page_size, offset=offset)
     for p in parlays:
         p["legs"] = await models.get_parlay_legs(p["id"])
         p["type"] = "parlay"
     for b in bets:
         b["type"] = "single"
-    return bets + parlays
+    for k in kalshi:
+        k["type"] = "kalshi"
+    return bets + parlays + kalshi
 
 
 async def get_user_stats(user_id: int) -> dict:
-    return await models.get_user_bet_stats(user_id)
+    stats = await models.get_user_bet_stats(user_id)
+    # Include Kalshi bet stats
+    kalshi_stats = await models.get_user_kalshi_bet_stats(user_id)
+    stats["total"] = (stats["total"] or 0) + (kalshi_stats["total"] or 0)
+    stats["wins"] = (stats["wins"] or 0) + (kalshi_stats["wins"] or 0)
+    stats["losses"] = (stats["losses"] or 0) + (kalshi_stats["losses"] or 0)
+    stats["total_wagered"] = (stats["total_wagered"] or 0) + (kalshi_stats["total_wagered"] or 0)
+    stats["total_payout"] = (stats["total_payout"] or 0) + (kalshi_stats["total_payout"] or 0)
+    return stats
 
 
 async def count_user_resolved(user_id: int) -> int:
     bet_count = await models.count_user_resolved_bets(user_id)
     parlay_count = await models.count_user_resolved_parlays(user_id)
-    return bet_count + parlay_count
+    kalshi_count = await models.count_user_resolved_kalshi_bets(user_id)
+    return bet_count + parlay_count + kalshi_count
+
+
+async def place_kalshi_bet(
+    user_id: int,
+    market_ticker: str,
+    event_ticker: str,
+    pick: str,
+    amount: int,
+    odds: float,
+    title: str | None = None,
+    close_time: str | None = None,
+) -> int | None:
+    """Place a Kalshi bet. Returns bet ID on success, None if insufficient balance."""
+    new_balance = await withdraw(user_id, amount)
+    if new_balance is None:
+        return None
+    bet_id = await models.create_kalshi_bet(
+        user_id, market_ticker, event_ticker, pick, amount, odds,
+        title=title, close_time=close_time,
+    )
+    return bet_id
+
+
+async def cancel_kalshi_bet(bet_id: int, user_id: int) -> dict | None:
+    """Cancel a pending Kalshi bet. Returns the bet dict if successful."""
+    bet = await models.get_kalshi_bet_by_id(bet_id)
+    if not bet or bet["user_id"] != user_id or bet["status"] != "pending":
+        return None
+    await models.delete_kalshi_bet(bet_id)
+    await deposit(user_id, bet["amount"])
+    return bet
+
+
+async def get_user_kalshi_bets(user_id: int, status: str | None = None) -> list[dict]:
+    return await models.get_user_kalshi_bets(user_id, status)
 
 
 async def get_started_pending_games() -> dict[str, str | None]:
