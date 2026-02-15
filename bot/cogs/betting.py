@@ -856,6 +856,174 @@ class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
         await interaction.followup.send(embed=embed)
 
 
+class HistoryView(discord.ui.View):
+    """Paginated view for /myhistory showing resolved bets with stats."""
+
+    PAGE_SIZE = 10
+
+    def __init__(self, user_id: int, stats: dict, total_items: int, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+        self.stats = stats
+        self.total_items = total_items
+        self.page = 0
+        self.total_pages = max(1, (total_items + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.message: discord.Message | None = None
+        self._update_buttons()
+
+    def _update_buttons(self) -> None:
+        self.prev_button.disabled = self.page <= 0
+        self.next_button.disabled = self.page >= self.total_pages - 1
+
+    async def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Bet History", color=discord.Color.blue())
+
+        # Stats header
+        stats = self.stats
+        total = stats.get("total") or 0
+        wins = stats.get("wins") or 0
+        losses = stats.get("losses") or 0
+        pushes = stats.get("pushes") or 0
+        total_wagered = stats.get("total_wagered") or 0
+        total_payout = stats.get("total_payout") or 0
+        profit = total_payout - total_wagered
+        win_rate = (wins / total * 100) if total > 0 else 0
+        profit_sign = "+" if profit >= 0 else ""
+
+        embed.description = (
+            f"**Record:** {wins}W - {losses}L - {pushes}P ({win_rate:.0f}% win rate)\n"
+            f"**Wagered:** ${total_wagered:,.2f} · **Profit:** {profit_sign}${profit:,.2f}"
+        )
+
+        # Fetch page data
+        items = await betting_service.get_user_history(
+            self.user_id, page=self.page, page_size=self.PAGE_SIZE
+        )
+
+        if not items:
+            embed.add_field(name="No bets", value="No resolved bets found.", inline=False)
+        else:
+            for item in items:
+                if item.get("type") == "parlay":
+                    self._add_parlay_field(embed, item)
+                else:
+                    self._add_bet_field(embed, item)
+
+        embed.set_footer(text=f"Page {self.page + 1}/{self.total_pages}")
+        return embed
+
+    def _add_bet_field(self, embed: discord.Embed, b: dict) -> None:
+        status = b["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${b.get('payout', 0):.2f}**"
+        elif status == "push":
+            icon = "\U0001f535"
+            status_text = f"Push — **${b.get('payout', 0):.2f}** refunded"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        is_outright = (b.get("market") or "") == "outrights"
+        home = b.get("home_team")
+        away = b.get("away_team")
+        sport = b.get("sport_title")
+
+        if is_outright:
+            matchup = sport or "Futures"
+        elif home and away:
+            matchup = f"{home} vs {away}"
+        else:
+            matchup = "Unknown"
+
+        sport_line = f"{sport} · " if sport and not is_outright else ""
+        pick_label = b["pick"] if is_outright else format_pick_label(b)
+
+        embed.add_field(
+            name=f"{icon} Bet #{b['id']} · {status_text}",
+            value=(
+                f"{sport_line}**{matchup}**\n"
+                f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']}x"
+            ),
+            inline=False,
+        )
+
+    def _add_parlay_field(self, embed: discord.Embed, p: dict) -> None:
+        status = p["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${p.get('payout', 0):.2f}**"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        leg_lines = []
+        for leg in p.get("legs", []):
+            ls = leg["status"]
+            if ls == "won":
+                leg_icon = "\U0001f7e2"
+            elif ls == "lost":
+                leg_icon = "\U0001f534"
+            elif ls == "push":
+                leg_icon = "\U0001f535"
+            else:
+                leg_icon = "\U0001f7e1"
+
+            home = leg.get("home_team") or "?"
+            away = leg.get("away_team") or "?"
+            pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+            point = leg.get("point")
+            if point is not None:
+                if leg["pick"] in ("spread_home", "spread_away"):
+                    pick_label += f" {point:+g}"
+                else:
+                    pick_label += f" {point:g}"
+            leg_lines.append(f"{leg_icon} {home} vs {away} — {pick_label} ({leg['odds']:.2f}x)")
+
+        embed.add_field(
+            name=f"{icon} Parlay #{p['id']} · {status_text}",
+            value=(
+                f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                + "\n".join(leg_lines)
+            ),
+            inline=False,
+        )
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, emoji="\u25c0")
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your history.", ephemeral=True)
+            return
+        self.page = max(0, self.page - 1)
+        self._update_buttons()
+        embed = await self.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            pass
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, emoji="\u25b6")
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your history.", ephemeral=True)
+            return
+        self.page = min(self.total_pages - 1, self.page + 1)
+        self._update_buttons()
+        embed = await self.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            pass
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
 class Betting(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -1396,19 +1564,21 @@ class Betting(commands.Cog):
 
     # ── /mybets ──────────────────────────────────────────────────────────
 
-    @app_commands.command(name="mybets", description="View your active bets")
+    @app_commands.command(name="mybets", description="View your active/pending bets")
     async def mybets(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
-        bets = await betting_service.get_user_bets(interaction.user.id)
-        if not bets:
-            await interaction.followup.send("You have no bets.")
+        bets = await betting_service.get_user_bets(interaction.user.id, status="pending")
+        parlays = await betting_service.get_user_parlays(interaction.user.id, status="pending")
+
+        if not bets and not parlays:
+            await interaction.followup.send("You have no pending bets. Use `/myhistory` to view past bets.")
             return
 
         # Fetch live scores for pending bets (uses cached data, skip outrights)
         live_scores: dict[str, dict] = {}
-        for b in bets[:10]:
-            if b["status"] != "pending" or (b.get("market") or "") == "outrights":
+        for b in bets:
+            if (b.get("market") or "") == "outrights":
                 continue
             composite = b["game_id"]
             if composite in live_scores:
@@ -1420,26 +1590,17 @@ class Betting(commands.Cog):
             if status:
                 live_scores[composite] = status
 
-        embed = discord.Embed(title="Your Bets", color=discord.Color.blue())
+        embed = discord.Embed(title="Your Active Bets", color=discord.Color.blue())
 
-        for b in bets[:10]:
-            status = b["status"]
-            if status == "won":
-                icon = "\U0001f7e2"  # green circle
-                status_text = f"Won — **${b.get('payout', 0):.2f}**"
-            elif status == "lost":
-                icon = "\U0001f534"  # red circle
-                status_text = "Lost"
-            else:
-                icon = "\U0001f7e1"  # yellow circle
-                potential = round(b["amount"] * b["odds"], 2)
-                status_text = f"Pending — potential **${potential:.2f}**"
+        for b in bets:
+            potential = round(b["amount"] * b["odds"], 2)
+            icon = "\U0001f7e1"  # yellow circle
+            status_text = f"Pending — potential **${potential:.2f}**"
 
-            # Game info from stored fields, backfill from live data if missing
             home = b.get("home_team")
             away = b.get("away_team")
             sport = b.get("sport_title")
-            live = live_scores.get(b["game_id"]) if status == "pending" else None
+            live = live_scores.get(b["game_id"])
 
             if not home and live:
                 home = live.get("home_team")
@@ -1456,18 +1617,12 @@ class Betting(commands.Cog):
                 raw_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
                 matchup = f"Game `{raw_id}`"
 
-            # Live score for pending bets (not applicable for outrights)
             score_line = ""
             if not is_outright and live and live["started"] and live["home_score"] is not None and live["away_score"] is not None:
                 score_line = f"\nScore: **{home}** {live['home_score']} - {live['away_score']} **{away}**"
 
             sport_line = f"{sport} · " if sport and not is_outright else ""
             pick_label = b["pick"] if is_outright else format_pick_label(b)
-
-            # Show push status
-            if b["status"] == "push":
-                icon = "🔵"
-                status_text = f"Push — **${b.get('payout', 0):.2f}** refunded"
 
             embed.add_field(
                 name=f"{icon} Bet #{b['id']} · {status_text}",
@@ -1479,7 +1634,64 @@ class Betting(commands.Cog):
                 inline=False,
             )
 
+        # Show pending parlays inline
+        for p in parlays:
+            icon = "\U0001f7e1"
+            potential = round(p["amount"] * p["total_odds"], 2)
+            status_text = f"Pending — potential **${potential:.2f}**"
+
+            leg_lines = []
+            for leg in p.get("legs", []):
+                ls = leg["status"]
+                if ls == "won":
+                    leg_icon = "\U0001f7e2"
+                elif ls == "lost":
+                    leg_icon = "\U0001f534"
+                elif ls == "push":
+                    leg_icon = "\U0001f535"
+                else:
+                    leg_icon = "\U0001f7e1"
+
+                home = leg.get("home_team") or "?"
+                away = leg.get("away_team") or "?"
+                pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+                point = leg.get("point")
+                if point is not None:
+                    if leg["pick"] in ("spread_home", "spread_away"):
+                        pick_label += f" {point:+g}"
+                    else:
+                        pick_label += f" {point:g}"
+                leg_lines.append(f"{leg_icon} {home} vs {away} — {pick_label} ({leg['odds']:.2f}x)")
+
+            embed.add_field(
+                name=f"{icon} Parlay #{p['id']} · {status_text}",
+                value=(
+                    f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                    + "\n".join(leg_lines)
+                ),
+                inline=False,
+            )
+
+        embed.set_footer(text="Use /myhistory to view resolved bets")
         await interaction.followup.send(embed=embed)
+
+    # ── /myhistory ──────────────────────────────────────────────────────
+
+    @app_commands.command(name="myhistory", description="View your resolved bets with stats")
+    async def myhistory(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        stats = await betting_service.get_user_stats(interaction.user.id)
+        total_items = await betting_service.count_user_resolved(interaction.user.id)
+
+        if total_items == 0:
+            await interaction.followup.send("You have no resolved bets yet.")
+            return
+
+        view = HistoryView(interaction.user.id, stats, total_items)
+        embed = await view.build_embed()
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
 
     # ── /livescores ────────────────────────────────────────────────────────
 

@@ -306,6 +306,105 @@ async def get_pending_parlay_game_ids() -> list[str]:
         await db.close()
 
 
+async def get_user_resolved_bets(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM bets WHERE user_id = ? AND status != 'pending'"
+            " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_user_resolved_parlays(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM parlays WHERE user_id = ? AND status != 'pending'"
+            " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_user_bet_stats(user_id: int) -> dict:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT"
+            " COUNT(*) as total,"
+            " SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as wins,"
+            " SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as losses,"
+            " SUM(CASE WHEN status = 'push' THEN 1 ELSE 0 END) as pushes,"
+            " SUM(amount) as total_wagered,"
+            " SUM(CASE WHEN status != 'pending' THEN COALESCE(payout, 0) ELSE 0 END) as total_payout"
+            " FROM bets WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        stats = dict(row) if row else {
+            "total": 0, "wins": 0, "losses": 0, "pushes": 0,
+            "total_wagered": 0, "total_payout": 0,
+        }
+
+        # Parlay stats
+        cursor2 = await db.execute(
+            "SELECT"
+            " COUNT(*) as total,"
+            " SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as wins,"
+            " SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as losses,"
+            " SUM(amount) as total_wagered,"
+            " SUM(CASE WHEN status != 'pending' THEN COALESCE(payout, 0) ELSE 0 END) as total_payout"
+            " FROM parlays WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row2 = await cursor2.fetchone()
+        if row2:
+            p = dict(row2)
+            stats["total"] = (stats["total"] or 0) + (p["total"] or 0)
+            stats["wins"] = (stats["wins"] or 0) + (p["wins"] or 0)
+            stats["losses"] = (stats["losses"] or 0) + (p["losses"] or 0)
+            stats["total_wagered"] = (stats["total_wagered"] or 0) + (p["total_wagered"] or 0)
+            stats["total_payout"] = (stats["total_payout"] or 0) + (p["total_payout"] or 0)
+
+        return stats
+    finally:
+        await db.close()
+
+
+async def count_user_resolved_bets(user_id: int) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM bets WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        await db.close()
+
+
+async def count_user_resolved_parlays(user_id: int) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM parlays WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        await db.close()
+
+
 async def get_leaderboard(limit: int = 10) -> list[dict]:
     db = await get_connection()
     try:

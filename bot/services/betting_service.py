@@ -102,6 +102,30 @@ async def get_pending_game_ids() -> list[str]:
     return combined
 
 
+async def get_user_history(user_id: int, page: int = 0, page_size: int = 10) -> list[dict]:
+    """Get resolved bets and parlays for a user, sorted by date, paginated."""
+    offset = page * page_size
+    # Fetch more than needed from each, then merge and sort
+    bets = await models.get_user_resolved_bets(user_id, limit=page_size, offset=offset)
+    parlays = await models.get_user_resolved_parlays(user_id, limit=page_size, offset=offset)
+    for p in parlays:
+        p["legs"] = await models.get_parlay_legs(p["id"])
+        p["type"] = "parlay"
+    for b in bets:
+        b["type"] = "single"
+    return bets + parlays
+
+
+async def get_user_stats(user_id: int) -> dict:
+    return await models.get_user_bet_stats(user_id)
+
+
+async def count_user_resolved(user_id: int) -> int:
+    bet_count = await models.count_user_resolved_bets(user_id)
+    parlay_count = await models.count_user_resolved_parlays(user_id)
+    return bet_count + parlay_count
+
+
 async def get_started_pending_games() -> dict[str, str | None]:
     """Return pending games that have started (commence_time <= now).
 
