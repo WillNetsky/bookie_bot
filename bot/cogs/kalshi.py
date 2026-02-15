@@ -608,9 +608,10 @@ class KalshiGameSelect(discord.ui.Select):
 
         # Build a new view for bet type selection
         bet_view = GameBetTypeView(game, parsed, view)
+        time_str = _format_game_time_with_status(game.get("commence_time", ""))
         embed = discord.Embed(
             title=game.get("sport_title", ""),
-            description=f"Pick a bet type for **{format_matchup(home, away)}**",
+            description=f"**{format_matchup(home, away)}**\n{time_str}",
             color=discord.Color.blue(),
         )
         await interaction.edit_original_response(embed=embed, view=bet_view)
@@ -801,9 +802,12 @@ class KalshiBetAmountModal(discord.ui.Modal, title="Place Bet"):
 
         payout = round(amount * decimal_odds, 2)
 
+        time_str = _format_game_time_with_status(game.get("commence_time", ""))
+
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#K{bet_id}", inline=True)
         embed.add_field(name="Game", value=format_matchup(home, away), inline=True)
+        embed.add_field(name="Time", value=time_str, inline=True)
         embed.add_field(name="Pick", value=pick_display, inline=True)
         embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Odds", value=_fmt_american(american_odds), inline=True)
