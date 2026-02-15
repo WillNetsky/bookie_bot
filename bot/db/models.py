@@ -418,6 +418,28 @@ async def get_leaderboard(limit: int = 10) -> list[dict]:
         await db.close()
 
 
+async def reset_all_balances(amount: int) -> int:
+    """Reset all user balances to the given amount and clear all bets.
+
+    Returns the number of users affected.
+    """
+    db = await get_connection()
+    try:
+        # Clear all bets
+        await db.execute("DELETE FROM parlay_legs")
+        await db.execute("DELETE FROM parlays")
+        await db.execute("DELETE FROM bets")
+        await db.execute("DELETE FROM kalshi_bets")
+        # Reset balances
+        cursor = await db.execute(
+            "UPDATE users SET balance = ?", (amount,)
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
+
+
 # ── Kalshi bets ───────────────────────────────────────────────────────
 
 

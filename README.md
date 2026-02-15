@@ -29,6 +29,7 @@ A Discord bot for placing wagers on real sporting events using fictional currenc
 | `/balance` | Check your current coin balance. |
 | `/leaderboard` | See the top balances on the server. |
 | `/resolve <game_id> <winner>` | [Admin] Manually resolve a game. |
+| `/resetbalances <confirm> [amount]` | [Admin] Reset all balances and clear all bets. |
 
 ### Tech Stack
 
