@@ -1844,10 +1844,18 @@ class Betting(commands.Cog):
                 else:
                     icon = "\U0001f534"
                     result_text = "Lost"
-                leg_count = len(p.get("legs", []))
+                # Build leg summary with team names
+                leg_parts = []
+                for leg in p.get("legs", []):
+                    h = leg.get("home_team") or "?"
+                    a = leg.get("away_team") or "?"
+                    pick_label = format_pick_label(leg)
+                    leg_icon = "\u2705" if leg.get("status") == "won" else "\u274c" if leg.get("status") == "lost" else "\u23f3"
+                    leg_parts.append(f"  {leg_icon} {h} vs {a} — {pick_label}")
+                legs_text = "\n".join(leg_parts)
                 parlay_lines.append(
                     f"{icon} <@{p['user_id']}> — Parlay #{p['id']} · "
-                    f"{leg_count} legs · ${p['amount']:.2f} @ {p.get('total_odds', 0):.2f}x → {result_text}"
+                    f"${p['amount']:.2f} @ {p.get('total_odds', 0):.2f}x → {result_text}\n{legs_text}"
                 )
             embed.add_field(name="Parlays", value="\n".join(parlay_lines), inline=False)
 
