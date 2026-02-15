@@ -528,9 +528,15 @@ def _pick_best_total(markets: list[dict]) -> dict | None:
     }
 
 
+MAX_CONCURRENT = 5  # Max simultaneous Kalshi API requests
+MAX_RETRIES = 2
+RETRY_BACKOFF = 1.0  # seconds, doubles each retry
+
+
 class KalshiAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
+        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -567,21 +573,34 @@ class KalshiAPI:
                     pass
                 stale_data = row[0]
 
-        # Cache miss or stale — fetch from API
-        session = await self._get_session()
-        try:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    log.warning("Kalshi API %s returned %s", url, resp.status)
+        # Cache miss or stale — fetch from API with rate limiting + retry
+        async with self._semaphore:
+            session = await self._get_session()
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    async with session.get(url, params=params) as resp:
+                        if resp.status == 429:
+                            if attempt < MAX_RETRIES:
+                                wait = RETRY_BACKOFF * (2 ** attempt)
+                                log.info("Kalshi 429 rate limited, retrying in %.1fs...", wait)
+                                await asyncio.sleep(wait)
+                                continue
+                            log.warning("Kalshi API %s returned 429 after %d retries", url, MAX_RETRIES)
+                            if stale_data:
+                                return json.loads(stale_data)
+                            return None
+                        if resp.status != 200:
+                            log.warning("Kalshi API %s returned %s", url, resp.status)
+                            if stale_data:
+                                return json.loads(stale_data)
+                            return None
+                        data = await resp.json()
+                        break
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    log.warning("Kalshi API request failed: %s", e)
                     if stale_data:
                         return json.loads(stale_data)
                     return None
-                data = await resp.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            log.warning("Kalshi API request failed: %s", e)
-            if stale_data:
-                return json.loads(stale_data)
-            return None
 
         # Store in cache
         async with aiosqlite.connect(DB_PATH) as db:
