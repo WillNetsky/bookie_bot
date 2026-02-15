@@ -78,6 +78,11 @@ def format_pick_label(bet: dict) -> str:
     return label
 
 
+def format_matchup(home: str, away: str) -> str:
+    """Format a matchup as 'Away @ Home'."""
+    return f"{away} @ {home}"
+
+
 # ── Interactive betting UI components ─────────────────────────────────
 
 
@@ -177,7 +182,7 @@ class BetAmountModal(discord.ui.Modal, title="Place Bet"):
 
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#{bet_id}", inline=True)
-        embed.add_field(name="Game", value=f"{home_name} vs {away_name}", inline=True)
+        embed.add_field(name="Game", value=format_matchup(home_name, away_name), inline=True)
         embed.add_field(name="Pick", value=pick_label, inline=True)
         embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Odds", value=fmt(american_odds), inline=True)
@@ -246,7 +251,7 @@ class OddsGameSelect(discord.ui.Select["OddsView"]):
             home = g.get("home_team", "?")
             away = g.get("away_team", "?")
             sport_title = g.get("sport_title", g.get("sport_key", ""))
-            label = f"{home} vs {away}"
+            label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
             desc = sport_title[:100] if sport_title else None
@@ -417,7 +422,7 @@ class ParlayView(discord.ui.View):
                     else:
                         pick_label += f" {point:g}"
                 embed.add_field(
-                    name=f"Leg {i}: {home} vs {away}",
+                    name=f"Leg {i}: {format_matchup(home, away)}",
                     value=f"{pick_label} ({leg['odds']:.2f}x)",
                     inline=False,
                 )
@@ -527,7 +532,7 @@ class ParlayGameSelect(discord.ui.Select["ParlayView"]):
             home = g.get("home_team", "?")
             away = g.get("away_team", "?")
             sport_title = g.get("sport_title", g.get("sport_key", ""))
-            label = f"{home} vs {away}"
+            label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
             desc = sport_title[:100] if sport_title else None
@@ -567,7 +572,7 @@ class ParlayGameSelect(discord.ui.Select["ParlayView"]):
         view.show_bet_types(game)
         embed = view.build_embed()
         embed.description = (
-            f"Pick a bet type for **{game.get('home_team', '?')} vs {game.get('away_team', '?')}**"
+            f"Pick a bet type for **{format_matchup(game.get('home_team', '?'), game.get('away_team', '?'))}**"
         )
         await interaction.edit_original_response(embed=embed, view=view)
 
@@ -680,7 +685,7 @@ class ParlayRemoveLegSelect(discord.ui.Select["ParlayView"]):
             home = leg.get("home_team") or "?"
             away = leg.get("away_team") or "?"
             pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
-            label = f"{home} vs {away} — {pick_label}"
+            label = f"{format_matchup(home, away)} — {pick_label}"
             if len(label) > 100:
                 label = label[:97] + "..."
             options.append(discord.SelectOption(label=label, value=str(i)))
@@ -785,7 +790,7 @@ class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
                     ct = datetime.fromisoformat(commence.replace("Z", "+00:00"))
                     if ct <= datetime.now(timezone.utc):
                         await interaction.followup.send(
-                            f"Game {leg.get('home_team', '?')} vs {leg.get('away_team', '?')} has already started.",
+                            f"Game {format_matchup(leg.get('home_team', '?'), leg.get('away_team', '?'))} has already started.",
                             ephemeral=True,
                         )
                         return
@@ -834,7 +839,7 @@ class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
                     pick_label += f" {point:+g}"
                 else:
                     pick_label += f" {point:g}"
-            leg_lines.append(f"**{i}.** {home} vs {away} \u2014 {pick_label} ({leg['odds']:.2f}x)")
+            leg_lines.append(f"**{i}.** {format_matchup(home, away)} \u2014 {pick_label} ({leg['odds']:.2f}x)")
 
         embed.add_field(name="Legs", value="\n".join(leg_lines), inline=False)
 
@@ -932,7 +937,7 @@ class HistoryView(discord.ui.View):
         if is_outright:
             matchup = sport or "Futures"
         elif home and away:
-            matchup = f"{home} vs {away}"
+            matchup = format_matchup(home, away)
         else:
             matchup = "Unknown"
 
@@ -978,7 +983,7 @@ class HistoryView(discord.ui.View):
                     pick_label += f" {point:+g}"
                 else:
                     pick_label += f" {point:g}"
-            leg_lines.append(f"{leg_icon} {home} vs {away} — {pick_label} ({leg['odds']:.2f}x)")
+            leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
 
         embed.add_field(
             name=f"{icon} Parlay #{p['id']} · {status_text}",
@@ -1094,7 +1099,7 @@ class Betting(commands.Cog):
                 home = g.get("home_team", "?")
                 away = g.get("away_team", "?")
                 display_date = format_game_time(g.get("commence_time", ""))
-                lines.append(f"**{home}** vs **{away}**\n{display_date}")
+                lines.append(f"**{away}** @ **{home}**\n{display_date}")
             value = "\n".join(lines)
             if len(sport_games) > 5:
                 value += f"\n*...and {len(sport_games) - 5} more*"
@@ -1149,7 +1154,7 @@ class Betting(commands.Cog):
             header = f"{sport_title} · {display_date}" if not sport else display_date
             embed.add_field(
                 name=header,
-                value=f"🏠 {home} vs 📍 {away}\nID: `{game_id}`",
+                value=f"📍 {away} @ 🏠 {home}\nID: `{game_id}`",
                 inline=False,
             )
 
@@ -1292,7 +1297,7 @@ class Betting(commands.Cog):
 
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#{bet_id}", inline=True)
-        embed.add_field(name="Game", value=f"{home_name} vs {away_name}", inline=True)
+        embed.add_field(name="Game", value=format_matchup(home_name, away_name), inline=True)
         embed.add_field(name="Pick", value=pick_label, inline=True)
         embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
         embed.add_field(name="Odds", value=fmt(american_odds), inline=True)
@@ -1375,7 +1380,7 @@ class Betting(commands.Cog):
                         pick_label += f" {point:+g}"
                     else:
                         pick_label += f" {point:g}"
-                leg_lines.append(f"{leg_icon} {home} vs {away} — {pick_label} ({leg['odds']:.2f}x)")
+                leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
 
             embed.add_field(
                 name=f"{icon} Parlay #{p['id']} · {status_text}",
@@ -1612,7 +1617,7 @@ class Betting(commands.Cog):
             if is_outright:
                 matchup = sport or "Futures"
             elif home and away:
-                matchup = f"{home} vs {away}"
+                matchup = format_matchup(home, away)
             else:
                 raw_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
                 matchup = f"Game `{raw_id}`"
@@ -1661,7 +1666,7 @@ class Betting(commands.Cog):
                         pick_label += f" {point:+g}"
                     else:
                         pick_label += f" {point:g}"
-                leg_lines.append(f"{leg_icon} {home} vs {away} — {pick_label} ({leg['odds']:.2f}x)")
+                leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
 
             embed.add_field(
                 name=f"{icon} Parlay #{p['id']} · {status_text}",
@@ -1739,7 +1744,7 @@ class Betting(commands.Cog):
                 if live["completed"]:
                     score_text += "  (Final)"
             else:
-                score_text = f"**{home}** vs **{away}** — scores unavailable"
+                score_text = f"**{away}** @ **{home}** — scores unavailable"
 
             sport_line = f"{sport} · " if sport else ""
 
@@ -1822,7 +1827,7 @@ class Betting(commands.Cog):
             if is_outright:
                 matchup = sport or "Futures"
             elif home and away:
-                matchup = f"{home} vs {away}"
+                matchup = format_matchup(home, away)
             else:
                 matchup = "Unknown"
 
@@ -2040,7 +2045,7 @@ class Betting(commands.Cog):
             title = f"Result: {first.get('sport_title', 'Futures')}"
             description = ""
         else:
-            title = f"Game Result: {home} vs {away}"
+            title = f"Game Result: {format_matchup(home, away)}"
             if home_score is not None and away_score is not None:
                 description = f"**{home}** {home_score} - {away_score} **{away}**"
             else:
@@ -2094,7 +2099,7 @@ class Betting(commands.Cog):
                     a = leg.get("away_team") or "?"
                     pick_label = format_pick_label(leg)
                     leg_icon = "\u2705" if leg.get("status") == "won" else "\u274c" if leg.get("status") == "lost" else "\u23f3"
-                    leg_parts.append(f"  {leg_icon} {h} vs {a} — {pick_label}")
+                    leg_parts.append(f"  {leg_icon} {format_matchup(h, a)} — {pick_label}")
                 legs_text = "\n".join(leg_parts)
                 parlay_lines.append(
                     f"{icon} <@{p['user_id']}> — Parlay #{p['id']} · "
