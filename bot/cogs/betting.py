@@ -1643,23 +1643,132 @@ class Betting(commands.Cog):
             )
 
         # Show pending Kalshi bets
+        from bot.services.kalshi_api import _parse_event_ticker_date, _estimate_commence_time
         for kb in kalshi_bets:
-            icon = "\U0001f7e3"  # purple circle
             potential = round(kb["amount"] * kb["odds"], 2)
-            status_text = f"Pending — potential **${potential:.2f}**"
             title = kb.get("title") or kb["market_ticker"]
             pick_label = kb.get("pick_display") or kb["pick"].upper()
+
+            # Determine live/upcoming status from event_ticker date
+            event_ticker = kb.get("event_ticker", "")
+            ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
+            now = datetime.now(timezone.utc)
+
+            if ticker_date and ticker_date.date() < now.date():
+                icon = "\U0001f534"  # red — likely live/completed
+                time_line = "\n\U0001f534 LIVE"
+            elif ticker_date and ticker_date.date() == now.date():
+                icon = "\U0001f7e0"  # orange — today
+                time_line = "\nToday"
+            else:
+                icon = "\U0001f7e3"  # purple — future
+                time_line = ""
+                if ticker_date:
+                    time_line = f"\n{ticker_date.strftime('%-m/%-d')}"
+
+            status_text = f"Pending — potential **${potential:.2f}**"
 
             embed.add_field(
                 name=f"{icon} Kalshi #{kb['id']} · {status_text}",
                 value=(
                     f"**{title}**\n"
                     f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
+                    f"{time_line}"
                 ),
                 inline=False,
             )
 
         embed.set_footer(text="Use /myhistory to view resolved bets")
+        await interaction.followup.send(embed=embed)
+
+    # ── /livescores ────────────────────────────────────────────────────
+
+    @app_commands.command(name="livescores", description="View live scores for all pending bets")
+    async def livescores(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        from bot.db import models as _models
+        from bot.services.kalshi_api import _parse_event_ticker_date
+
+        embed = discord.Embed(title="\U0001f534 Live Scores", color=discord.Color.red())
+        found_any = False
+        now = datetime.now(timezone.utc)
+
+        # ── Odds-API bets with live scores ──
+        game_ids = await betting_service.get_pending_game_ids()
+        for composite_id in game_ids[:15]:
+            bets_for_game = await betting_service.get_bets_by_game(composite_id)
+            if not bets_for_game:
+                continue
+
+            # Skip outrights
+            if (bets_for_game[0].get("market") or "") == "outrights":
+                continue
+
+            parts = composite_id.split("|")
+            event_id = parts[0]
+            sport_key = parts[1] if len(parts) > 1 else None
+            status = await self.sports_api.get_fixture_status(event_id, sport_key)
+            if not status or not status["started"]:
+                continue
+
+            home = status.get("home_team") or bets_for_game[0].get("home_team", "Home")
+            away = status.get("away_team") or bets_for_game[0].get("away_team", "Away")
+
+            if status["home_score"] is not None and status["away_score"] is not None:
+                score_text = f"**{home}** {status['home_score']} - {status['away_score']} **{away}**"
+                if status["completed"]:
+                    score_text += "  (Final)"
+            else:
+                score_text = f"**{away}** @ **{home}**"
+
+            bet_lines = []
+            for b in bets_for_game:
+                pick_label = format_pick_label(b)
+                potential = round(b["amount"] * b["odds"], 2)
+                bet_lines.append(
+                    f"<@{b['user_id']}> — {pick_label} · ${b['amount']:.2f} → ${potential:.2f}"
+                )
+
+            sport = bets_for_game[0].get("sport_title", "")
+            embed.add_field(
+                name=f"{sport} · {score_text}",
+                value="\n".join(bet_lines),
+                inline=False,
+            )
+            found_any = True
+
+        # ── Kalshi bets on live games ──
+        kalshi_bets = await _models.get_all_pending_kalshi_bets()
+        live_kalshi = []
+        for kb in kalshi_bets:
+            event_ticker = kb.get("event_ticker", "")
+            ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
+            if ticker_date and ticker_date.date() <= now.date():
+                live_kalshi.append(kb)
+
+        if live_kalshi:
+            kalshi_lines = []
+            for kb in live_kalshi[:15]:
+                title = kb.get("title") or kb["market_ticker"]
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                pick_label = kb.get("pick_display") or kb["pick"].upper()
+                potential = round(kb["amount"] * kb["odds"], 2)
+                kalshi_lines.append(
+                    f"<@{kb['user_id']}> — {pick_label} · ${kb['amount']:.2f} → ${potential:.2f}\n{title}"
+                )
+
+            embed.add_field(
+                name=f"\U0001f534 Kalshi — Live ({len(live_kalshi)})",
+                value="\n".join(kalshi_lines),
+                inline=False,
+            )
+            found_any = True
+
+        if not found_any:
+            embed.description = "No pending bets have games in progress right now."
+
         await interaction.followup.send(embed=embed)
 
     # ── /myhistory ──────────────────────────────────────────────────────

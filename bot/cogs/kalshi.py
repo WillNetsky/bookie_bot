@@ -1120,12 +1120,12 @@ class KalshiCog(commands.Cog):
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
-    # ── /livescores ───────────────────────────────────────────────────
+    # ── /live ─────────────────────────────────────────────────────────
 
-    @app_commands.command(name="livescores", description="View live games to bet on")
+    @app_commands.command(name="live", description="View live games to bet on")
     @app_commands.describe(sport="Filter by sport (leave blank for all)")
     @app_commands.autocomplete(sport=sport_autocomplete)
-    async def livescores(self, interaction: discord.Interaction, sport: str | None = None) -> None:
+    async def live(self, interaction: discord.Interaction, sport: str | None = None) -> None:
         await interaction.response.defer()
 
         if sport and sport in SPORTS:
