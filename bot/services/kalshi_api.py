@@ -330,10 +330,16 @@ def _parse_game_from_markets(
     if not home_team or not away_team:
         return None
 
-    # Derive commence_time from expected_expiration_time
-    # Basketball: ~3hrs, Soccer: ~2.5hrs, Football: ~4hrs
-    expire_str = first.get("expected_expiration_time") or first.get("close_time", "")
-    commence_time = _estimate_commence_time(expire_str, sport_key)
+    # Use close_time as commence_time — Kalshi closes betting at game start.
+    # Fall back to estimating from expected_expiration_time if close_time missing.
+    close_str = first.get("close_time", "")
+    expire_str = first.get("expected_expiration_time", "")
+    if close_str:
+        commence_time = close_str
+    elif expire_str:
+        commence_time = _estimate_commence_time(expire_str, sport_key)
+    else:
+        commence_time = ""
 
     return {
         "id": event_ticker,
