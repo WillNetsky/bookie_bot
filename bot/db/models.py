@@ -440,6 +440,34 @@ async def reset_all_balances(amount: int) -> int:
         await db.close()
 
 
+async def devalue_all_balances(percent: float) -> tuple[int, int]:
+    """Reduce all user balances by a percentage.
+
+    Returns (users_affected, total_removed).
+    """
+    multiplier = 1.0 - (percent / 100.0)
+    db = await get_connection()
+    try:
+        # Get total before
+        cursor = await db.execute("SELECT SUM(balance) as total FROM users")
+        row = await cursor.fetchone()
+        total_before = row["total"] or 0
+
+        cursor = await db.execute(
+            "UPDATE users SET balance = MAX(CAST(balance * ? AS INTEGER), 0)",
+            (multiplier,),
+        )
+        await db.commit()
+
+        cursor2 = await db.execute("SELECT SUM(balance) as total FROM users")
+        row2 = await cursor2.fetchone()
+        total_after = row2["total"] or 0
+
+        return cursor.rowcount, total_before - total_after
+    finally:
+        await db.close()
+
+
 # ── Kalshi bets ───────────────────────────────────────────────────────
 
 

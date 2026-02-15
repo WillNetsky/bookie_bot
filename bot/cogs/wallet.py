@@ -80,6 +80,64 @@ class Wallet(commands.Cog):
         else:
             log.exception("Error in /resetbalances command", exc_info=error)
 
+    # ── /devalue (admin) ──────────────────────────────────────────────
+
+    @app_commands.command(
+        name="devalue",
+        description="[Admin] Devalue everyone's currency by a percentage",
+    )
+    @app_commands.describe(
+        percent="Percentage to cut (e.g. 50 = everyone loses half their balance)",
+        confirm="Type 'yes' to confirm",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def devalue(
+        self,
+        interaction: discord.Interaction,
+        percent: int,
+        confirm: str,
+    ) -> None:
+        if confirm.lower() != "yes":
+            await interaction.response.send_message(
+                "Devaluation cancelled. Pass `confirm: yes` to confirm.", ephemeral=True
+            )
+            return
+
+        if percent <= 0 or percent > 99:
+            await interaction.response.send_message(
+                "Percent must be between 1 and 99.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+
+        count, total_removed = await models.devalue_all_balances(percent)
+        log.info(
+            "Admin %s devalued currency by %d%% (%d users, $%d removed)",
+            interaction.user, percent, count, total_removed,
+        )
+
+        embed = discord.Embed(
+            title=f"Currency Devalued by {percent}%",
+            color=discord.Color.dark_red(),
+        )
+        embed.add_field(name="Users Affected", value=str(count), inline=True)
+        embed.add_field(name="Total Removed", value=f"${total_removed:,.2f}", inline=True)
+        embed.set_footer(text=f"Issued by {interaction.user.display_name}")
+
+        await interaction.followup.send(embed=embed)
+
+    @devalue.error
+    async def devalue_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You need administrator permissions to use this command."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            log.exception("Error in /devalue command", exc_info=error)
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(Wallet(bot))
