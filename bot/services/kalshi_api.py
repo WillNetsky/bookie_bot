@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 import aiosqlite
@@ -141,6 +141,234 @@ SPORTS = {
 }
 
 
+def _extract_event_suffix(event_ticker: str) -> str:
+    """Extract the date+teams suffix from an event ticker for cross-series matching.
+
+    e.g. "KXNBAGAME-26FEB14-LAL-BOS" → "26FEB14-LAL-BOS"
+    The first segment (before first hyphen) is the series prefix.
+    """
+    parts = event_ticker.split("-", 1)
+    return parts[1] if len(parts) > 1 else event_ticker
+
+
+def _decimal_to_american(decimal_odds: float) -> int:
+    """Convert decimal odds to American odds."""
+    if decimal_odds >= 2.0:
+        return round((decimal_odds - 1) * 100)
+    else:
+        return round(-100 / (decimal_odds - 1))
+
+
+def _parse_game_from_markets(
+    markets: list[dict], event_ticker: str, sport_key: str, sport_label: str, is_soccer: bool
+) -> dict | None:
+    """Parse a group of game markets into a game object."""
+    if not markets:
+        return None
+
+    # Determine home/away from title and yes_sub_title
+    # Basketball/Football: "Away at Home Winner?"
+    # Soccer: "Home vs Away Winner?"
+    home_team = None
+    away_team = None
+    home_market = None
+    away_market = None
+
+    first = markets[0]
+    title = first.get("title", "")
+
+    if is_soccer and " vs " in title:
+        # "Home vs Away Winner?"
+        parts = title.replace(" Winner?", "").replace(" winner?", "").split(" vs ", 1)
+        if len(parts) == 2:
+            home_team = parts[0].strip()
+            away_team = parts[1].strip()
+    elif " at " in title:
+        # "Away at Home Winner?"
+        parts = title.replace(" Winner?", "").replace(" winner?", "").split(" at ", 1)
+        if len(parts) == 2:
+            away_team = parts[0].strip()
+            home_team = parts[1].strip()
+
+    # Match markets to sides using yes_sub_title
+    for m in markets:
+        sub = m.get("yes_sub_title", "").strip()
+        if not sub:
+            continue
+        if home_team and sub.lower() == home_team.lower():
+            home_market = m
+            m["_side"] = "home"
+        elif away_team and sub.lower() == away_team.lower():
+            away_market = m
+            m["_side"] = "away"
+
+    # Fallback: if we have exactly 2 markets but couldn't match by title parsing,
+    # use yes_sub_title directly with ordering from title
+    if len(markets) == 2 and (not home_market or not away_market):
+        m1, m2 = markets[0], markets[1]
+        sub1 = m1.get("yes_sub_title", "").strip()
+        sub2 = m2.get("yes_sub_title", "").strip()
+        if sub1 and sub2:
+            if is_soccer:
+                home_team, away_team = sub1, sub2
+                home_market, away_market = m1, m2
+            else:
+                # For "at" format: first mentioned in title is away
+                if sub1 in title and sub2 in title:
+                    idx1 = title.index(sub1)
+                    idx2 = title.index(sub2)
+                    if idx1 < idx2:
+                        away_team, home_team = sub1, sub2
+                        away_market, home_market = m1, m2
+                    else:
+                        home_team, away_team = sub1, sub2
+                        home_market, away_market = m1, m2
+                else:
+                    away_team, home_team = sub1, sub2
+                    away_market, home_market = m1, m2
+            if home_market:
+                home_market["_side"] = "home"
+            if away_market:
+                away_market["_side"] = "away"
+
+    if not home_team or not away_team:
+        return None
+
+    # Derive commence_time from expected_expiration_time
+    # Basketball: ~3hrs, Soccer: ~2.5hrs, Football: ~4hrs
+    expire_str = first.get("expected_expiration_time") or first.get("close_time", "")
+    commence_time = _estimate_commence_time(expire_str, sport_key)
+
+    return {
+        "id": event_ticker,
+        "home_team": home_team,
+        "away_team": away_team,
+        "sport_key": sport_key,
+        "sport_title": sport_label,
+        "commence_time": commence_time,
+        "_kalshi_markets": {
+            "home": home_market,
+            "away": away_market,
+        },
+    }
+
+
+def _estimate_commence_time(expire_str: str, sport_key: str) -> str:
+    """Estimate game start time from Kalshi's expected_expiration_time."""
+    if not expire_str:
+        return ""
+    try:
+        expire = datetime.fromisoformat(expire_str.replace("Z", "+00:00"))
+        # Approximate game duration offset
+        offsets = {
+            "NFL": 4, "NCAAF": 4,
+            "NBA": 3, "NCAAMB": 3, "NCAAWB": 3,
+            "MLB": 4, "NHL": 3,
+            "EPL": 2.5, "La Liga": 2.5, "Bundesliga": 2.5,
+            "Serie A": 2.5, "Ligue 1": 2.5, "UCL": 2.5, "MLS": 2.5,
+            "UFC": 1,
+        }
+        hours = offsets.get(sport_key, 3)
+        commence = expire - timedelta(hours=hours)
+        return commence.isoformat().replace("+00:00", "Z")
+    except (ValueError, TypeError):
+        return expire_str
+
+
+def _pick_best_spread(markets: list[dict]) -> dict | None:
+    """From a list of spread markets for one game, pick the main line."""
+    if not markets:
+        return None
+
+    # Group by floor_strike (the spread line)
+    # Pick the line where yes_ask is closest to 0.50 (most balanced)
+    best = None
+    best_diff = 999.0
+    best_pair = {}
+
+    # Markets come in pairs: one for each team at the same line
+    by_strike: dict[float, list[dict]] = {}
+    for m in markets:
+        strike = m.get("floor_strike")
+        if strike is None:
+            continue
+        strike = float(strike)
+        if strike not in by_strike:
+            by_strike[strike] = []
+        by_strike[strike].append(m)
+
+    for strike, pair in by_strike.items():
+        for m in pair:
+            yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+            diff = abs(yes_price - 0.5)
+            if diff < best_diff:
+                best_diff = diff
+                best = m
+                best_pair = {s: p for s, p in by_strike.items() if s == strike}
+
+    if not best:
+        return None
+
+    # Get the strike and both sides
+    strike = float(best.get("floor_strike", 0))
+    pair = list(best_pair.values())[0] if best_pair else [best]
+
+    result = {}
+    for m in pair:
+        sub = m.get("yes_sub_title", "").strip()
+        yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+        decimal_odds = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
+        american = _decimal_to_american(decimal_odds)
+
+        result[sub] = {
+            "decimal": decimal_odds,
+            "american": american,
+            "point": strike,
+            "team": sub,
+            "_market_ticker": m.get("ticker"),
+            "_kalshi_pick": "yes",
+        }
+
+    return result if len(result) >= 2 else None
+
+
+def _pick_best_total(markets: list[dict]) -> dict | None:
+    """From a list of total markets for one game, pick the main line."""
+    if not markets:
+        return None
+
+    # Pick the total line where yes_ask is closest to 0.50
+    best = None
+    best_diff = 999.0
+
+    for m in markets:
+        yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+        diff = abs(yes_price - 0.5)
+        if diff < best_diff:
+            best_diff = diff
+            best = m
+
+    if not best:
+        return None
+
+    strike = float(best.get("floor_strike") or 0)
+    yes_price = float(best.get("yes_ask_dollars") or best.get("last_price_dollars") or "0.5")
+    over_decimal = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
+    over_american = _decimal_to_american(over_decimal)
+
+    no_price = 1.0 - yes_price
+    under_decimal = round(1.0 / no_price, 3) if no_price > 0 else 2.0
+    under_american = _decimal_to_american(under_decimal)
+
+    ticker = best.get("ticker")
+    return {
+        "over": {"decimal": over_decimal, "american": over_american, "point": strike,
+                 "_market_ticker": ticker, "_kalshi_pick": "yes"},
+        "under": {"decimal": under_decimal, "american": under_american, "point": strike,
+                   "_market_ticker": ticker, "_kalshi_pick": "no"},
+    }
+
+
 class KalshiAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
@@ -243,6 +471,129 @@ class KalshiAPI:
         if not series_ticker:
             return []
         return await self.get_markets_by_series(series_ticker)
+
+    async def get_sport_games(self, sport_key: str) -> list[dict]:
+        """Fetch game markets for a sport and group into game objects.
+
+        Returns a list of game dicts with home/away teams, moneyline odds,
+        and commence_time — matching the format used by /odds.
+        """
+        sport = SPORTS.get(sport_key)
+        if not sport:
+            return []
+
+        # Get first series key (usually "Game" or "Fight Winner")
+        first_key = next(iter(sport["series"].keys()))
+        series_ticker = sport["series"][first_key]
+        markets = await self.get_markets_by_series(series_ticker)
+        if not markets:
+            return []
+
+        # Group markets by event_ticker
+        event_groups: dict[str, list[dict]] = {}
+        for m in markets:
+            et = m.get("event_ticker", "")
+            if et not in event_groups:
+                event_groups[et] = []
+            event_groups[et].append(m)
+
+        # Soccer sports use "Home vs Away" title format
+        soccer_sports = {"EPL", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UCL", "MLS"}
+        is_soccer = sport_key in soccer_sports
+
+        games = []
+        for event_ticker, group in event_groups.items():
+            game = _parse_game_from_markets(group, event_ticker, sport_key, sport["label"], is_soccer)
+            if game:
+                games.append(game)
+
+        # Sort by commence_time
+        games.sort(key=lambda g: g.get("commence_time", "9999"))
+        return games
+
+    async def get_game_odds(self, sport_key: str, game: dict) -> dict:
+        """Fetch full odds (moneyline + spread + total) for a specific game.
+
+        game: a game dict from get_sport_games() with home_team, away_team, _kalshi_markets.
+        Returns a parsed odds dict matching the format from sports_api.parse_odds().
+        """
+        sport = SPORTS.get(sport_key)
+        if not sport:
+            return {}
+
+        series = sport["series"]
+        parsed = {}
+        home_team = game.get("home_team", "")
+        away_team = game.get("away_team", "")
+        event_ticker = game.get("id", "")
+
+        # Parse moneyline from the game's cached markets
+        kalshi_markets = game.get("_kalshi_markets", {})
+        for side in ("home", "away"):
+            m = kalshi_markets.get(side)
+            if not m:
+                continue
+            yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+            decimal_odds = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
+            american = _decimal_to_american(decimal_odds)
+            parsed[side] = {"decimal": decimal_odds, "american": american, "point": None}
+
+        # Fetch spread and total markets concurrently
+        spread_key = None
+        total_key = None
+        for k in series:
+            kl = k.lower()
+            if "spread" in kl:
+                spread_key = k
+            elif "total" in kl:
+                total_key = k
+
+        coros = []
+        fetch_keys = []
+        if spread_key:
+            coros.append(self.get_markets_by_series(series[spread_key]))
+            fetch_keys.append("spread")
+        if total_key:
+            coros.append(self.get_markets_by_series(series[total_key]))
+            fetch_keys.append("total")
+
+        if coros:
+            # Extract game suffix (date+teams) from event_ticker for cross-series matching
+            # e.g. "KXNBAGAME-26FEB14-LAL-BOS" → "-26FEB14-LAL-BOS"
+            game_suffix = _extract_event_suffix(event_ticker)
+
+            results = await asyncio.gather(*coros, return_exceptions=True)
+            for key, result in zip(fetch_keys, results):
+                if isinstance(result, Exception) or not result:
+                    continue
+                # Filter to markets matching this game's suffix
+                event_markets = [
+                    m for m in result
+                    if _extract_event_suffix(m.get("event_ticker", "")) == game_suffix
+                ]
+
+                if key == "spread":
+                    spread_raw = _pick_best_spread(event_markets)
+                    if spread_raw:
+                        # Map team names to home/away
+                        for team_name, odds_data in spread_raw.items():
+                            entry = {
+                                "decimal": odds_data["decimal"],
+                                "american": odds_data["american"],
+                                "point": odds_data["point"],
+                                "_market_ticker": odds_data.get("_market_ticker"),
+                                "_kalshi_pick": odds_data.get("_kalshi_pick", "yes"),
+                            }
+                            if team_name.lower() == home_team.lower():
+                                parsed["spread_home"] = entry
+                            elif team_name.lower() == away_team.lower():
+                                parsed["spread_away"] = entry
+                elif key == "total":
+                    total_odds = _pick_best_total(event_markets)
+                    if total_odds:
+                        parsed.update(total_odds)
+
+        return parsed
 
     async def get_available_sports(self) -> list[str]:
         """Return sport keys that currently have open markets.

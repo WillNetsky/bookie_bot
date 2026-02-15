@@ -147,6 +147,7 @@ async def place_kalshi_bet(
     odds: float,
     title: str | None = None,
     close_time: str | None = None,
+    pick_display: str | None = None,
 ) -> int | None:
     """Place a Kalshi bet. Returns bet ID on success, None if insufficient balance."""
     new_balance = await withdraw(user_id, amount)
@@ -154,7 +155,7 @@ async def place_kalshi_bet(
         return None
     bet_id = await models.create_kalshi_bet(
         user_id, market_ticker, event_ticker, pick, amount, odds,
-        title=title, close_time=close_time,
+        title=title, close_time=close_time, pick_display=pick_display,
     )
     return bet_id
 

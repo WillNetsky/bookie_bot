@@ -84,6 +84,7 @@ MIGRATIONS = [
     "ALTER TABLE bets ADD COLUMN point REAL",
     "ALTER TABLE bets ADD COLUMN commence_time TEXT",
     "ALTER TABLE parlay_legs ADD COLUMN commence_time TEXT",
+    "ALTER TABLE kalshi_bets ADD COLUMN pick_display TEXT",
 ]
 
 

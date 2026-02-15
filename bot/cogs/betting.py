@@ -1006,12 +1006,13 @@ class HistoryView(discord.ui.View):
             status_text = "Lost"
 
         title = b.get("title") or b.get("market_ticker", "Unknown")
+        pick_label = b.get("pick_display") or b["pick"].upper()
 
         embed.add_field(
             name=f"{icon} Kalshi #{b['id']} · {status_text}",
             value=(
                 f"**{title}**\n"
-                f"Pick: **{b['pick'].upper()}** · ${b['amount']:.2f} @ {b['odds']:.2f}x"
+                f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']:.2f}x"
             ),
             inline=False,
         )
@@ -1706,12 +1707,13 @@ class Betting(commands.Cog):
             potential = round(kb["amount"] * kb["odds"], 2)
             status_text = f"Pending — potential **${potential:.2f}**"
             title = kb.get("title") or kb["market_ticker"]
+            pick_label = kb.get("pick_display") or kb["pick"].upper()
 
             embed.add_field(
                 name=f"{icon} Kalshi #{kb['id']} · {status_text}",
                 value=(
                     f"**{title}**\n"
-                    f"Pick: **{kb['pick'].upper()}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
+                    f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
                 ),
                 inline=False,
             )

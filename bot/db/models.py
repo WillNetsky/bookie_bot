@@ -480,13 +480,14 @@ async def create_kalshi_bet(
     odds: float,
     title: str | None = None,
     close_time: str | None = None,
+    pick_display: str | None = None,
 ) -> int:
     db = await get_connection()
     try:
         cursor = await db.execute(
-            "INSERT INTO kalshi_bets (user_id, market_ticker, event_ticker, pick, amount, odds, title, close_time)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, market_ticker, event_ticker, pick, amount, odds, title, close_time),
+            "INSERT INTO kalshi_bets (user_id, market_ticker, event_ticker, pick, amount, odds, title, close_time, pick_display)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, market_ticker, event_ticker, pick, amount, odds, title, close_time, pick_display),
         )
         await db.commit()
         return cursor.lastrowid
