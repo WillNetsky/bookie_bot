@@ -35,6 +35,10 @@ class BookieBot(commands.Bot):
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
             log.info("Slash commands synced to guild %s.", GUILD_ID)
+            # Clear any stale global commands so they don't show up as duplicates
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
+            log.info("Cleared global commands to avoid duplicates.")
         else:
             await self.tree.sync()
             log.info("Slash commands synced globally.")
