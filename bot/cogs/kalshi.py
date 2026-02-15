@@ -7,7 +7,7 @@ from discord.ext import commands, tasks
 
 from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service
-from bot.services.kalshi_api import kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API
+from bot.services.kalshi_api import kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API, _decimal_to_american
 from bot.services.sports_api import SportsAPI
 from bot.cogs.betting import (
     format_matchup, format_game_time, PICK_EMOJI,
@@ -965,6 +965,19 @@ class GamesListView(discord.ui.View):
             away = g.get("away_team", "?")
             sport = g.get("sport_title", "")
 
+            # Extract moneyline odds from _kalshi_markets
+            odds_str = ""
+            kalshi_m = g.get("_kalshi_markets", {})
+            home_m = kalshi_m.get("home")
+            away_m = kalshi_m.get("away")
+            if home_m and away_m:
+                home_price = float(home_m.get("yes_ask_dollars") or home_m.get("last_price_dollars") or "0")
+                away_price = float(away_m.get("yes_ask_dollars") or away_m.get("last_price_dollars") or "0")
+                if home_price > 0 and away_price > 0:
+                    home_am = _fmt_american(_decimal_to_american(round(1.0 / home_price, 3)))
+                    away_am = _fmt_american(_decimal_to_american(round(1.0 / away_price, 3)))
+                    odds_str = f"  ({away_am} / {home_am})"
+
             score = self._find_score(g) if self.is_live_mode else None
             if score and score.get("started") and score.get("home_score") is not None:
                 score_str = f"**{away}** {score['away_score']} - {score['home_score']} **{home}**"
@@ -972,10 +985,24 @@ class GamesListView(discord.ui.View):
                     score_str += "  (Final)"
                 else:
                     score_str = f"\U0001f534 {score_str}"
-                lines.append(f"{score_str}\n{sport}")
+                # Time info for live games
+                time_parts = []
+                commence = g.get("commence_time", "")
+                if commence:
+                    time_parts.append(f"Started {format_game_time(commence)}")
+                exp = g.get("expiration_time", "")
+                if exp:
+                    time_parts.append(f"Ends ~{format_game_time(exp)}")
+                time_line = " · ".join(time_parts) if time_parts else ""
+                detail = f"{sport}{odds_str}"
+                if time_line:
+                    detail += f"\n{time_line}"
+                lines.append(f"{score_str}\n{detail}")
             else:
                 time_str = _format_game_time_with_status(g.get("commence_time", ""))
-                lines.append(f"**{away}** @ **{home}**\n{sport} · {time_str}")
+                exp = g.get("expiration_time", "")
+                exp_str = f" — Ends ~{format_game_time(exp)}" if exp else ""
+                lines.append(f"**{away}** @ **{home}**{odds_str}\n{sport} · {time_str}{exp_str}")
 
         embed.description = "\n\n".join(lines)
 

@@ -376,6 +376,10 @@ def _parse_game_from_markets(
     expire_str = first.get("expected_expiration_time") or first.get("close_time", "")
     commence_time = _estimate_commence_time(expire_str, sport_key, event_ticker)
 
+    # Store close/expiration time for display
+    close_time = first.get("close_time", "")
+    expiration_time = first.get("expected_expiration_time", "")
+
     return {
         "id": event_ticker,
         "home_team": home_team,
@@ -383,6 +387,8 @@ def _parse_game_from_markets(
         "sport_key": sport_key,
         "sport_title": sport_label,
         "commence_time": commence_time,
+        "close_time": close_time,
+        "expiration_time": expiration_time,
         "_kalshi_markets": {
             "home": home_market,
             "away": away_market,
