@@ -1727,9 +1727,6 @@ class Betting(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         game_ids = await betting_service.get_pending_game_ids()
-        if not game_ids:
-            await interaction.followup.send("No pending bets.", ephemeral=True)
-            return
 
         embed = discord.Embed(title="Pending Bets", color=discord.Color.orange())
 
@@ -1796,6 +1793,30 @@ class Betting(commands.Cog):
                 value="\n".join(parlay_lines),
                 inline=False,
             )
+
+        # Kalshi bets
+        kalshi_bets = await _models.get_all_pending_kalshi_bets()
+        if kalshi_bets:
+            kalshi_lines = []
+            total_kalshi_wagered = 0
+            for kb in kalshi_bets[:20]:
+                pick_display = kb.get("pick_display") or kb["pick"]
+                title = kb.get("title") or kb["market_ticker"]
+                if len(title) > 40:
+                    title = title[:37] + "..."
+                kalshi_lines.append(
+                    f"<@{kb['user_id']}> — {pick_display} · "
+                    f"${kb['amount']:.2f} @ {kb['odds']:.2f}x\n{title}"
+                )
+                total_kalshi_wagered += kb["amount"]
+            header = f"Kalshi Bets ({len(kalshi_bets)} · ${total_kalshi_wagered:.2f})"
+            value = "\n".join(kalshi_lines)
+            if len(kalshi_bets) > 20:
+                value += f"\n*...and {len(kalshi_bets) - 20} more*"
+            embed.add_field(name=header, value=value[:1024], inline=False)
+
+        if not game_ids and not pending_parlays and not kalshi_bets:
+            embed.description = "No pending bets."
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 

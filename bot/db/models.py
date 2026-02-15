@@ -546,6 +546,18 @@ async def get_pending_kalshi_market_tickers() -> list[str]:
         await db.close()
 
 
+async def get_all_pending_kalshi_bets() -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM kalshi_bets WHERE status = 'pending' ORDER BY created_at DESC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
 async def get_pending_kalshi_bets_by_market(market_ticker: str) -> list[dict]:
     db = await get_connection()
     try:
