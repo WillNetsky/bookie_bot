@@ -452,6 +452,8 @@ def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str =
             hours = 3
         elif "NHL" in sk:
             hours = 3
+        elif "CS2" in sk or "LOL" in sk or "DOTA" in sk or "VALORANT" in sk or "ESPORT" in sk:
+            hours = 4
         elif "UFC" in sk or "MMA" in sk or "BOXING" in sk or "FIGHT" in sk:
             hours = 1
         elif "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "CHALLENGER" in sk or "SIXKINGS" in sk:
