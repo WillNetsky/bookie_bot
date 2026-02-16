@@ -21,6 +21,31 @@ log = logging.getLogger(__name__)
 OPTIONS_PER_PAGE = 25
 
 
+def _sport_emoji(sport_key: str) -> str:
+    """Return an appropriate emoji for a sport based on its ticker."""
+    sk = sport_key.upper()
+    if "NBA" in sk or "WNBA" in sk or "NCAAMB" in sk or "NCAAWB" in sk or "NCAAB" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
+        return "\U0001f3c0"  # 🏀
+    if "NFL" in sk or "NCAAF" in sk:
+        return "\U0001f3c8"  # 🏈
+    if "MLB" in sk or "NCAABB" in sk:
+        return "\u26be"  # ⚾
+    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk:
+        return "\U0001f3d2"  # 🏒
+    if "UFC" in sk or "BOXING" in sk or "MMA" in sk:
+        return "\U0001f94a"  # 🥊
+    if "LAX" in sk or "LACROSSE" in sk:
+        return "\U0001f94d"  # 🥍
+    if "CRICKET" in sk or "IPL" in sk or "WPL" in sk:
+        return "\U0001f3cf"  # 🏏
+    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk:
+        return "\U0001f3be"  # 🎾
+    if "CURL" in sk:
+        return "\U0001f94c"  # 🥌
+    # Soccer — anything left with league-like tickers
+    return "\u26bd"  # ⚽
+
+
 def _fmt_american(odds: int) -> str:
     """Format American odds with +/- prefix."""
     return f"{odds:+d}" if odds else "?"
@@ -125,7 +150,7 @@ class BrowseView(discord.ui.View):
                 label=label,
                 value=f"games:{key}",
                 description=desc,
-                emoji="\U0001f3c8",
+                emoji=_sport_emoji(key),
             ))
 
         # Futures sports (that don't already appear as games)
@@ -141,11 +166,12 @@ class BrowseView(discord.ui.View):
             market_names = ", ".join(markets.keys())
             if len(market_names) > 90:
                 market_names = market_names[:87] + "..."
+            fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
             options.append(discord.SelectOption(
                 label=label,
                 value=f"futures:{key}",
                 description=market_names[:100] if market_names else "Futures",
-                emoji="\U0001f3c6",
+                emoji=_sport_emoji(fut_sport_key),
             ))
 
         if options:
@@ -170,7 +196,7 @@ class BrowseView(discord.ui.View):
                 name = sport["label"] if sport else key
                 next_time = info.get("next_time")
                 has_live = info.get("has_live", False)
-                line = f"\U0001f3c8 **{name}**"
+                line = f"{_sport_emoji(key)} **{name}**"
                 if has_live:
                     line += " \U0001f534 LIVE"
                 elif next_time:
@@ -207,7 +233,8 @@ class BrowseView(discord.ui.View):
                 fut = FUTURES.get(key)
                 name = fut["label"] if fut else key
                 market_names = ", ".join(markets.keys())
-                futures_lines.append(f"\U0001f3c6 **{name}** — {market_names}")
+                fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
+                futures_lines.append(f"{_sport_emoji(fut_sport_key)} **{name}** — {market_names}")
             if futures_lines:
                 futures_text = "\n".join(futures_lines)
                 if len(futures_text) > 1000:
