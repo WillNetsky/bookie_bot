@@ -1002,7 +1002,8 @@ class KalshiAPI:
                     now = datetime.now(timezone.utc)
                     # Count unique event_tickers, skipping stale markets
                     event_tickers = set()
-                    earliest_time = None
+                    next_upcoming = None  # Next game that hasn't started
+                    has_live = False
                     for m in result:
                         et = m.get("event_ticker", "")
                         if not et:
@@ -1012,16 +1013,28 @@ class KalshiAPI:
                         if ticker_date and (now - ticker_date).total_seconds() / 86400 > 2:
                             continue
                         event_tickers.add(et)
-                        # Find earliest expiration to estimate next game
+                        # Estimate start and expiration
                         exp = m.get("expected_expiration_time") or m.get("close_time", "")
                         if exp:
                             est_start = _estimate_commence_time(exp, key, et)
-                            if est_start and (earliest_time is None or est_start < earliest_time):
-                                earliest_time = est_start
+                            if est_start:
+                                try:
+                                    start_dt = datetime.fromisoformat(est_start.replace("Z", "+00:00"))
+                                    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                                    if start_dt > now:
+                                        # Upcoming game
+                                        if next_upcoming is None or est_start < next_upcoming:
+                                            next_upcoming = est_start
+                                    elif now <= exp_dt:
+                                        # Currently live
+                                        has_live = True
+                                except (ValueError, TypeError):
+                                    pass
                     if event_tickers:
                         games_available[key] = {
                             "count": len(event_tickers),
-                            "next_time": earliest_time,
+                            "next_time": next_upcoming,
+                            "has_live": has_live,
                         }
             else:
                 if has_markets:

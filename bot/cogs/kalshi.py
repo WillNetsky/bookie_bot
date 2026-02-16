@@ -98,12 +98,12 @@ class BrowseView(discord.ui.View):
             if sport:
                 count = info.get("count", 0)
                 next_time = info.get("next_time")
+                has_live = info.get("has_live", False)
                 desc = f"{count} game{'s' if count != 1 else ''}"
-                if next_time:
-                    if _is_live(next_time):
-                        desc += " — LIVE now"
-                    else:
-                        desc += f" — Next: {format_game_time(next_time)}"
+                if has_live:
+                    desc += " — LIVE now"
+                elif next_time:
+                    desc += f" — Next: {format_game_time(next_time)}"
                 if len(desc) > 100:
                     desc = desc[:100]
                 options.append(discord.SelectOption(
@@ -145,12 +145,12 @@ class BrowseView(discord.ui.View):
                 name = sport["label"] if sport else key
                 count = info.get("count", 0)
                 next_time = info.get("next_time")
+                has_live = info.get("has_live", False)
                 line = f"\U0001f3c8 **{name}** — {count} game{'s' if count != 1 else ''}"
-                if next_time:
-                    if _is_live(next_time):
-                        line += " \U0001f534 LIVE"
-                    else:
-                        line += f" — Next: {format_game_time(next_time)}"
+                if has_live:
+                    line += " \U0001f534 LIVE"
+                elif next_time:
+                    line += f" — Next: {format_game_time(next_time)}"
                 game_lines.append(line)
             embed.add_field(
                 name="Games",
