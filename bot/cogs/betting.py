@@ -1093,6 +1093,11 @@ class Betting(commands.Cog):
     )
     @app_commands.autocomplete(sport=sport_autocomplete)
     async def odds(self, interaction: discord.Interaction, sport: str | None = None, hours: int = 24) -> None:
+        await interaction.response.send_message(
+            "This command has been retired. Use `/games` or `/kalshi` to browse and bet on games.",
+            ephemeral=True,
+        )
+        return
         await interaction.response.defer()
 
         # Use free /events endpoint for game listing (0 credits)
@@ -1154,6 +1159,11 @@ class Betting(commands.Cog):
         pick: app_commands.Choice[str],
         amount: int,
     ) -> None:
+        await interaction.response.send_message(
+            "This command has been retired. Use `/games` or `/kalshi` to place bets.",
+            ephemeral=True,
+        )
+        return
         pick_value = pick.value
 
         if amount <= 0:
@@ -1283,6 +1293,11 @@ class Betting(commands.Cog):
         sport: str | None = None,
         hours: int = 24,
     ) -> None:
+        await interaction.response.send_message(
+            "This command has been retired. Use `/games` or `/kalshi` to place bets.",
+            ephemeral=True,
+        )
+        return
         await interaction.response.defer()
 
         # Use free /events endpoint (0 credits)
@@ -1385,6 +1400,11 @@ class Betting(commands.Cog):
     @app_commands.describe(sport="Sport to view futures for")
     @app_commands.autocomplete(sport=sport_autocomplete)
     async def futures(self, interaction: discord.Interaction, sport: str) -> None:
+        await interaction.response.send_message(
+            "This command has been retired. Use `/kalshi` to browse futures and props.",
+            ephemeral=True,
+        )
+        return
         await interaction.response.defer()
 
         events = await self.sports_api.get_outrights(sport)
@@ -1437,6 +1457,11 @@ class Betting(commands.Cog):
         amount: int,
         sport: str | None = None,
     ) -> None:
+        await interaction.response.send_message(
+            "This command has been retired. Use `/kalshi` to browse futures and props.",
+            ephemeral=True,
+        )
+        return
         if amount <= 0:
             await interaction.response.send_message(
                 "Bet amount must be positive.", ephemeral=True

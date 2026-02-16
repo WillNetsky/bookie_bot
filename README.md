@@ -98,10 +98,9 @@ bot/
 - [x] **Migrate off the-odds-api** — all new bets go through Kalshi, odds-api kept only for pending bet resolution
 
 #### Up Next
-- [ ] **Remove the-odds-api** — once all legacy bets resolve, strip out odds-api code entirely
+- [ ] **Remove the-odds-api** — once all legacy bets resolve, strip out odds-api code entirely (new bets already disabled)
+- [ ] **More ways to earn** — posting rewards, `/play` mini-games, daily login bonus, etc.
 - [ ] **Head-to-head challenges** — let two users bet against each other on a game at even odds (or custom)
 - [ ] **Prop bets / custom bets** — admin-created bets on arbitrary events (e.g. "Will X happen during the game?")
-- [ ] **Bet sharing** — shareable embed when placing a bet so others can tail it with one click
-- [ ] **Daily free bet** — give users a free bet each day to keep engagement up even when balances are low
 - [ ] **Streak bonuses** — bonus payouts for consecutive winning bets
 - [ ] **League favorites** — let users follow specific leagues and get notified when new games are available
