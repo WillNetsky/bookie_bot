@@ -270,12 +270,15 @@ def _parse_event_ticker_date(event_ticker: str) -> datetime | None:
     """Parse game date from event ticker.
 
     e.g. "KXNBAGAME-26FEB14-LAL-BOS" → 2026-02-14 (date only, midnight UTC).
+         "KXMLBGAME-25APR18ATHMIL" → 2025-04-18
     Format is YYMMMDD where MMM is 3-letter month abbreviation.
+    The date part may have team codes appended (e.g. "25APR18ATHMIL"),
+    so we only parse the first 7 characters.
     """
     parts = event_ticker.split("-")
     if len(parts) < 2:
         return None
-    date_part = parts[1]  # e.g. "26FEB14"
+    date_part = parts[1][:7]  # e.g. "26FEB14" or "25APR18" (trim team codes)
     if len(date_part) < 7:
         return None
     try:
@@ -367,6 +370,15 @@ def _parse_game_from_markets(
 
     if not home_team or not away_team:
         return None
+
+    # Skip stale markets — if the event ticker date is more than 2 days in the past,
+    # this is an old/future-season market (e.g. 2025 MLB games still listed as open).
+    ticker_date = _parse_event_ticker_date(event_ticker)
+    if ticker_date:
+        now = datetime.now(timezone.utc)
+        days_old = (now - ticker_date).total_seconds() / 86400
+        if days_old > 2:
+            return None
 
     # Estimate game start time.
     # close_time = when betting closes (during/end of game, NOT game start)
