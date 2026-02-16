@@ -1106,7 +1106,7 @@ class KalshiAPI:
         options.sort(key=lambda o: o["yes_price"], reverse=True)
         return options
 
-    async def discover_available(self) -> dict:
+    async def discover_available(self, force: bool = False) -> dict:
         """Discover all available markets — games and futures.
 
         Returns:
@@ -1120,27 +1120,28 @@ class KalshiAPI:
         """
         # Check for cached discovery result first
         cache_key = "kalshi:discovery:all"
-        async with aiosqlite.connect(DB_PATH) as db:
-            cursor = await db.execute(
-                "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
-                (cache_key,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                try:
-                    fetched_dt = datetime.fromisoformat(row[1])
-                    if fetched_dt.tzinfo is None:
-                        fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
-                    age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
-                    if age < DISCOVERY_TTL:
-                        cached = json.loads(row[0])
-                        log.debug(
-                            "Discovery cache HIT (age %.0fs): %d games, %d futures",
-                            age, len(cached.get("games", {})), len(cached.get("futures", {})),
-                        )
-                        return cached
-                except (ValueError, TypeError):
-                    pass
+        if not force:
+            async with aiosqlite.connect(DB_PATH) as db:
+                cursor = await db.execute(
+                    "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
+                    (cache_key,),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    try:
+                        fetched_dt = datetime.fromisoformat(row[1])
+                        if fetched_dt.tzinfo is None:
+                            fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
+                        age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
+                        if age < DISCOVERY_TTL:
+                            cached = json.loads(row[0])
+                            log.debug(
+                                "Discovery cache HIT (age %.0fs): %d games, %d futures",
+                                age, len(cached.get("games", {})), len(cached.get("futures", {})),
+                            )
+                            return cached
+                    except (ValueError, TypeError):
+                        pass
 
         # Ensure SPORTS is populated
         if not SPORTS:

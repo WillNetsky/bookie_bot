@@ -1227,11 +1227,15 @@ class KalshiCog(commands.Cog):
     async def cog_load(self) -> None:
         log.info("KalshiCog loading — refreshing sports...")
         await kalshi_api.refresh_sports()
-        log.info("KalshiCog loaded — %d sports available, starting resolution loop", len(SPORTS))
+        log.info("KalshiCog loaded — %d sports available, starting loops", len(SPORTS))
         self.check_kalshi_results.start()
+        self.refresh_discovery.start()
+        self.refresh_sports_loop.start()
 
     async def cog_unload(self) -> None:
         self.check_kalshi_results.cancel()
+        self.refresh_discovery.cancel()
+        self.refresh_sports_loop.cancel()
         await kalshi_api.close()
 
     # ── Sport autocomplete ────────────────────────────────────────────
@@ -1397,6 +1401,39 @@ class KalshiCog(commands.Cog):
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
+
+    # ── Periodic discovery (pre-warm cache) ─────────────────────────
+
+    @tasks.loop(minutes=10)
+    async def refresh_discovery(self) -> None:
+        try:
+            result = await kalshi_api.discover_available(force=True)
+            games = result.get("games", {})
+            futures = result.get("futures", {})
+            log.info(
+                "Periodic discovery: %d game sports, %d futures sports",
+                len(games), len(futures),
+            )
+        except Exception:
+            log.exception("Error in periodic discovery")
+
+    @refresh_discovery.before_loop
+    async def before_refresh_discovery(self) -> None:
+        await self.bot.wait_until_ready()
+
+    # ── Periodic sports refresh (pick up new series) ─────────────────
+
+    @tasks.loop(hours=24)
+    async def refresh_sports_loop(self) -> None:
+        try:
+            await kalshi_api.refresh_sports()
+            log.info("Periodic sports refresh: %d sports available", len(SPORTS))
+        except Exception:
+            log.exception("Error in periodic sports refresh")
+
+    @refresh_sports_loop.before_loop
+    async def before_refresh_sports_loop(self) -> None:
+        await self.bot.wait_until_ready()
 
     # ── Resolution loop ───────────────────────────────────────────────
 
