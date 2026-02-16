@@ -1866,8 +1866,21 @@ class Betting(commands.Cog):
                 )
                 total_wagered += b["amount"]
 
+            # Show game time from first bet's commence_time
+            time_str = ""
+            ct = first.get("commence_time")
+            if ct:
+                try:
+                    ct_dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+                    if ct_dt <= datetime.now(timezone.utc):
+                        time_str = " \U0001f534 LIVE"
+                    else:
+                        time_str = f"\n{format_game_time(ct)}"
+                except (ValueError, TypeError):
+                    pass
+
             raw_id = composite_id.split("|")[0] if "|" in composite_id else composite_id
-            header = f"{matchup} ({len(bets)} bet{'s' if len(bets) != 1 else ''} · ${total_wagered:.2f})"
+            header = f"{matchup} ({len(bets)} bet{'s' if len(bets) != 1 else ''} · ${total_wagered:.2f}){time_str}"
             value = "\n".join(lines) + f"\nID: `{raw_id}`"
 
             embed.add_field(name=header, value=value, inline=False)
@@ -1904,6 +1917,7 @@ class Betting(commands.Cog):
             )
 
         # Kalshi bets
+        from bot.services.kalshi_api import _parse_event_ticker_date
         kalshi_bets = await _models.get_all_pending_kalshi_bets()
         if kalshi_bets:
             kalshi_lines = []
@@ -1913,9 +1927,19 @@ class Betting(commands.Cog):
                 title = kb.get("title") or kb["market_ticker"]
                 if len(title) > 40:
                     title = title[:37] + "..."
+                # Parse game time from event ticker
+                time_info = ""
+                et = kb.get("event_ticker", "")
+                ticker_date = _parse_event_ticker_date(et) if et else None
+                if ticker_date:
+                    now = datetime.now(timezone.utc)
+                    if ticker_date.date() < now.date():
+                        time_info = " \U0001f534 LIVE"
+                    else:
+                        time_info = f" · {ticker_date.strftime('%-m/%-d')}"
                 kalshi_lines.append(
                     f"<@{kb['user_id']}> — {pick_display} · "
-                    f"${kb['amount']:.2f} @ {kb['odds']:.2f}x\n{title}"
+                    f"${kb['amount']:.2f} @ {kb['odds']:.2f}x{time_info}\n{title}"
                 )
                 total_kalshi_wagered += kb["amount"]
             header = f"Kalshi Bets ({len(kalshi_bets)} · ${total_kalshi_wagered:.2f})"
