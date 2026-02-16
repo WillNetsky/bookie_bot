@@ -32,7 +32,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\u26be"  # ⚾
     if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk:
         return "\U0001f3d2"  # 🏒
-    if "UFC" in sk or "BOXING" in sk or "MMA" in sk:
+    if "UFC" in sk or "BOXING" in sk or "MMA" in sk or "FIGHT" in sk or "MCGREGOR" in sk:
         return "\U0001f94a"  # 🥊
     if "LAX" in sk or "LACROSSE" in sk:
         return "\U0001f94d"  # 🥍
@@ -42,6 +42,14 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3be"  # 🎾
     if "CURL" in sk:
         return "\U0001f94c"  # 🥌
+    if "CHESS" in sk:
+        return "\u265f\ufe0f"  # ♟️
+    if "PICKLE" in sk:
+        return "\U0001f3d3"  # 🏓
+    if "CS2" in sk or "CSGO" in sk or "VALORANT" in sk or "LOL" in sk or "DOTA" in sk or "OW" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk:
+        return "\U0001f3ae"  # 🎮
+    if "BEAST" in sk or "FANATICS" in sk:
+        return "\U0001f3ac"  # 🎬
     # Soccer — anything left with league-like tickers
     return "\u26bd"  # ⚽
 

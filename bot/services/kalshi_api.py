@@ -48,27 +48,19 @@ KALSHI_TO_ODDS_API = {
 
 SPORTS: dict[str, dict] = {}
 
-# Series tickers to exclude (novelty, duplicates, esports, one-offs)
+# Series tickers to exclude (only true duplicates / non-bettable products)
 _EXCLUDED_TICKERS = {
-    # Novelty / celebrity / duplicates
-    "KXBEASTGAMES", "KXCHESSGAME", "KXCOLLEGEGAMEDAYGUEST",
-    "KXFANATICSGAMESFIRSTPLACE", "KXFANATICSGAMESSECONDPLACE",
-    "KXFANATICSGAMESTHIRDPLACE", "KXFIFAUSPULLGAME",
-    "KXNBAFINALSVIEWERGAME7", "KXNBACELEBRITYGAME", "KXNFLCELEBRITYGAME",
-    "KXPICKLEBALLGAMES", "KXPPLGAMES", "KXTTELITEGAME",
-    # Multi-game parlays / MV products
+    # Multi-game parlay / MV products (not individual game markets)
     "KXMVENBASINGLEGAME", "KXMVENFLMULTIGAME", "KXMVENFLSINGLEGAME",
     "KXMVESPORTSMULTIGAMEEXTENDED", "KXMVENFLMULTIGAMEEXTENDED",
     "KXMVENBAMULTIGAMEEXTENDED",
-    # Esports (keep separate from sports betting)
-    "KXNBAGAMES", "KXCS2GAMES", "KXLOLGAMES", "KXLOLGAME",
-    "KXCS2GAME", "KXCSGOGAME", "KXVALORANTGAME", "KXVALORANTGAMETEAMVSMIBR",
-    "KXDOTA2GAME", "KXOWGAME", "KXR6GAME", "KXCODGAME",
-    # Duplicate series (use non-sack/TD/FG/TO versions)
+    # Plural duplicates of singular series (KXNBAGAMES duplicates KXNBAGAME)
+    "KXNBAGAMES", "KXCS2GAMES", "KXLOLGAMES", "KXPPLGAMES",
+    # NFL sub-stat series (duplicate the main KXNFLGAME markets)
     "KXNFLGAMESACK", "KXNFLGAMETD", "KXNFLGAMETO", "KXNFLGAMEFG",
-    # One-off special events
-    "KXWOCURLGAME", "KXCRYPTOFIGHTNIGHT", "KXMCGREGORFIGHTNEXT",
-    "KXMLBSERIESGAMETOTAL", "KXEWCTEAMFIGHTTACTICS",
+    # Non-game series that happen to end in GAME
+    "KXCOLLEGEGAMEDAYGUEST", "KXMLBSERIESGAMETOTAL",
+    "KXEWCTEAMFIGHTTACTICS",
 }
 
 SERIES_CACHE_TTL = 86400  # 24 hours — series list rarely changes
@@ -114,6 +106,31 @@ _LABEL_OVERRIDES: dict[str, str] = {
     "KXWPLGAME": "WPL Cricket",
     "KXAHLGAME": "AHL",
     "KXKHLGAME": "KHL",
+    # Esports
+    "KXCS2GAME": "Counter-Strike 2",
+    "KXCSGOGAME": "CS:GO",
+    "KXLOLGAME": "League of Legends",
+    "KXVALORANTGAME": "Valorant",
+    "KXDOTA2GAME": "Dota 2",
+    "KXOWGAME": "Overwatch",
+    "KXR6GAME": "Rainbow Six",
+    "KXCODGAME": "Call of Duty",
+    # Other
+    "KXCHESSGAME": "Chess",
+    "KXPICKLEBALLGAMES": "Pickleball",
+    "KXWOCURLGAME": "Olympic Curling",
+    "KXBEASTGAMES": "Beast Games",
+    "KXNBACELEBRITYGAME": "NBA Celebrity Game",
+    "KXNFLCELEBRITYGAME": "NFL Celebrity Game",
+    "KXNBAFINALSVIEWERGAME7": "NBA Finals Game 7 Viewership",
+    "KXTTELITEGAME": "TT Elite",
+    "KXCRYPTOFIGHTNIGHT": "Crypto Fight Night",
+    "KXVALORANTGAMETEAMVSMIBR": "Valorant (Team vs MIBR)",
+    "KXFIFAUSPULLGAME": "FIFA US Pull",
+    "KXMCGREGORFIGHTNEXT": "McGregor Next Fight",
+    "KXFANATICSGAMESFIRSTPLACE": "Fanatics Games (1st)",
+    "KXFANATICSGAMESSECONDPLACE": "Fanatics Games (2nd)",
+    "KXFANATICSGAMESTHIRDPLACE": "Fanatics Games (3rd)",
 }
 
 # ── Futures / props / specials ────────────────────────────────────────
