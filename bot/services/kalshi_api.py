@@ -163,6 +163,72 @@ SPORTS = {
             "Fight Winner": "KXUFCFIGHT",
         },
     },
+    "FA Cup": {
+        "label": "FA Cup",
+        "series": {
+            "Game": "KXFACUPGAME",
+        },
+    },
+    "Eredivisie": {
+        "label": "Eredivisie",
+        "series": {
+            "Game": "KXEREDIVISIEGAME",
+        },
+    },
+    "EFL Championship": {
+        "label": "EFL Championship",
+        "series": {
+            "Game": "KXEFLCHAMPIONSHIPGAME",
+        },
+    },
+    "Europa League": {
+        "label": "Europa League",
+        "series": {
+            "Game": "KXUELGAME",
+        },
+    },
+    "Conference League": {
+        "label": "Conference League",
+        "series": {
+            "Game": "KXUECLGAME",
+        },
+    },
+    "Saudi Pro League": {
+        "label": "Saudi Pro League",
+        "series": {
+            "Game": "KXSAUDIPLGAME",
+        },
+    },
+    "Turkish Super Lig": {
+        "label": "Turkish Super Lig",
+        "series": {
+            "Game": "KXSUPERLIGGAME",
+        },
+    },
+    "Ekstraklasa": {
+        "label": "Ekstraklasa",
+        "series": {
+            "Game": "KXEKSTRAKLASAGAME",
+        },
+    },
+    "Swiss Super League": {
+        "label": "Swiss Super League",
+        "series": {
+            "Game": "KXSWISSLEAGUEGAME",
+        },
+    },
+    "NBL": {
+        "label": "NBL (Australia)",
+        "series": {
+            "Game": "KXNBLGAME",
+        },
+    },
+    "Unrivaled": {
+        "label": "Unrivaled Basketball",
+        "series": {
+            "Game": "KXUNRIVALEDGAME",
+        },
+    },
 }
 
 # ── Futures / props / specials ────────────────────────────────────────
@@ -295,6 +361,8 @@ def _parse_event_ticker_date(event_ticker: str) -> datetime | None:
 
 def _decimal_to_american(decimal_odds: float) -> int:
     """Convert decimal odds to American odds."""
+    if decimal_odds <= 1.0:
+        return -10000  # Extreme favorite / essentially no odds
     if decimal_odds >= 2.0:
         return round((decimal_odds - 1) * 100)
     else:
@@ -779,7 +847,12 @@ class KalshiAPI:
             event_groups[et].append(m)
 
         # Soccer sports use "Home vs Away" title format
-        soccer_sports = {"EPL", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UCL", "MLS"}
+        soccer_sports = {
+            "EPL", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UCL", "MLS",
+            "FA Cup", "Eredivisie", "EFL Championship", "Europa League",
+            "Conference League", "Saudi Pro League", "Turkish Super Lig",
+            "Ekstraklasa", "Swiss Super League",
+        }
         is_soccer = sport_key in soccer_sports
 
         games = []

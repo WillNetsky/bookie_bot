@@ -92,26 +92,35 @@ class BrowseView(discord.ui.View):
         # Build category options for the dropdown
         options = []
 
-        # Game sports
+        # Game sports — sorted: live first, then by next game time
+        game_items = []
         for key, info in games_available.items():
             sport = SPORTS.get(key)
             if sport:
-                count = info.get("count", 0)
-                next_time = info.get("next_time")
                 has_live = info.get("has_live", False)
-                desc = f"{count} game{'s' if count != 1 else ''}"
-                if has_live:
-                    desc += " — LIVE now"
-                elif next_time:
-                    desc += f" — Next: {format_game_time(next_time)}"
-                if len(desc) > 100:
-                    desc = desc[:100]
-                options.append(discord.SelectOption(
-                    label=sport["label"],
-                    value=f"games:{key}",
-                    description=desc,
-                    emoji="\U0001f3c8",
-                ))
+                next_time = info.get("next_time") or ""
+                # Sort key: live games first (0), then by next_time ascending
+                sort_key = (0 if has_live else 1, next_time or "9999")
+                game_items.append((sort_key, key, info, sport))
+        game_items.sort(key=lambda x: x[0])
+
+        for _, key, info, sport in game_items:
+            count = info.get("count", 0)
+            next_time = info.get("next_time")
+            has_live = info.get("has_live", False)
+            desc = f"{count} game{'s' if count != 1 else ''}"
+            if has_live:
+                desc += " — LIVE now"
+            elif next_time:
+                desc += f" — Next: {format_game_time(next_time)}"
+            if len(desc) > 100:
+                desc = desc[:100]
+            options.append(discord.SelectOption(
+                label=sport["label"],
+                value=f"games:{key}",
+                description=desc,
+                emoji="\U0001f3c8",
+            ))
 
         # Futures sports (that don't already appear as games)
         for key, markets in futures_available.items():
@@ -140,7 +149,12 @@ class BrowseView(discord.ui.View):
         # Games section
         if self.games_available:
             game_lines = []
-            for key, info in self.games_available.items():
+            # Sort: live first, then by next game time
+            sorted_games = sorted(
+                self.games_available.items(),
+                key=lambda kv: (0 if kv[1].get("has_live") else 1, kv[1].get("next_time") or "9999"),
+            )
+            for key, info in sorted_games:
                 sport = SPORTS.get(key)
                 name = sport["label"] if sport else key
                 count = info.get("count", 0)
