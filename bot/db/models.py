@@ -430,6 +430,8 @@ async def reset_all_balances(amount: int) -> int:
         await db.execute("DELETE FROM parlays")
         await db.execute("DELETE FROM bets")
         await db.execute("DELETE FROM kalshi_bets")
+        await db.execute("DELETE FROM kalshi_parlay_legs")
+        await db.execute("DELETE FROM kalshi_parlays")
         # Reset balances
         cursor = await db.execute(
             "UPDATE users SET balance = ?", (amount,)
@@ -633,6 +635,192 @@ async def count_user_resolved_kalshi_bets(user_id: int) -> int:
         )
         row = await cursor.fetchone()
         return row["cnt"] if row else 0
+    finally:
+        await db.close()
+
+
+# ── Kalshi parlays ────────────────────────────────────────────────────
+
+
+async def create_kalshi_parlay(
+    user_id: int, amount: int, total_odds: float, legs: list[dict]
+) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "INSERT INTO kalshi_parlays (user_id, amount, total_odds) VALUES (?, ?, ?)",
+            (user_id, amount, total_odds),
+        )
+        parlay_id = cursor.lastrowid
+        for leg in legs:
+            await db.execute(
+                "INSERT INTO kalshi_parlay_legs (parlay_id, market_ticker, event_ticker, pick, odds, title, pick_display, close_time)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    parlay_id,
+                    leg["market_ticker"],
+                    leg["event_ticker"],
+                    leg["pick"],
+                    leg["odds"],
+                    leg.get("title"),
+                    leg.get("pick_display"),
+                    leg.get("close_time"),
+                ),
+            )
+        await db.commit()
+        return parlay_id
+    finally:
+        await db.close()
+
+
+async def get_kalshi_parlay_by_id(parlay_id: int) -> dict | None:
+    db = await get_connection()
+    try:
+        cursor = await db.execute("SELECT * FROM kalshi_parlays WHERE id = ?", (parlay_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_kalshi_parlay_legs(parlay_id: int) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM kalshi_parlay_legs WHERE parlay_id = ?", (parlay_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_user_kalshi_parlays(user_id: int, status: str | None = None) -> list[dict]:
+    db = await get_connection()
+    try:
+        if status:
+            cursor = await db.execute(
+                "SELECT * FROM kalshi_parlays WHERE user_id = ? AND status = ? ORDER BY created_at DESC",
+                (user_id, status),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM kalshi_parlays WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def delete_kalshi_parlay(parlay_id: int) -> bool:
+    db = await get_connection()
+    try:
+        await db.execute("DELETE FROM kalshi_parlay_legs WHERE parlay_id = ?", (parlay_id,))
+        cursor = await db.execute("DELETE FROM kalshi_parlays WHERE id = ?", (parlay_id,))
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def update_kalshi_parlay(parlay_id: int, status: str, payout: int | None = None) -> None:
+    db = await get_connection()
+    try:
+        await db.execute(
+            "UPDATE kalshi_parlays SET status = ?, payout = ? WHERE id = ?",
+            (status, payout, parlay_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def update_kalshi_parlay_leg_status(leg_id: int, status: str) -> None:
+    db = await get_connection()
+    try:
+        await db.execute(
+            "UPDATE kalshi_parlay_legs SET status = ? WHERE id = ?", (status, leg_id)
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_pending_kalshi_parlay_tickers_with_close_time() -> list[dict]:
+    """Return pending kalshi parlay leg tickers with their earliest close_time."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT market_ticker, MIN(close_time) as close_time"
+            " FROM kalshi_parlay_legs WHERE status = 'pending'"
+            " GROUP BY market_ticker"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_pending_kalshi_parlay_legs_by_market(market_ticker: str) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM kalshi_parlay_legs WHERE market_ticker = ? AND status = 'pending'",
+            (market_ticker,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_user_resolved_kalshi_parlays(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM kalshi_parlays WHERE user_id = ? AND status != 'pending'"
+            " ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def count_user_resolved_kalshi_parlays(user_id: int) -> int:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) as cnt FROM kalshi_parlays WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        await db.close()
+
+
+async def get_user_kalshi_parlay_stats(user_id: int) -> dict:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT"
+            " COUNT(*) as total,"
+            " SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as wins,"
+            " SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as losses,"
+            " SUM(amount) as total_wagered,"
+            " SUM(CASE WHEN status != 'pending' THEN COALESCE(payout, 0) ELSE 0 END) as total_payout"
+            " FROM kalshi_parlays WHERE user_id = ? AND status != 'pending'",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else {
+            "total": 0, "wins": 0, "losses": 0,
+            "total_wagered": 0, "total_payout": 0,
+        }
     finally:
         await db.close()
 

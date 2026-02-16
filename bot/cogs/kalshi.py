@@ -1213,6 +1213,392 @@ class GamesPageButton(discord.ui.Button["GamesListView"]):
             pass
 
 
+# ── Parlay Views ──────────────────────────────────────────────────────
+
+MAX_PARLAY_LEGS = 10
+
+
+class KalshiParlayView(discord.ui.View):
+    """Multi-step parlay builder using Kalshi markets."""
+
+    def __init__(
+        self,
+        games: list[dict],
+        timeout: float = 300.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.games = games
+        self.legs: list[dict] = []
+        self.message: discord.Message | None = None
+        self._show_game_select()
+
+    def _available_games(self) -> list[dict]:
+        """Games not already in the parlay slip."""
+        used_events = {leg["event_ticker"] for leg in self.legs}
+        return [g for g in self.games if g["id"] not in used_events]
+
+    def _show_game_select(self) -> None:
+        self.clear_items()
+        available = self._available_games()
+        if available:
+            self.add_item(KalshiParlayGameSelect(available[:25], row=0))
+        if self.legs:
+            self.add_item(KalshiParlayViewSlipButton(row=1))
+        self.add_item(KalshiParlayCancelButton(row=1))
+
+    def _show_slip(self) -> None:
+        self.clear_items()
+        if len(self.legs) < MAX_PARLAY_LEGS and self._available_games():
+            self.add_item(KalshiParlayAddLegButton(row=0))
+        if self.legs:
+            self.add_item(KalshiParlayRemoveLegSelect(self.legs, row=1))
+        if len(self.legs) >= 2:
+            self.add_item(KalshiParlayPlaceButton(row=2))
+        self.add_item(KalshiParlayCancelButton(row=2))
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Parlay Builder", color=discord.Color.purple())
+        if not self.legs:
+            embed.description = "Select a game to add your first leg."
+            return embed
+
+        total_odds = 1.0
+        for i, leg in enumerate(self.legs, 1):
+            total_odds *= leg["odds"]
+            odds_str = _fmt_american(leg.get("american", 0))
+            embed.add_field(
+                name=f"Leg {i}: {leg['pick_display']}",
+                value=f"{leg.get('title', '?')} — {odds_str} ({leg['odds']:.2f}x)",
+                inline=False,
+            )
+
+        total_odds = round(total_odds, 4)
+        embed.add_field(
+            name="Combined Odds",
+            value=f"**{total_odds:.2f}x** — $100 wins **${round(100 * total_odds):.2f}**",
+            inline=False,
+        )
+        footer_parts = [f"{len(self.legs)} leg{'s' if len(self.legs) != 1 else ''}"]
+        if len(self.legs) < 2:
+            footer_parts.append("Add at least 2 legs to place")
+        embed.set_footer(text=" · ".join(footer_parts))
+        return embed
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
+class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
+    """Dropdown to pick a game for a parlay leg."""
+
+    def __init__(self, games: list[dict], row: int = 0) -> None:
+        self.games_map: dict[str, dict] = {}
+        options = []
+        for g in games[:25]:
+            game_id = g["id"]
+            home = g.get("home_team", "?")
+            away = g.get("away_team", "?")
+            label = format_matchup(home, away)
+            if len(label) > 100:
+                label = label[:97] + "..."
+            desc = _format_game_time_with_status(g.get("commence_time", ""), g.get("expiration_time", ""))
+            if len(desc) > 100:
+                desc = desc[:100]
+            self.games_map[game_id] = g
+            options.append(discord.SelectOption(label=label, value=game_id, description=desc))
+        super().__init__(placeholder="Select a game to add...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        game_id = self.values[0]
+        game = self.games_map.get(game_id)
+        if not game:
+            await interaction.response.send_message("Game not found.", ephemeral=True)
+            return
+
+        view = self.view
+        if view is None:
+            return
+
+        await interaction.response.defer()
+
+        sport_key = game.get("sport_key", "")
+        parsed = await kalshi_api.get_game_odds(sport_key, game)
+
+        home = game.get("home_team", "?")
+        away = game.get("away_team", "?")
+
+        # Build bet type selection for this game
+        bet_view = KalshiParlayBetTypeView(game, parsed, view)
+        time_str = _format_game_time_with_status(game.get("commence_time", ""), game.get("expiration_time", ""))
+        embed = discord.Embed(
+            title="Add Parlay Leg",
+            description=f"**{format_matchup(home, away)}**\n{time_str}\n\nPick a bet type:",
+            color=discord.Color.purple(),
+        )
+        await interaction.edit_original_response(embed=embed, view=bet_view)
+
+
+class KalshiParlayBetTypeView(discord.ui.View):
+    """Bet type buttons for adding a parlay leg."""
+
+    def __init__(self, game: dict, parsed: dict, parlay_view: KalshiParlayView, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.game = game
+        self.parlay_view = parlay_view
+
+        home = game.get("home_team", "?")
+        away = game.get("away_team", "?")
+        fmt = _fmt_american
+
+        row = 0
+        if "home" in parsed:
+            self.add_item(KalshiParlayBetTypeButton(
+                "home", f"Home {fmt(parsed['home']['american'])}",
+                game, parsed["home"], parlay_view, row=row,
+            ))
+        if "away" in parsed:
+            self.add_item(KalshiParlayBetTypeButton(
+                "away", f"Away {fmt(parsed['away']['american'])}",
+                game, parsed["away"], parlay_view, row=row,
+            ))
+
+        row = 1
+        if "spread_home" in parsed:
+            sh = parsed["spread_home"]
+            self.add_item(KalshiParlayBetTypeButton(
+                "spread_home", f"{home} {sh['point']:+g} ({fmt(sh['american'])})",
+                game, sh, parlay_view, row=row,
+            ))
+        if "spread_away" in parsed:
+            sa = parsed["spread_away"]
+            self.add_item(KalshiParlayBetTypeButton(
+                "spread_away", f"{away} {sa['point']:+g} ({fmt(sa['american'])})",
+                game, sa, parlay_view, row=row,
+            ))
+
+        row = 2
+        if "over" in parsed:
+            ov = parsed["over"]
+            self.add_item(KalshiParlayBetTypeButton(
+                "over", f"Over {ov['point']:g} ({fmt(ov['american'])})",
+                game, ov, parlay_view, row=row,
+            ))
+        if "under" in parsed:
+            un = parsed["under"]
+            self.add_item(KalshiParlayBetTypeButton(
+                "under", f"Under {un['point']:g} ({fmt(un['american'])})",
+                game, un, parlay_view, row=row,
+            ))
+
+        self.add_item(KalshiParlayBackToGamesButton(parlay_view, row=3))
+
+
+class KalshiParlayBetTypeButton(discord.ui.Button):
+    """Adds a leg to the parlay slip when clicked."""
+
+    def __init__(
+        self, pick_key: str, label: str, game: dict, odds_entry: dict,
+        parlay_view: KalshiParlayView, row: int,
+    ) -> None:
+        emoji = PICK_EMOJI.get(pick_key)
+        super().__init__(label=label, style=discord.ButtonStyle.primary, emoji=emoji, row=row)
+        self.pick_key = pick_key
+        self.game = game
+        self.odds_entry = odds_entry
+        self.parlay_view = parlay_view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        game = self.game
+        odds_entry = self.odds_entry
+        home = game.get("home_team", "?")
+        away = game.get("away_team", "?")
+
+        kalshi_markets = game.get("_kalshi_markets", {})
+        market_ticker, kalshi_pick = _resolve_kalshi_bet(self.pick_key, kalshi_markets, odds_entry)
+
+        if not market_ticker:
+            await interaction.response.send_message("Could not find market for this bet.", ephemeral=True)
+            return
+
+        pick_display = _build_pick_display(self.pick_key, home, away, odds_entry)
+        market = kalshi_markets.get("home") or kalshi_markets.get("away") or {}
+        close_time = market.get("close_time") or market.get("expected_expiration_time")
+        bet_title = f"{format_matchup(home, away)} ({game.get('sport_title', '')})"
+
+        leg = {
+            "market_ticker": market_ticker,
+            "event_ticker": game.get("id", ""),
+            "pick": kalshi_pick,
+            "odds": odds_entry["decimal"],
+            "american": odds_entry["american"],
+            "title": bet_title,
+            "pick_display": pick_display,
+            "close_time": close_time,
+        }
+
+        pv = self.parlay_view
+        pv.legs.append(leg)
+        pv._show_slip()
+        embed = pv.build_embed()
+        await interaction.response.edit_message(embed=embed, view=pv)
+
+
+class KalshiParlayViewSlipButton(discord.ui.Button["KalshiParlayView"]):
+    def __init__(self, row: int) -> None:
+        super().__init__(label="View Slip", style=discord.ButtonStyle.success, emoji="\U0001f4cb", row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view._show_slip()
+        embed = view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class KalshiParlayAddLegButton(discord.ui.Button["KalshiParlayView"]):
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Add Leg", style=discord.ButtonStyle.success, emoji="\u2795", row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view._show_game_select()
+        embed = view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class KalshiParlayRemoveLegSelect(discord.ui.Select["KalshiParlayView"]):
+    def __init__(self, legs: list[dict], row: int) -> None:
+        options = []
+        for i, leg in enumerate(legs):
+            label = leg["pick_display"]
+            if len(label) > 100:
+                label = label[:97] + "..."
+            options.append(discord.SelectOption(label=f"Remove: {label}", value=str(i)))
+        super().__init__(placeholder="Remove a leg...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        idx = int(self.values[0])
+        if 0 <= idx < len(view.legs):
+            view.legs.pop(idx)
+        view._show_slip()
+        embed = view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class KalshiParlayPlaceButton(discord.ui.Button["KalshiParlayView"]):
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Place Parlay", style=discord.ButtonStyle.success, emoji="\U0001f4b0", row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        modal = KalshiParlayAmountModal(view)
+        await interaction.response.send_modal(modal)
+
+
+class KalshiParlayCancelButton(discord.ui.Button["KalshiParlayView"]):
+    def __init__(self, row: int) -> None:
+        super().__init__(label="Cancel", style=discord.ButtonStyle.danger, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view:
+            view.clear_items()
+            view.stop()
+        embed = discord.Embed(title="Parlay Cancelled", color=discord.Color.orange())
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class KalshiParlayBackToGamesButton(discord.ui.Button):
+    def __init__(self, parlay_view: KalshiParlayView, row: int) -> None:
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
+        self.parlay_view = parlay_view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        pv = self.parlay_view
+        pv._show_game_select()
+        embed = pv.build_embed()
+        await interaction.response.edit_message(embed=embed, view=pv)
+
+
+class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
+    amount_input = discord.ui.TextInput(
+        label="Wager amount ($)",
+        placeholder="e.g. 50",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(self, parlay_view: KalshiParlayView) -> None:
+        super().__init__()
+        self.parlay_view = parlay_view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.amount_input.value.strip().lstrip("$")
+        try:
+            amount = int(raw)
+        except ValueError:
+            await interaction.response.send_message("Invalid amount — enter a whole number.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("Bet amount must be positive.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        pv = self.parlay_view
+        if len(pv.legs) < 2:
+            await interaction.followup.send("Need at least 2 legs for a parlay.", ephemeral=True)
+            return
+
+        parlay_id = await betting_service.place_kalshi_parlay(
+            user_id=interaction.user.id,
+            legs=pv.legs,
+            amount=amount,
+        )
+
+        if parlay_id is None:
+            await interaction.followup.send("Insufficient balance!", ephemeral=True)
+            return
+
+        total_odds = 1.0
+        for leg in pv.legs:
+            total_odds *= leg["odds"]
+        total_odds = round(total_odds, 4)
+        payout = round(amount * total_odds)
+
+        embed = discord.Embed(title="Parlay Placed!", color=discord.Color.green())
+        embed.add_field(name="Parlay ID", value=f"#KP{parlay_id}", inline=True)
+        embed.add_field(name="Legs", value=str(len(pv.legs)), inline=True)
+        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
+        embed.add_field(name="Combined Odds", value=f"{total_odds:.2f}x", inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
+
+        for i, leg in enumerate(pv.legs, 1):
+            odds_str = _fmt_american(leg.get("american", 0))
+            embed.add_field(
+                name=f"Leg {i}",
+                value=f"{leg['pick_display']} — {odds_str}",
+                inline=False,
+            )
+
+        pv.clear_items()
+        pv.stop()
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
 # ── Cog ───────────────────────────────────────────────────────────────
 
 
@@ -1358,6 +1744,154 @@ class KalshiCog(commands.Cog):
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
+    # ── /parlay ────────────────────────────────────────────────────────
+
+    @app_commands.command(name="parlay", description="Build a parlay bet")
+    @app_commands.describe(sport="Filter by sport (leave blank for all)")
+    @app_commands.autocomplete(sport=sport_autocomplete)
+    async def parlay(self, interaction: discord.Interaction, sport: str | None = None) -> None:
+        await interaction.response.defer()
+
+        if sport and sport in SPORTS:
+            games = await kalshi_api.get_sport_games(sport)
+        else:
+            games = await kalshi_api.get_all_games()
+
+        if not games:
+            await interaction.followup.send("No games available right now.")
+            return
+
+        # Sort: live first, then upcoming
+        games.sort(key=lambda g: (
+            0 if _is_live(g.get("commence_time", ""), g.get("expiration_time", "")) else 1,
+            g.get("commence_time", "9999"),
+        ))
+
+        view = KalshiParlayView(games)
+        embed = view.build_embed()
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
+
+    # ── /myparlays ────────────────────────────────────────────────────
+
+    @app_commands.command(name="myparlays", description="View your parlays")
+    async def myparlays(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        # Fetch both old and kalshi parlays
+        old_parlays = await betting_service.get_user_parlays(interaction.user.id)
+        kalshi_parlays = await betting_service.get_user_kalshi_parlays(interaction.user.id)
+
+        if not old_parlays and not kalshi_parlays:
+            await interaction.followup.send("You have no parlays.")
+            return
+
+        embed = discord.Embed(title="Your Parlays", color=discord.Color.blue())
+
+        for p in kalshi_parlays[:10]:
+            status = p["status"]
+            if status == "won":
+                icon = "\U0001f7e2"
+                status_text = f"Won — **${p.get('payout', 0):.2f}**"
+            elif status == "lost":
+                icon = "\U0001f534"
+                status_text = "Lost"
+            else:
+                icon = "\U0001f7e1"
+                potential = round(p["amount"] * p["total_odds"], 2)
+                status_text = f"Pending — potential **${potential:.2f}**"
+
+            leg_lines = []
+            for leg in p.get("legs", []):
+                ls = leg["status"]
+                if ls == "won":
+                    leg_icon = "\U0001f7e2"
+                elif ls == "lost":
+                    leg_icon = "\U0001f534"
+                else:
+                    leg_icon = "\U0001f7e1"
+                pick_display = leg.get("pick_display") or leg["pick"].upper()
+                leg_lines.append(f"{leg_icon} {leg.get('title', '?')} — {pick_display} ({leg['odds']:.2f}x)")
+
+            embed.add_field(
+                name=f"{icon} Parlay #KP{p['id']} · {status_text}",
+                value=(
+                    f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                    + "\n".join(leg_lines)
+                ),
+                inline=False,
+            )
+
+        # Show old parlays if any remain
+        from bot.cogs.betting import PICK_LABELS
+        for p in old_parlays[:5]:
+            status = p["status"]
+            if status == "won":
+                icon = "\U0001f7e2"
+                status_text = f"Won — **${p.get('payout', 0):.2f}**"
+            elif status == "lost":
+                icon = "\U0001f534"
+                status_text = "Lost"
+            else:
+                icon = "\U0001f7e1"
+                potential = round(p["amount"] * p["total_odds"], 2)
+                status_text = f"Pending — potential **${potential:.2f}**"
+
+            leg_lines = []
+            for leg in p.get("legs", []):
+                ls = leg["status"]
+                if ls == "won":
+                    leg_icon = "\U0001f7e2"
+                elif ls == "lost":
+                    leg_icon = "\U0001f534"
+                elif ls == "push":
+                    leg_icon = "\U0001f535"
+                else:
+                    leg_icon = "\U0001f7e1"
+                home = leg.get("home_team") or "?"
+                away = leg.get("away_team") or "?"
+                pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+                point = leg.get("point")
+                if point is not None:
+                    if leg["pick"] in ("spread_home", "spread_away"):
+                        pick_label += f" {point:+g}"
+                    else:
+                        pick_label += f" {point:g}"
+                leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
+
+            embed.add_field(
+                name=f"{icon} Parlay #{p['id']} (legacy) · {status_text}",
+                value=(
+                    f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                    + "\n".join(leg_lines)
+                ),
+                inline=False,
+            )
+
+        await interaction.followup.send(embed=embed)
+
+    # ── /cancelparlay ─────────────────────────────────────────────────
+
+    @app_commands.command(name="cancelparlay", description="Cancel a pending parlay")
+    @app_commands.describe(parlay_id="The ID of the parlay to cancel (KP number)")
+    async def cancelparlay(self, interaction: discord.Interaction, parlay_id: int) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        result = await betting_service.cancel_kalshi_parlay(parlay_id, interaction.user.id)
+        if result is None:
+            await interaction.followup.send(
+                "Could not cancel parlay. Make sure you own it, it's still pending, and no legs have started settling.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="Parlay Cancelled",
+            description=f"Parlay #KP{parlay_id} cancelled. **${result['amount']:.2f}** refunded.",
+            color=discord.Color.orange(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     # ── /live ─────────────────────────────────────────────────────────
 
     @app_commands.command(name="live", description="View live games with scores")
@@ -1440,9 +1974,22 @@ class KalshiCog(commands.Cog):
     @tasks.loop(minutes=3)
     async def check_kalshi_results(self) -> None:
         from bot.db import models
+        from bot.services.wallet_service import deposit
 
         pending = await models.get_pending_kalshi_tickers_with_close_time()
-        if not pending:
+        parlay_pending = await models.get_pending_kalshi_parlay_tickers_with_close_time()
+
+        # Merge single bet and parlay tickers
+        all_pending_map: dict[str, str | None] = {}
+        for row in pending:
+            all_pending_map[row["market_ticker"]] = row.get("close_time")
+        for row in parlay_pending:
+            ticker = row["market_ticker"]
+            ct = row.get("close_time")
+            if ticker not in all_pending_map or (ct and (all_pending_map[ticker] is None or ct < all_pending_map[ticker])):
+                all_pending_map[ticker] = ct
+
+        if not all_pending_map:
             return
 
         now = datetime.now(timezone.utc)
@@ -1453,26 +2000,23 @@ class KalshiCog(commands.Cog):
 
         # Determine which tickers to check this iteration
         tickers: list[str] = []
-        for row in pending:
-            ct = row.get("close_time")
+        for ticker, ct in all_pending_map.items():
             if full_sweep or not ct:
-                # Full sweep or no close_time — always check
-                tickers.append(row["market_ticker"])
+                tickers.append(ticker)
                 continue
             try:
                 close_dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
             except (ValueError, TypeError):
-                tickers.append(row["market_ticker"])
+                tickers.append(ticker)
                 continue
-            # Check if game is likely live (within 1hr of close) or past close
             if now >= close_dt - timedelta(hours=1):
-                tickers.append(row["market_ticker"])
+                tickers.append(ticker)
 
         if not tickers:
             return
 
         sweep_label = "full" if full_sweep else "urgent"
-        log.info("Checking %d/%d pending Kalshi market(s) [%s]...", len(tickers), len(pending), sweep_label)
+        log.info("Checking %d/%d pending Kalshi market(s) [%s]...", len(tickers), len(all_pending_map), sweep_label)
 
         channel = None
         if BET_RESULTS_CHANNEL_ID:
@@ -1532,6 +2076,73 @@ class KalshiCog(commands.Cog):
                             await channel.send(embed=embed)
                         except discord.DiscordException:
                             pass
+
+                # ── Resolve parlay legs for this ticker ──
+                parlay_legs = await models.get_pending_kalshi_parlay_legs_by_market(ticker)
+                affected_parlay_ids: set[int] = set()
+
+                for leg in parlay_legs:
+                    leg_won = leg["pick"] == winning_side
+                    leg_status = "won" if leg_won else "lost"
+                    await models.update_kalshi_parlay_leg_status(leg["id"], leg_status)
+                    affected_parlay_ids.add(leg["parlay_id"])
+
+                for pid in affected_parlay_ids:
+                    kp = await models.get_kalshi_parlay_by_id(pid)
+                    if not kp or kp["status"] != "pending":
+                        continue
+
+                    all_legs = await models.get_kalshi_parlay_legs(pid)
+                    statuses = [l["status"] for l in all_legs]
+
+                    if "lost" in statuses:
+                        await models.update_kalshi_parlay(pid, "lost", payout=0)
+                        if channel:
+                            user = self.bot.get_user(kp["user_id"])
+                            name = user.display_name if user else f"User {kp['user_id']}"
+                            leg_summary = "\n".join(
+                                f"{'✅' if l['status'] == 'won' else '❌' if l['status'] == 'lost' else '⏳'} {l.get('pick_display') or l['pick']}"
+                                for l in all_legs
+                            )
+                            embed = discord.Embed(
+                                title=f"\U0001f534 Parlay #KP{pid} — LOST",
+                                color=discord.Color.red(),
+                            )
+                            embed.add_field(name="Bettor", value=name, inline=True)
+                            embed.add_field(name="Wager", value=f"${kp['amount']:.2f}", inline=True)
+                            embed.add_field(name="Legs", value=leg_summary[:1024], inline=False)
+                            try:
+                                await channel.send(embed=embed)
+                            except discord.DiscordException:
+                                pass
+
+                    elif all(s in ("won",) for s in statuses):
+                        effective_odds = 1.0
+                        for l in all_legs:
+                            effective_odds *= l["odds"]
+                        payout = round(kp["amount"] * effective_odds)
+                        await models.update_kalshi_parlay(pid, "won", payout=payout)
+                        await deposit(kp["user_id"], payout)
+                        if channel:
+                            user = self.bot.get_user(kp["user_id"])
+                            name = user.display_name if user else f"User {kp['user_id']}"
+                            leg_summary = "\n".join(
+                                f"✅ {l.get('pick_display') or l['pick']}"
+                                for l in all_legs
+                            )
+                            embed = discord.Embed(
+                                title=f"\U0001f7e2 Parlay #KP{pid} — WON!",
+                                color=discord.Color.green(),
+                            )
+                            embed.add_field(name="Bettor", value=name, inline=True)
+                            embed.add_field(name="Wager", value=f"${kp['amount']:.2f}", inline=True)
+                            embed.add_field(name="Payout", value=f"${payout:.2f}", inline=True)
+                            embed.add_field(name="Legs", value=leg_summary[:1024], inline=False)
+                            try:
+                                await channel.send(embed=embed)
+                            except discord.DiscordException:
+                                pass
+                    # else: still pending
 
                 log.info("Resolved Kalshi market %s -> %s", ticker, winning_side)
 

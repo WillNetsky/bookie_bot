@@ -109,6 +109,7 @@ async def get_user_history(user_id: int, page: int = 0, page_size: int = 10) -> 
     bets = await models.get_user_resolved_bets(user_id, limit=page_size, offset=offset)
     parlays = await models.get_user_resolved_parlays(user_id, limit=page_size, offset=offset)
     kalshi = await models.get_user_resolved_kalshi_bets(user_id, limit=page_size, offset=offset)
+    kalshi_parlays = await models.get_user_resolved_kalshi_parlays(user_id, limit=page_size, offset=offset)
     for p in parlays:
         p["legs"] = await models.get_parlay_legs(p["id"])
         p["type"] = "parlay"
@@ -116,18 +117,23 @@ async def get_user_history(user_id: int, page: int = 0, page_size: int = 10) -> 
         b["type"] = "single"
     for k in kalshi:
         k["type"] = "kalshi"
-    return bets + parlays + kalshi
+    for kp in kalshi_parlays:
+        kp["legs"] = await models.get_kalshi_parlay_legs(kp["id"])
+        kp["type"] = "kalshi_parlay"
+    return bets + parlays + kalshi + kalshi_parlays
 
 
 async def get_user_stats(user_id: int) -> dict:
     stats = await models.get_user_bet_stats(user_id)
     # Include Kalshi bet stats
     kalshi_stats = await models.get_user_kalshi_bet_stats(user_id)
-    stats["total"] = (stats["total"] or 0) + (kalshi_stats["total"] or 0)
-    stats["wins"] = (stats["wins"] or 0) + (kalshi_stats["wins"] or 0)
-    stats["losses"] = (stats["losses"] or 0) + (kalshi_stats["losses"] or 0)
-    stats["total_wagered"] = (stats["total_wagered"] or 0) + (kalshi_stats["total_wagered"] or 0)
-    stats["total_payout"] = (stats["total_payout"] or 0) + (kalshi_stats["total_payout"] or 0)
+    kalshi_parlay_stats = await models.get_user_kalshi_parlay_stats(user_id)
+    for s in (kalshi_stats, kalshi_parlay_stats):
+        stats["total"] = (stats["total"] or 0) + (s["total"] or 0)
+        stats["wins"] = (stats["wins"] or 0) + (s["wins"] or 0)
+        stats["losses"] = (stats["losses"] or 0) + (s["losses"] or 0)
+        stats["total_wagered"] = (stats["total_wagered"] or 0) + (s["total_wagered"] or 0)
+        stats["total_payout"] = (stats["total_payout"] or 0) + (s["total_payout"] or 0)
     return stats
 
 
@@ -135,7 +141,8 @@ async def count_user_resolved(user_id: int) -> int:
     bet_count = await models.count_user_resolved_bets(user_id)
     parlay_count = await models.count_user_resolved_parlays(user_id)
     kalshi_count = await models.count_user_resolved_kalshi_bets(user_id)
-    return bet_count + parlay_count + kalshi_count
+    kalshi_parlay_count = await models.count_user_resolved_kalshi_parlays(user_id)
+    return bet_count + parlay_count + kalshi_count + kalshi_parlay_count
 
 
 async def place_kalshi_bet(
@@ -492,3 +499,43 @@ async def refund_bet(bet_id: int) -> None:
         await db.commit()
     finally:
         await db.close()
+
+
+# ── Kalshi parlays ───────────────────────────────────────────────────
+
+
+async def place_kalshi_parlay(
+    user_id: int, legs: list[dict], amount: int
+) -> int | None:
+    """Place a Kalshi parlay. Returns parlay ID on success, None if insufficient balance."""
+    total_odds = 1.0
+    for leg in legs:
+        total_odds *= leg["odds"]
+    total_odds = round(total_odds, 4)
+
+    new_balance = await withdraw(user_id, amount)
+    if new_balance is None:
+        return None
+    parlay_id = await models.create_kalshi_parlay(user_id, amount, total_odds, legs)
+    return parlay_id
+
+
+async def cancel_kalshi_parlay(parlay_id: int, user_id: int) -> dict | None:
+    """Cancel a pending Kalshi parlay. Returns the parlay dict if successful."""
+    parlay = await models.get_kalshi_parlay_by_id(parlay_id)
+    if not parlay or parlay["user_id"] != user_id or parlay["status"] != "pending":
+        return None
+    legs = await models.get_kalshi_parlay_legs(parlay_id)
+    if any(leg["status"] != "pending" for leg in legs):
+        return None
+    await models.delete_kalshi_parlay(parlay_id)
+    await deposit(user_id, parlay["amount"])
+    parlay["legs"] = legs
+    return parlay
+
+
+async def get_user_kalshi_parlays(user_id: int, status: str | None = None) -> list[dict]:
+    parlays = await models.get_user_kalshi_parlays(user_id, status)
+    for p in parlays:
+        p["legs"] = await models.get_kalshi_parlay_legs(p["id"])
+    return parlays

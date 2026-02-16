@@ -66,6 +66,29 @@ CREATE TABLE IF NOT EXISTS kalshi_bets (
     close_time    TEXT,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS kalshi_parlays (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(discord_id),
+    amount     INTEGER NOT NULL,
+    total_odds REAL NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'pending',
+    payout     INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS kalshi_parlay_legs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    parlay_id       INTEGER NOT NULL REFERENCES kalshi_parlays(id),
+    market_ticker   TEXT NOT NULL,
+    event_ticker    TEXT NOT NULL,
+    pick            TEXT NOT NULL,
+    odds            REAL NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    title           TEXT,
+    pick_display    TEXT,
+    close_time      TEXT
+);
 """
 
 
@@ -85,6 +108,7 @@ MIGRATIONS = [
     "ALTER TABLE bets ADD COLUMN commence_time TEXT",
     "ALTER TABLE parlay_legs ADD COLUMN commence_time TEXT",
     "ALTER TABLE kalshi_bets ADD COLUMN pick_display TEXT",
+    # kalshi_parlays and kalshi_parlay_legs created in schema above
 ]
 
 
