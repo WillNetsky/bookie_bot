@@ -272,22 +272,30 @@ def _extract_event_suffix(event_ticker: str) -> str:
 
 
 def _parse_event_ticker_date(event_ticker: str) -> datetime | None:
-    """Parse game date from event ticker.
+    """Parse game date (and optional time) from event ticker.
 
     e.g. "KXNBAGAME-26FEB14-LAL-BOS" → 2026-02-14 (date only, midnight UTC).
          "KXMLBGAME-25APR18ATHMIL" → 2025-04-18
-    Format is YYMMMDD where MMM is 3-letter month abbreviation.
-    The date part may have team codes appended (e.g. "25APR18ATHMIL"),
-    so we only parse the first 7 characters.
+         "KXAHLGAME-26FEB191200IOWCHI" → 2026-02-19 12:00 UTC
+    Format is YYMMMDD[HHMM] where MMM is 3-letter month abbreviation.
+    The date part may have team codes appended, so we parse carefully.
     """
     parts = event_ticker.split("-")
     if len(parts) < 2:
         return None
-    date_part = parts[1][:7]  # e.g. "26FEB14" or "25APR18" (trim team codes)
+    segment = parts[1]
+    date_part = segment[:7]  # e.g. "26FEB14" or "25APR18"
     if len(date_part) < 7:
         return None
     try:
         dt = datetime.strptime(date_part, "%y%b%d")
+        # Check if a 4-digit time follows (HHMM)
+        rest = segment[7:]
+        if len(rest) >= 4 and rest[:4].isdigit():
+            hh = int(rest[:2])
+            mm = int(rest[2:4])
+            if 0 <= hh < 24 and 0 <= mm < 60:
+                dt = dt.replace(hour=hh, minute=mm)
         return dt.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return None
@@ -418,15 +426,23 @@ def _parse_game_from_markets(
 def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str = "") -> str:
     """Estimate game start time from Kalshi's expected_expiration_time.
 
-    Uses the event ticker date as a sanity check — if the estimated time
-    lands on a different day than the ticker date, use the ticker date
-    with the estimated time-of-day.
+    If the event ticker embeds a time (e.g. KXAHLGAME-26FEB191200IOWCHI),
+    use that directly. Otherwise, estimate by subtracting sport duration
+    from expiration time, validated against the ticker date.
     """
     if not expire_str:
         return ""
     try:
         expire = datetime.fromisoformat(expire_str.replace("Z", "+00:00"))
-        # Approximate game duration offset (match by ticker substring)
+
+        # If ticker embeds a time, use it directly as the start time
+        if event_ticker:
+            ticker_dt = _parse_event_ticker_date(event_ticker)
+            if ticker_dt and (ticker_dt.hour != 0 or ticker_dt.minute != 0):
+                # Non-midnight = real embedded time
+                return ticker_dt.isoformat().replace("+00:00", "Z")
+
+        # Fall back to estimating from expiration - sport duration
         sk = sport_key.upper()
         if "NFL" in sk or "NCAAF" in sk:
             hours = 4
@@ -460,7 +476,6 @@ def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str =
         if event_ticker:
             ticker_date = _parse_event_ticker_date(event_ticker)
             if ticker_date and commence.date() != ticker_date.date():
-                # Estimated time landed on wrong day — use ticker date with estimated time
                 commence = commence.replace(
                     year=ticker_date.year,
                     month=ticker_date.month,
