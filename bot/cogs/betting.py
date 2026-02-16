@@ -2212,14 +2212,24 @@ class Betting(commands.Cog):
         with rotation so all sports eventually get checked.
         """
         try:
+            started_games = await betting_service.get_started_pending_games()
+            if not started_games:
+                # Check if there are ANY pending odds-api bets at all
+                from bot.db import models
+                pending_single = await models.get_pending_games_with_commence()
+                pending_parlay = await models.get_pending_parlay_games_with_commence()
+                if not pending_single and not pending_parlay:
+                    log.debug(
+                        "No pending the-odds-api bets remain. "
+                        "All betting is now on Kalshi — the-odds-api integration "
+                        "can be safely removed."
+                    )
+                return
+
             # Skip if quota is critically low (< 50 remaining)
             quota = self.sports_api.get_quota()
             if quota["remaining"] is not None and quota["remaining"] < 50:
                 log.warning("API quota low (%s remaining), skipping score check", quota["remaining"])
-                return
-
-            started_games = await betting_service.get_started_pending_games()
-            if not started_games:
                 return
 
             now = datetime.now(timezone.utc)
