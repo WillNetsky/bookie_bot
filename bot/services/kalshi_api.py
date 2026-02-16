@@ -1163,17 +1163,18 @@ class KalshiAPI:
             for market_name, series_ticker in sport["markets"].items():
                 check_list.append((f"{sport_key}:{market_name}", series_ticker))
 
-        # Process in batches to avoid overwhelming rate limits
-        BATCH_SIZE = 15
+        # Process in small batches with generous delays to avoid 429s.
+        # 143 sports → ~29 batches × 2s ≈ 60s total (acceptable for background).
+        BATCH_SIZE = 5
+        BATCH_DELAY = 2.0
         results: list = []
         for batch_start in range(0, len(check_list), BATCH_SIZE):
             batch = check_list[batch_start:batch_start + BATCH_SIZE]
             batch_coros = [self.get_markets_by_series(st, limit=1) for _, st in batch]
             batch_results = await asyncio.gather(*batch_coros, return_exceptions=True)
             results.extend(batch_results)
-            # Small delay between batches to let rate limits recover
             if batch_start + BATCH_SIZE < len(check_list):
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(BATCH_DELAY)
 
         all_keys = [k for k, _ in check_list]
 
