@@ -1247,7 +1247,7 @@ class KalshiCog(commands.Cog):
                     continue
 
                 status = market.get("status", "")
-                if status != "settled":
+                if status not in ("settled", "finalized"):
                     continue
 
                 settlement = market.get("settlement_value_dollars")
