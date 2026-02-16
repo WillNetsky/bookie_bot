@@ -50,18 +50,71 @@ SPORTS: dict[str, dict] = {}
 
 # Series tickers to exclude (novelty, duplicates, esports, one-offs)
 _EXCLUDED_TICKERS = {
+    # Novelty / celebrity / duplicates
     "KXBEASTGAMES", "KXCHESSGAME", "KXCOLLEGEGAMEDAYGUEST",
     "KXFANATICSGAMESFIRSTPLACE", "KXFANATICSGAMESSECONDPLACE",
     "KXFANATICSGAMESTHIRDPLACE", "KXFIFAUSPULLGAME",
+    "KXNBAFINALSVIEWERGAME7", "KXNBACELEBRITYGAME", "KXNFLCELEBRITYGAME",
+    "KXPICKLEBALLGAMES", "KXPPLGAMES", "KXTTELITEGAME",
+    # Multi-game parlays / MV products
     "KXMVENBASINGLEGAME", "KXMVENFLMULTIGAME", "KXMVENFLSINGLEGAME",
     "KXMVESPORTSMULTIGAMEEXTENDED", "KXMVENFLMULTIGAMEEXTENDED",
-    "KXMVENBAMULTIGAMEEXTENDED", "KXNBAFINALSVIEWERGAME7",
-    "KXNBACELEBRITYGAME", "KXNFLCELEBRITYGAME", "KXPICKLEBALLGAMES",
-    "KXPPLGAMES", "KXTTELITEGAME", "KXVALORANTGAMETEAMVSMIBR",
-    "KXNBAGAMES", "KXCS2GAMES", "KXLOLGAMES",
+    "KXMVENBAMULTIGAMEEXTENDED",
+    # Esports (keep separate from sports betting)
+    "KXNBAGAMES", "KXCS2GAMES", "KXLOLGAMES", "KXLOLGAME",
+    "KXCS2GAME", "KXCSGOGAME", "KXVALORANTGAME", "KXVALORANTGAMETEAMVSMIBR",
+    "KXDOTA2GAME", "KXOWGAME", "KXR6GAME", "KXCODGAME",
+    # Duplicate series (use non-sack/TD/FG/TO versions)
+    "KXNFLGAMESACK", "KXNFLGAMETD", "KXNFLGAMETO", "KXNFLGAMEFG",
+    # One-off special events
+    "KXWOCURLGAME", "KXCRYPTOFIGHTNIGHT", "KXMCGREGORFIGHTNEXT",
+    "KXMLBSERIESGAMETOTAL", "KXEWCTEAMFIGHTTACTICS",
 }
 
 SERIES_CACHE_TTL = 86400  # 24 hours — series list rarely changes
+
+# Label overrides — Kalshi titles are often generic ("Professional Basketball")
+_LABEL_OVERRIDES: dict[str, str] = {
+    "KXNBAGAME": "NBA",
+    "KXNFLGAME": "NFL",
+    "KXMLBGAME": "MLB",
+    "KXNHLGAME": "NHL",
+    "KXNCAAMBGAME": "College Basketball (M)",
+    "KXNCAAWBGAME": "College Basketball (W)",
+    "KXNCAAFGAME": "College Football",
+    "KXNCAAFCSGAME": "College Football (FCS)",
+    "KXNCAAFD3GAME": "College Football (D3)",
+    "KXNCAABGAME": "College Basketball",
+    "KXNCAABBGAME": "College Baseball",
+    "KXNCAAHOCKEYGAME": "College Hockey",
+    "KXNCAALAXGAME": "College Lacrosse (W)",
+    "KXNCAAMLAXGAME": "College Lacrosse (M)",
+    "KXWNBAGAME": "WNBA",
+    "KXMLBASGAME": "MLB All-Star",
+    "KXNBAALLSTARGAME": "NBA All-Star",
+    "KXWNBAASGAME": "WNBA All-Star",
+    "KXBOXINGFIGHT": "Boxing",
+    "KXUFCFIGHT": "UFC",
+    "KXEPLGAME": "English Premier League",
+    "KXLALIGAGAME": "La Liga",
+    "KXBUNDESLIGAGAME": "Bundesliga",
+    "KXSERIEAGAME": "Serie A",
+    "KXLIGUE1GAME": "Ligue 1",
+    "KXUCLGAME": "Champions League",
+    "KXUELGAME": "Europa League",
+    "KXUECLGAME": "Conference League",
+    "KXMLSGAME": "MLS",
+    "KXFACUPGAME": "FA Cup",
+    "KXEREDIVISIEGAME": "Eredivisie",
+    "KXLIGAMXGAME": "Liga MX",
+    "KXSAUDIPLGAME": "Saudi Pro League",
+    "KXUNRIVALEDGAME": "Unrivaled",
+    "KXLAXGAME": "PLL Lacrosse",
+    "KXIPLGAME": "IPL Cricket",
+    "KXWPLGAME": "WPL Cricket",
+    "KXAHLGAME": "AHL",
+    "KXKHLGAME": "KHL",
+}
 
 # ── Futures / props / specials ────────────────────────────────────────
 # Multi-outcome markets (pick YES on one option from N choices).
@@ -638,7 +691,7 @@ class KalshiAPI:
         """
         data = await self._cached_request(
             f"{BASE_URL}/series",
-            {},
+            {"limit": 10000},
             ttl=SERIES_CACHE_TTL,
         )
         if not data or "series" not in data:
@@ -677,14 +730,19 @@ class KalshiAPI:
         new_sports: dict[str, dict] = {}
         for prefix, info in game_tickers.items():
             game_ticker = info["ticker"]
-            label = info["title"]
-            # Clean up label: remove "Game", "Winner", "Fight" suffix noise
-            for suffix in (" Game", " Games", " Winner", " winner", " fight winner"):
-                if label.endswith(suffix):
-                    label = label[:-len(suffix)]
-            label = label.strip()
-            if not label:
-                label = prefix.replace("KX", "")
+
+            # Use override label if available, otherwise clean up API title
+            if game_ticker in _LABEL_OVERRIDES:
+                label = _LABEL_OVERRIDES[game_ticker]
+            else:
+                label = info["title"]
+                for suffix in (" Game", " Games", " Winner", " winner",
+                               " fight winner", " Fight", " fight"):
+                    if label.endswith(suffix):
+                        label = label[:-len(suffix)]
+                label = label.strip()
+                if not label:
+                    label = prefix.replace("KX", "")
 
             # Use the ticker as the sport key (unique, stable)
             sport_key = game_ticker
