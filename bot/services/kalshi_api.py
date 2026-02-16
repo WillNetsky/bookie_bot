@@ -999,23 +999,30 @@ class KalshiAPI:
             has_markets = isinstance(result, list) and len(result) > 0
             if i < n_games:
                 if has_markets:
-                    # Count unique event_tickers = number of games
+                    now = datetime.now(timezone.utc)
+                    # Count unique event_tickers, skipping stale markets
                     event_tickers = set()
                     earliest_time = None
                     for m in result:
                         et = m.get("event_ticker", "")
-                        if et:
-                            event_tickers.add(et)
+                        if not et:
+                            continue
+                        # Skip stale markets (>2 days old by ticker date)
+                        ticker_date = _parse_event_ticker_date(et)
+                        if ticker_date and (now - ticker_date).total_seconds() / 86400 > 2:
+                            continue
+                        event_tickers.add(et)
                         # Find earliest expiration to estimate next game
                         exp = m.get("expected_expiration_time") or m.get("close_time", "")
                         if exp:
                             est_start = _estimate_commence_time(exp, key, et)
                             if est_start and (earliest_time is None or est_start < earliest_time):
                                 earliest_time = est_start
-                    games_available[key] = {
-                        "count": len(event_tickers),
-                        "next_time": earliest_time,
-                    }
+                    if event_tickers:
+                        games_available[key] = {
+                            "count": len(event_tickers),
+                            "next_time": earliest_time,
+                        }
             else:
                 if has_markets:
                     sport_key, market_name = key.split(":", 1)
