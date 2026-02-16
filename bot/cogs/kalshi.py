@@ -110,15 +110,17 @@ class BrowseView(discord.ui.View):
         self,
         games_available: dict[str, dict],
         futures_available: dict[str, dict[str, bool]],
+        page: int = 0,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
         self.games_available = games_available
         self.futures_available = futures_available
+        self.page = page
         self.message: discord.Message | None = None
 
-        # Build category options for the dropdown
-        options = []
+        # Build all category options sorted properly
+        self.all_options: list[discord.SelectOption] = []
 
         # Game sports — sorted: live first, then by next game time
         game_items = []
@@ -127,7 +129,6 @@ class BrowseView(discord.ui.View):
             if sport:
                 has_live = info.get("has_live", False)
                 next_time = info.get("next_time") or ""
-                # Sort key: live games first (0), then by next_time ascending
                 sort_key = (0 if has_live else 1, next_time or "9999")
                 game_items.append((sort_key, key, info, sport))
         game_items.sort(key=lambda x: x[0])
@@ -146,7 +147,7 @@ class BrowseView(discord.ui.View):
             label = sport["label"]
             if len(label) > 100:
                 label = label[:97] + "..."
-            options.append(discord.SelectOption(
+            self.all_options.append(discord.SelectOption(
                 label=label,
                 value=f"games:{key}",
                 description=desc,
@@ -155,10 +156,9 @@ class BrowseView(discord.ui.View):
 
         # Futures sports (that don't already appear as games)
         for key, markets in futures_available.items():
-            # Check if this futures sport already has a games entry via cross-ref
             sports_key = FUTURES_TO_SPORTS.get(key)
             if sports_key and sports_key in games_available:
-                continue  # Already shown in games section
+                continue
             if key in games_available:
                 continue
             fut = FUTURES.get(key)
@@ -167,15 +167,51 @@ class BrowseView(discord.ui.View):
             if len(market_names) > 90:
                 market_names = market_names[:87] + "..."
             fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
-            options.append(discord.SelectOption(
+            self.all_options.append(discord.SelectOption(
                 label=label,
                 value=f"futures:{key}",
                 description=market_names[:100] if market_names else "Futures",
                 emoji=_sport_emoji(fut_sport_key),
             ))
 
-        if options:
-            self.add_item(CategorySelect(options[:25]))
+        # Paginate dropdown: 25 options per page
+        self.total_pages = max(1, (len(self.all_options) + 24) // 25)
+        page_start = self.page * 25
+        page_options = self.all_options[page_start:page_start + 25]
+
+        if page_options:
+            self.add_item(CategorySelect(page_options))
+
+        # Add page buttons if more than one page
+        if self.total_pages > 1:
+            row = 1
+            if self.page > 0:
+                prev_btn = discord.ui.Button(label="Prev", style=discord.ButtonStyle.secondary, row=row)
+                prev_btn.callback = self._prev_page
+                self.add_item(prev_btn)
+            page_label = discord.ui.Button(
+                label=f"Page {self.page + 1}/{self.total_pages}",
+                style=discord.ButtonStyle.secondary, disabled=True, row=row,
+            )
+            self.add_item(page_label)
+            if self.page < self.total_pages - 1:
+                next_btn = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, row=row)
+                next_btn.callback = self._next_page
+                self.add_item(next_btn)
+
+    async def _prev_page(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        view = BrowseView(self.games_available, self.futures_available, page=self.page - 1)
+        embed = view.build_embed()
+        view.message = self.message
+        await interaction.edit_original_response(embed=embed, view=view)
+
+    async def _next_page(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        view = BrowseView(self.games_available, self.futures_available, page=self.page + 1)
+        embed = view.build_embed()
+        view.message = self.message
+        await interaction.edit_original_response(embed=embed, view=view)
 
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(

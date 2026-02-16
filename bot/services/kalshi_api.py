@@ -1070,42 +1070,55 @@ class KalshiAPI:
 
         log.info("Discovery cache miss — checking %d sports + %d futures series",
                  len(SPORTS), sum(len(f["markets"]) for f in FUTURES.values()))
-        games_tasks = {}
+
+        # Build list of (key, series_ticker) to check
+        check_list: list[tuple[str, str]] = []
         for key, sport in SPORTS.items():
             first_series = next(iter(sport["series"].values()))
-            # limit=1: just check if markets exist. Full data fetched on drill-in.
-            games_tasks[key] = self.get_markets_by_series(first_series, limit=1)
+            check_list.append((key, first_series))
 
-        futures_tasks = {}
+        n_games = len(check_list)  # first N are game sports, rest are futures
+
         for sport_key, sport in FUTURES.items():
             for market_name, series_ticker in sport["markets"].items():
-                task_key = f"{sport_key}:{market_name}"
-                futures_tasks[task_key] = self.get_markets_by_series(series_ticker, limit=1)
+                check_list.append((f"{sport_key}:{market_name}", series_ticker))
 
-        all_keys = list(games_tasks.keys()) + list(futures_tasks.keys())
-        all_coros = list(games_tasks.values()) + list(futures_tasks.values())
+        # Process in batches to avoid overwhelming rate limits
+        BATCH_SIZE = 15
+        results: list = []
+        for batch_start in range(0, len(check_list), BATCH_SIZE):
+            batch = check_list[batch_start:batch_start + BATCH_SIZE]
+            batch_coros = [self.get_markets_by_series(st, limit=1) for _, st in batch]
+            batch_results = await asyncio.gather(*batch_coros, return_exceptions=True)
+            results.extend(batch_results)
+            # Small delay between batches to let rate limits recover
+            if batch_start + BATCH_SIZE < len(check_list):
+                await asyncio.sleep(0.5)
 
-        results = await asyncio.gather(*all_coros, return_exceptions=True)
+        all_keys = [k for k, _ in check_list]
 
         games_available = {}
         futures_available = {}
 
-        n_games = len(games_tasks)
         for i, key in enumerate(all_keys):
             result = results[i]
             has_markets = isinstance(result, list) and len(result) > 0
             if i < n_games:
                 if has_markets:
                     now = datetime.now(timezone.utc)
-                    # Check if the sample market is stale
                     m = result[0]
                     et = m.get("event_ticker", "")
-                    ticker_date = _parse_event_ticker_date(et) if et else None
-                    if ticker_date and (now - ticker_date).total_seconds() / 86400 > 2:
-                        continue  # Skip entire sport — sample market is stale
 
-                    # Estimate next game time from the sample
+                    # Use expiration time to determine if market is stale
                     exp = m.get("expected_expiration_time") or m.get("close_time", "")
+                    if exp:
+                        try:
+                            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                            if (now - exp_dt).total_seconds() / 86400 > 2:
+                                continue  # Sample market expired >2 days ago — stale
+                        except (ValueError, TypeError):
+                            pass
+
                     est_start = _estimate_commence_time(exp, key, et) if exp else None
                     next_upcoming = None
                     has_live = False
