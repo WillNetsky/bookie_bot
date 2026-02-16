@@ -6,6 +6,10 @@ load_dotenv()
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN", "")
 ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
 
+# Kalshi API authentication (key ID + path to PEM private key file)
+KALSHI_API_KEY_ID = os.environ.get("KALSHI_API_KEY_ID", "")
+KALSHI_PRIVATE_KEY_PATH = os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")
+
 # Voice reward settings — $2/hour, paid every 30 minutes
 VOICE_PAYOUT_INTERVAL = 30  # minutes between payouts
 VOICE_PAYOUT_AMOUNT = 1  # coins per payout (1 × 2 payouts/hr = $2/hr)

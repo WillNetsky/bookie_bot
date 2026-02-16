@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import urlparse
 
 import aiohttp
 import aiosqlite
 
+from bot.config import KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH
 from bot.db.database import DB_PATH
 
 log = logging.getLogger(__name__)
@@ -569,6 +574,51 @@ MAX_CONCURRENT = 5  # Max simultaneous Kalshi API requests
 MAX_RETRIES = 2
 RETRY_BACKOFF = 1.0  # seconds, doubles each retry
 
+# ── RSA signing for authenticated requests ────────────────────────────
+
+_private_key = None
+
+
+def _load_private_key():
+    """Load the RSA private key from the configured PEM file."""
+    global _private_key
+    if _private_key is not None:
+        return _private_key
+    if not KALSHI_PRIVATE_KEY_PATH:
+        return None
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        pem_data = Path(KALSHI_PRIVATE_KEY_PATH).read_bytes()
+        _private_key = load_pem_private_key(pem_data, password=None)
+        log.info("Kalshi RSA private key loaded successfully")
+        return _private_key
+    except Exception as e:
+        log.warning("Failed to load Kalshi private key: %s", e)
+        return None
+
+
+def _sign_request(method: str, path: str, timestamp_ms: int) -> str | None:
+    """Sign a Kalshi API request using RSA-PSS with SHA256."""
+    key = _load_private_key()
+    if not key:
+        return None
+    try:
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+        message = f"{timestamp_ms}{method}{path}".encode()
+        signature = key.sign(
+            message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH,
+            ),
+            hashes.SHA256(),
+        )
+        return base64.b64encode(signature).decode()
+    except Exception as e:
+        log.warning("Failed to sign Kalshi request: %s", e)
+        return None
+
 
 class KalshiAPI:
     def __init__(self) -> None:
@@ -579,6 +629,21 @@ class KalshiAPI:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
+
+    def _auth_headers(self, method: str, url: str) -> dict[str, str]:
+        """Generate Kalshi authentication headers if key is configured."""
+        if not KALSHI_API_KEY_ID:
+            return {}
+        timestamp_ms = int(time.time() * 1000)
+        path = urlparse(url).path
+        signature = _sign_request(method.upper(), path, timestamp_ms)
+        if not signature:
+            return {}
+        return {
+            "KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID,
+            "KALSHI-ACCESS-TIMESTAMP": str(timestamp_ms),
+            "KALSHI-ACCESS-SIGNATURE": signature,
+        }
 
     async def close(self) -> None:
         if self._session and not self._session.closed:
@@ -615,7 +680,8 @@ class KalshiAPI:
             session = await self._get_session()
             for attempt in range(MAX_RETRIES + 1):
                 try:
-                    async with session.get(url, params=params) as resp:
+                    headers = self._auth_headers("GET", url)
+                    async with session.get(url, params=params, headers=headers) as resp:
                         if resp.status == 429:
                             if attempt < MAX_RETRIES:
                                 wait = RETRY_BACKOFF * (2 ** attempt)
