@@ -131,6 +131,32 @@ _LABEL_OVERRIDES: dict[str, str] = {
     "KXFANATICSGAMESFIRSTPLACE": "Fanatics Games (1st)",
     "KXFANATICSGAMESSECONDPLACE": "Fanatics Games (2nd)",
     "KXFANATICSGAMESTHIRDPLACE": "Fanatics Games (3rd)",
+    # Match series
+    "KXATPMATCH": "ATP Tennis",
+    "KXWTAMATCH": "WTA Tennis",
+    "KXCHALLENGERMATCH": "ATP Challenger",
+    "KXWTACHALLENGERMATCH": "WTA Challenger",
+    "KXATPCHALLENGERMATCH": "ATP Challenger (2)",
+    "KXDAVISCUPMATCH": "Davis Cup",
+    "KXUNITEDCUPMATCH": "United Cup",
+    "KXCRICKETODIMATCH": "Cricket ODI",
+    "KXCRICKETWOMENODIMATCH": "Cricket Women's ODI",
+    "KXCRICKETWOMENT20IMATCH": "Cricket Women's T20I",
+    "KXCRICKETT20IMATCH": "Cricket T20I",
+    "KXCRICKETTESTMATCH": "Cricket Test",
+    "KXCRICKETWOMENTESTMATCH": "Cricket Women's Test",
+    "KXT20MATCH": "T20 Cricket",
+    "KXSSHIELDMATCH": "Sheffield Shield Cricket",
+    "KXSIXNATIONSMATCH": "Six Nations Rugby",
+    "KXRUGBYFRA14MATCH": "French Top 14 Rugby",
+    "KXRUGBYGPREMMATCH": "Gallagher Premiership Rugby",
+    "KXRUGBYNRLMATCH": "NRL Rugby",
+    "KXDARTSMATCH": "Darts",
+    "KXTGLMATCH": "TGL Golf",
+    "KXSIXKINGSSLAMMATCH": "Six Kings Slam Tennis",
+    "KXSIXKINGSMATCH": "Six Kings Slam Tennis",
+    "KXPGARYDERMATCH": "Ryder Cup Golf",
+    "KXATPEXACTMATCH": "ATP Exact Score",
 }
 
 # ── Futures / props / specials ────────────────────────────────────────
@@ -412,6 +438,18 @@ def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str =
             hours = 3
         elif "UFC" in sk or "MMA" in sk or "BOXING" in sk or "FIGHT" in sk:
             hours = 1
+        elif "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "CHALLENGER" in sk or "SIXKINGS" in sk:
+            hours = 3
+        elif "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk:
+            hours = 4
+        elif "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk:
+            hours = 2.5
+        elif "DARTS" in sk:
+            hours = 2
+        elif "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk:
+            hours = 3
+        elif "CURL" in sk:
+            hours = 3
         elif "SOCCER" in sk or "EPL" in sk or "LIGA" in sk or "BUNDESLIGA" in sk or "SERIE" in sk or "LIGUE" in sk or "UCL" in sk or "MLS" in sk or "FACUP" in sk or "EREDIVISIE" in sk:
             hours = 2.5
         else:
@@ -751,7 +789,13 @@ class KalshiAPI:
             if t.endswith("GAME"):
                 prefix = ticker[:-4]
                 game_tickers[prefix] = {"ticker": ticker, "title": title}
+            elif t.endswith("GAMES"):
+                prefix = ticker[:-5]
+                game_tickers[prefix] = {"ticker": ticker, "title": title}
             elif t.endswith("FIGHT"):
+                prefix = ticker[:-5]
+                game_tickers[prefix] = {"ticker": ticker, "title": title}
+            elif t.endswith("MATCH"):
                 prefix = ticker[:-5]
                 game_tickers[prefix] = {"ticker": ticker, "title": title}
             elif t.endswith("SPREAD"):
@@ -772,7 +816,8 @@ class KalshiAPI:
             else:
                 label = info["title"]
                 for suffix in (" Game", " Games", " Winner", " winner",
-                               " fight winner", " Fight", " fight"):
+                               " fight winner", " Fight", " fight",
+                               " Match", " match"):
                     if label.endswith(suffix):
                         label = label[:-len(suffix)]
                 label = label.strip()
@@ -802,7 +847,7 @@ class KalshiAPI:
             for sport_key in SPORTS:
                 # Check if ticker contains the futures key (e.g. "KXNBAGAME" contains "NBA")
                 sk_upper = sport_key.upper().replace("KX", "")
-                if sk_upper.startswith(fut_upper) and sk_upper[len(fut_upper):] in ("GAME", "FIGHT", ""):
+                if sk_upper.startswith(fut_upper) and sk_upper[len(fut_upper):] in ("GAME", "GAMES", "FIGHT", "MATCH", ""):
                     FUTURES_TO_SPORTS[fut_key] = sport_key
                     SPORTS_TO_FUTURES[sport_key] = fut_key
                     break

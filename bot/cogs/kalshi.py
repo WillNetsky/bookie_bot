@@ -38,7 +38,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f94d"  # 🥍
     if "CRICKET" in sk or "IPL" in sk or "WPL" in sk:
         return "\U0001f3cf"  # 🏏
-    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk:
+    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "UNITEDCUP" in sk or "SIXKINGS" in sk or "CHALLENGER" in sk:
         return "\U0001f3be"  # 🎾
     if "CURL" in sk:
         return "\U0001f94c"  # 🥌
@@ -46,6 +46,14 @@ def _sport_emoji(sport_key: str) -> str:
         return "\u265f\ufe0f"  # ♟️
     if "PICKLE" in sk:
         return "\U0001f3d3"  # 🏓
+    if "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk:
+        return "\U0001f3c9"  # 🏉
+    if "DARTS" in sk:
+        return "\U0001f3af"  # 🎯
+    if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk:
+        return "\u26f3"  # ⛳
+    if "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk or "SSHIELD" in sk:
+        return "\U0001f3cf"  # 🏏
     if "CS2" in sk or "CSGO" in sk or "VALORANT" in sk or "LOL" in sk or "DOTA" in sk or "OW" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk:
         return "\U0001f3ae"  # 🎮
     if "BEAST" in sk or "FANATICS" in sk:
