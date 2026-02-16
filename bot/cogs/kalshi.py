@@ -1332,7 +1332,7 @@ class KalshiCog(commands.Cog):
 
     # ── /games ─────────────────────────────────────────────────────────
 
-    @app_commands.command(name="games", description="Browse upcoming games to bet on")
+    @app_commands.command(name="games", description="Browse games to bet on (includes live)")
     @app_commands.describe(sport="Filter by sport (leave blank for all)")
     @app_commands.autocomplete(sport=sport_autocomplete)
     async def games(self, interaction: discord.Interaction, sport: str | None = None) -> None:
@@ -1343,14 +1343,17 @@ class KalshiCog(commands.Cog):
         else:
             all_games = await kalshi_api.get_all_games()
 
-        # Filter to upcoming only (not yet started)
-        upcoming = [g for g in all_games if not _is_live(g.get("commence_time", ""), g.get("expiration_time", ""))]
-
-        if not upcoming:
-            await interaction.followup.send("No upcoming games right now.")
+        if not all_games:
+            await interaction.followup.send("No games right now.")
             return
 
-        view = GamesListView(all_games=upcoming, title="Upcoming Games")
+        # Sort: live games first, then upcoming by commence_time
+        all_games.sort(key=lambda g: (
+            0 if _is_live(g.get("commence_time", ""), g.get("expiration_time", "")) else 1,
+            g.get("commence_time", "9999"),
+        ))
+
+        view = GamesListView(all_games=all_games, title="Games")
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
