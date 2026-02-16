@@ -23,21 +23,52 @@ def _fmt_american(odds: int) -> str:
     return f"{odds:+d}" if odds else "?"
 
 
-def _is_live(commence_time: str) -> bool:
-    """Check if a game has already started based on commence_time."""
+def _is_live(commence_time: str, expiration_time: str = "") -> bool:
+    """Check if a game is currently in progress.
+
+    A game is live if it has started (past commence_time) but not yet
+    ended (before expiration_time). Without expiration_time, falls back
+    to commence_time only.
+    """
     if not commence_time:
         return False
     try:
+        now = datetime.now(timezone.utc)
         ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-        return ct <= datetime.now(timezone.utc)
+        if ct > now:
+            return False
+        # If we have expiration time, check we haven't passed it
+        if expiration_time:
+            try:
+                et = datetime.fromisoformat(expiration_time.replace("Z", "+00:00"))
+                if now > et:
+                    return False  # Game is over, not live
+            except (ValueError, TypeError):
+                pass
+        return True
     except (ValueError, TypeError):
         return False
 
 
-def _format_game_time_with_status(commence_time: str) -> str:
-    """Format game time, showing LIVE if already started."""
-    if _is_live(commence_time):
-        return "\U0001f534 LIVE"
+def _format_game_time_with_status(commence_time: str, expiration_time: str = "") -> str:
+    """Format game time, showing LIVE/Final if started."""
+    if not commence_time:
+        return "TBD"
+    try:
+        now = datetime.now(timezone.utc)
+        ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+        if ct <= now:
+            # Past start time — check if game is over
+            if expiration_time:
+                try:
+                    et = datetime.fromisoformat(expiration_time.replace("Z", "+00:00"))
+                    if now > et:
+                        return "Final"
+                except (ValueError, TypeError):
+                    pass
+            return "\U0001f534 LIVE"
+    except (ValueError, TypeError):
+        pass
     return format_game_time(commence_time)
 
 
@@ -228,7 +259,7 @@ class SportHubView(discord.ui.View):
             for g in self.games[:15]:
                 home = g.get("home_team", "?")
                 away = g.get("away_team", "?")
-                time_str = _format_game_time_with_status(g.get("commence_time", ""))
+                time_str = _format_game_time_with_status(g.get("commence_time", ""), g.get("expiration_time", ""))
                 embed.add_field(
                     name=f"{away} @ {home}",
                     value=time_str,
@@ -580,7 +611,7 @@ class KalshiGameSelect(discord.ui.Select):
             label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
-            desc = _format_game_time_with_status(g.get("commence_time", ""))
+            desc = _format_game_time_with_status(g.get("commence_time", ""), g.get("expiration_time", ""))
             if len(desc) > 100:
                 desc = desc[:100]
             self.games_map[game_id] = g
@@ -609,7 +640,7 @@ class KalshiGameSelect(discord.ui.Select):
 
         # Build a new view for bet type selection
         bet_view = GameBetTypeView(game, parsed, view)
-        time_str = _format_game_time_with_status(game.get("commence_time", ""))
+        time_str = _format_game_time_with_status(game.get("commence_time", ""), game.get("expiration_time", ""))
         embed = discord.Embed(
             title=game.get("sport_title", ""),
             description=f"**{format_matchup(home, away)}**\n{time_str}",
@@ -803,7 +834,7 @@ class KalshiBetAmountModal(discord.ui.Modal, title="Place Bet"):
 
         payout = round(amount * decimal_odds, 2)
 
-        time_str = _format_game_time_with_status(game.get("commence_time", ""))
+        time_str = _format_game_time_with_status(game.get("commence_time", ""), game.get("expiration_time", ""))
 
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#K{bet_id}", inline=True)
@@ -999,8 +1030,8 @@ class GamesListView(discord.ui.View):
                     detail += f"\n{time_line}"
                 lines.append(f"{score_str}\n{detail}")
             else:
-                time_str = _format_game_time_with_status(g.get("commence_time", ""))
                 exp = g.get("expiration_time", "")
+                time_str = _format_game_time_with_status(g.get("commence_time", ""), exp)
                 exp_str = f" — Ends ~{format_game_time(exp)}" if exp else ""
                 lines.append(f"**{away}** @ **{home}**{odds_str}\n{sport} · {time_str}{exp_str}")
 
@@ -1169,7 +1200,7 @@ class KalshiCog(commands.Cog):
             all_games = await kalshi_api.get_all_games()
 
         # Filter to upcoming only (not yet started)
-        upcoming = [g for g in all_games if not _is_live(g.get("commence_time", ""))]
+        upcoming = [g for g in all_games if not _is_live(g.get("commence_time", ""), g.get("expiration_time", ""))]
 
         if not upcoming:
             await interaction.followup.send("No upcoming games right now.")
@@ -1193,8 +1224,8 @@ class KalshiCog(commands.Cog):
         else:
             all_games = await kalshi_api.get_all_games()
 
-        # Filter to live only (already started)
-        live_games = [g for g in all_games if _is_live(g.get("commence_time", ""))]
+        # Filter to live only (started but not finished)
+        live_games = [g for g in all_games if _is_live(g.get("commence_time", ""), g.get("expiration_time", ""))]
 
         if not live_games:
             await interaction.followup.send("No live games right now.")
