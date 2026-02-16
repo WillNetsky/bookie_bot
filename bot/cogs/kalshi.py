@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -1437,15 +1437,42 @@ class KalshiCog(commands.Cog):
 
     # ── Resolution loop ───────────────────────────────────────────────
 
-    @tasks.loop(minutes=15)
+    @tasks.loop(minutes=3)
     async def check_kalshi_results(self) -> None:
         from bot.db import models
 
-        tickers = await models.get_pending_kalshi_market_tickers()
+        pending = await models.get_pending_kalshi_tickers_with_close_time()
+        if not pending:
+            return
+
+        now = datetime.now(timezone.utc)
+
+        # Increment counter: full sweep every 5th iteration (~15 min)
+        self._kalshi_check_count = getattr(self, "_kalshi_check_count", 0) + 1
+        full_sweep = self._kalshi_check_count % 5 == 0
+
+        # Determine which tickers to check this iteration
+        tickers: list[str] = []
+        for row in pending:
+            ct = row.get("close_time")
+            if full_sweep or not ct:
+                # Full sweep or no close_time — always check
+                tickers.append(row["market_ticker"])
+                continue
+            try:
+                close_dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                tickers.append(row["market_ticker"])
+                continue
+            # Check if game is likely live (within 1hr of close) or past close
+            if now >= close_dt - timedelta(hours=1):
+                tickers.append(row["market_ticker"])
+
         if not tickers:
             return
 
-        log.info("Checking %d pending Kalshi market(s)...", len(tickers))
+        sweep_label = "full" if full_sweep else "urgent"
+        log.info("Checking %d/%d pending Kalshi market(s) [%s]...", len(tickers), len(pending), sweep_label)
 
         channel = None
         if BET_RESULTS_CHANNEL_ID:

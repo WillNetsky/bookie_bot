@@ -546,6 +546,24 @@ async def get_pending_kalshi_market_tickers() -> list[str]:
         await db.close()
 
 
+async def get_pending_kalshi_tickers_with_close_time() -> list[dict]:
+    """Return pending tickers with their earliest close_time.
+
+    Each dict has 'market_ticker' and 'close_time' (may be None).
+    """
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT market_ticker, MIN(close_time) as close_time"
+            " FROM kalshi_bets WHERE status = 'pending'"
+            " GROUP BY market_ticker"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
 async def get_all_pending_kalshi_bets() -> list[dict]:
     db = await get_connection()
     try:
