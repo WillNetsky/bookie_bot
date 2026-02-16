@@ -1146,7 +1146,9 @@ class KalshiCog(commands.Cog):
         self.sports_api = SportsAPI()
 
     async def cog_load(self) -> None:
+        log.info("KalshiCog loading — refreshing sports...")
         await kalshi_api.refresh_sports()
+        log.info("KalshiCog loaded — %d sports available, starting resolution loop", len(SPORTS))
         self.check_kalshi_results.start()
 
     async def cog_unload(self) -> None:
@@ -1195,6 +1197,7 @@ class KalshiCog(commands.Cog):
         sport: str | None = None,
     ) -> None:
         await interaction.response.defer()
+        log.info("/kalshi called by %s (sport=%s)", interaction.user, sport)
 
         if sport is None:
             # Browse mode — discover what's available

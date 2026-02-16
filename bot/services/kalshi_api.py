@@ -589,6 +589,19 @@ class KalshiAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+        # Log auth config at init
+        if KALSHI_API_KEY_ID:
+            log.info("Kalshi API key configured: %s...", KALSHI_API_KEY_ID[:8])
+        else:
+            log.warning("No Kalshi API key configured — requests will be unauthenticated")
+        if KALSHI_PRIVATE_KEY_PATH:
+            key_path = Path(KALSHI_PRIVATE_KEY_PATH)
+            if key_path.exists():
+                log.info("Kalshi private key file found: %s", KALSHI_PRIVATE_KEY_PATH)
+            else:
+                log.warning("Kalshi private key file NOT found: %s", KALSHI_PRIVATE_KEY_PATH)
+        else:
+            log.warning("No Kalshi private key path configured")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -619,6 +632,7 @@ class KalshiAPI:
     async def _cached_request(self, url: str, params: dict, ttl: int | None = None) -> list | dict | None:
         cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
         effective_ttl = ttl if ttl is not None else CACHE_TTL
+        short_url = url.replace(BASE_URL, "")
 
         stale_data = None
         async with aiosqlite.connect(DB_PATH) as db:
@@ -635,12 +649,15 @@ class KalshiAPI:
                         fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
                     age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
                     if age < effective_ttl:
+                        log.debug("Cache HIT %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
                         return json.loads(row[0])
+                    log.debug("Cache STALE %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
                 except (ValueError, TypeError):
                     pass
                 stale_data = row[0]
 
         # Cache miss or stale — fetch from API with rate limiting + retry
+        log.debug("Cache MISS %s — fetching from API (auth=%s)", short_url, bool(KALSHI_API_KEY_ID))
         async with self._semaphore:
             session = await self._get_session()
             for attempt in range(MAX_RETRIES + 1):
@@ -699,6 +716,7 @@ class KalshiAPI:
             return
 
         all_series = data["series"]
+        log.info("Fetched %d total series from Kalshi", len(all_series))
         game_tickers: dict[str, dict] = {}   # prefix → {ticker, title}
         spread_tickers: dict[str, str] = {}  # prefix → ticker
         total_tickers: dict[str, str] = {}   # prefix → ticker
@@ -772,7 +790,14 @@ class KalshiAPI:
                     SPORTS_TO_FUTURES[sport_key] = fut_key
                     break
 
-        log.info("Loaded %d sports from Kalshi series API", len(SPORTS))
+        log.info(
+            "Loaded %d sports from Kalshi (%d with spread, %d with totals). "
+            "Futures cross-refs: %s",
+            len(SPORTS),
+            sum(1 for s in SPORTS.values() if "Spread" in s["series"]),
+            sum(1 for s in SPORTS.values() if "Total" in s["series"]),
+            {k: v for k, v in FUTURES_TO_SPORTS.items()},
+        )
 
     # ── Public API methods ────────────────────────────────────────────
 
@@ -1029,14 +1054,22 @@ class KalshiAPI:
                         fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
                     age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
                     if age < DISCOVERY_TTL:
-                        return json.loads(row[0])
+                        cached = json.loads(row[0])
+                        log.debug(
+                            "Discovery cache HIT (age %.0fs): %d games, %d futures",
+                            age, len(cached.get("games", {})), len(cached.get("futures", {})),
+                        )
+                        return cached
                 except (ValueError, TypeError):
                     pass
 
         # Ensure SPORTS is populated
         if not SPORTS:
+            log.info("SPORTS empty — calling refresh_sports()")
             await self.refresh_sports()
 
+        log.info("Discovery cache miss — checking %d sports + %d futures series",
+                 len(SPORTS), sum(len(f["markets"]) for f in FUTURES.values()))
         games_tasks = {}
         for key, sport in SPORTS.items():
             first_series = next(iter(sport["series"].values()))
@@ -1098,7 +1131,19 @@ class KalshiAPI:
                         futures_available[sport_key] = {}
                     futures_available[sport_key][market_name] = True
 
+        # Log errors from gather
+        error_count = sum(1 for r in results if isinstance(r, Exception))
+        if error_count:
+            log.warning("Discovery: %d/%d API calls failed", error_count, len(results))
+
         result = {"games": games_available, "futures": futures_available}
+        game_names = [SPORTS.get(k, {}).get("label", k) for k in games_available]
+        log.info(
+            "Discovery complete: %d game sports (%s), %d futures sports",
+            len(games_available),
+            ", ".join(game_names[:10]) + ("..." if len(game_names) > 10 else ""),
+            len(futures_available),
+        )
 
         # Cache the full discovery result
         async with aiosqlite.connect(DB_PATH) as db:
