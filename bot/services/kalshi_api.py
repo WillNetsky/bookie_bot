@@ -885,7 +885,29 @@ class KalshiAPI:
                 "games": {sport_key: {"count": N, "next_time": "ISO str" | None}, ...},
                 "futures": {sport_key: {name: True, ...}, ...},
             }
+
+        Results are cached as a single entry for DISCOVERY_TTL (10 min)
+        to avoid bursting 31 API requests on each /kalshi call.
         """
+        # Check for cached discovery result first
+        cache_key = "kalshi:discovery:all"
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
+                (cache_key,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                try:
+                    fetched_dt = datetime.fromisoformat(row[1])
+                    if fetched_dt.tzinfo is None:
+                        fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
+                    if age < DISCOVERY_TTL:
+                        return json.loads(row[0])
+                except (ValueError, TypeError):
+                    pass
+
         games_tasks = {}
         for key, sport in SPORTS.items():
             first_series = next(iter(sport["series"].values()))
@@ -935,7 +957,18 @@ class KalshiAPI:
                         futures_available[sport_key] = {}
                     futures_available[sport_key][market_name] = True
 
-        return {"games": games_available, "futures": futures_available}
+        result = {"games": games_available, "futures": futures_available}
+
+        # Cache the full discovery result
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
+                " VALUES (?, 'kalshi', ?, datetime('now'))",
+                (cache_key, json.dumps(result)),
+            )
+            await db.commit()
+
+        return result
 
 
 # Singleton instance
