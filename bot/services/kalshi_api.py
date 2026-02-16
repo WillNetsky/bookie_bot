@@ -468,21 +468,26 @@ def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str =
             hours = 3
         elif "CURL" in sk:
             hours = 3
+        elif "LAX" in sk or "LACROSSE" in sk:
+            hours = 2.5
         elif "SOCCER" in sk or "EPL" in sk or "LIGA" in sk or "BUNDESLIGA" in sk or "SERIE" in sk or "LIGUE" in sk or "UCL" in sk or "MLS" in sk or "FACUP" in sk or "EREDIVISIE" in sk:
             hours = 2.5
         else:
             hours = 3
         commence = expire - timedelta(hours=hours)
 
-        # Validate against event ticker date if available
+        # Validate against event ticker date if available.
+        # Ticker date is the US calendar date. Evening US games (e.g. 7 PM ET)
+        # are midnight+ UTC, so commence can legitimately be ticker_date or
+        # ticker_date+1 in UTC. Only correct if the difference is > 1 day.
         if event_ticker:
             ticker_date = _parse_event_ticker_date(event_ticker)
-            if ticker_date and commence.date() != ticker_date.date():
-                commence = commence.replace(
-                    year=ticker_date.year,
-                    month=ticker_date.month,
-                    day=ticker_date.day,
-                )
+            if ticker_date:
+                day_diff = (commence.date() - ticker_date.date()).days
+                if day_diff < 0 or day_diff > 1:
+                    # Way off — correct to ticker date with a default evening time
+                    # (23:00 UTC ≈ 6 PM ET, reasonable for most US sporting events)
+                    commence = ticker_date.replace(hour=23, minute=0)
 
         return commence.isoformat().replace("+00:00", "Z")
     except (ValueError, TypeError):
