@@ -23,213 +23,45 @@ DISCOVERY_TTL = 600  # 10 minutes for availability checks
 
 # ── Kalshi → Odds-API sport key mapping (for live scores) ─────────────
 KALSHI_TO_ODDS_API = {
-    "NBA": "basketball_nba",
-    "NFL": "americanfootball_nfl",
-    "MLB": "baseball_mlb",
-    "NHL": "icehockey_nhl",
-    "NCAAMB": "basketball_ncaab",
-    "NCAAWB": "basketball_wncaab",
-    "NCAAF": "americanfootball_ncaaf",
-    "EPL": "soccer_epl",
-    "La Liga": "soccer_spain_la_liga",
-    "Bundesliga": "soccer_germany_bundesliga",
-    "Serie A": "soccer_italy_serie_a",
-    "Ligue 1": "soccer_france_ligue_one",
-    "UCL": "soccer_uefa_champs_league",
-    "MLS": "soccer_usa_mls",
-    "UFC": "mma_mixed_martial_arts",
+    # Maps Kalshi sport_key (game ticker) → odds-api sport key for live scores
+    "KXNBAGAME": "basketball_nba",
+    "KXNFLGAME": "americanfootball_nfl",
+    "KXMLBGAME": "baseball_mlb",
+    "KXNHLGAME": "icehockey_nhl",
+    "KXNCAAMBGAME": "basketball_ncaab",
+    "KXNCAAWBGAME": "basketball_wncaab",
+    "KXNCAAFGAME": "americanfootball_ncaaf",
+    "KXEPLGAME": "soccer_epl",
+    "KXLALIGAGAME": "soccer_spain_la_liga",
+    "KXBUNDESLIGAGAME": "soccer_germany_bundesliga",
+    "KXSERIEAGAME": "soccer_italy_serie_a",
+    "KXLIGUE1GAME": "soccer_france_ligue_one",
+    "KXUCLGAME": "soccer_uefa_champs_league",
+    "KXMLSGAME": "soccer_usa_mls",
+    "KXUFCFIGHT": "mma_mixed_martial_arts",
 }
 
 # ── Sports series tickers ─────────────────────────────────────────────
-# Organized by sport → bet type. Each entry maps to a Kalshi series_ticker
-# that returns individual game markets via GET /markets?series_ticker=X
+# Dynamically discovered from Kalshi /series endpoint (cached 24h).
+# SPORTS is populated at startup via kalshi_api.refresh_sports().
+# Each entry: {sport_key: {"label": str, "series": {"Game": ticker, ...}}}
 
-SPORTS = {
-    "NBA": {
-        "label": "NBA Basketball",
-        "series": {
-            "Game": "KXNBAGAME",
-            "Spread": "KXNBASPREAD",
-            "Total Points": "KXNBATOTAL",
-        },
-    },
-    "NFL": {
-        "label": "NFL Football",
-        "series": {
-            "Game": "KXNFLGAME",
-            "Spread": "KXNFLSPREAD",
-            "Total Points": "KXNFLTOTAL",
-        },
-    },
-    "MLB": {
-        "label": "MLB Baseball",
-        "series": {
-            "Game": "KXMLBGAME",
-            "Spread": "KXMLBSPREAD",
-            "Total Runs": "KXMLBTOTAL",
-        },
-    },
-    "NHL": {
-        "label": "NHL Hockey",
-        "series": {
-            "Game": "KXNHLGAME",
-            "Spread": "KXNHLSPREAD",
-            "Total Goals": "KXNHLTOTAL",
-        },
-    },
-    "NCAAMB": {
-        "label": "College Basketball (M)",
-        "series": {
-            "Game": "KXNCAAMBGAME",
-            "Spread": "KXNCAAMBSPREAD",
-            "Total Points": "KXNCAAMBTOTAL",
-        },
-    },
-    "NCAAWB": {
-        "label": "College Basketball (W)",
-        "series": {
-            "Game": "KXNCAAWBGAME",
-            "Spread": "KXNCAAWBSPREAD",
-            "Total Points": "KXNCAAWBTOTAL",
-        },
-    },
-    "NCAAF": {
-        "label": "College Football",
-        "series": {
-            "Game": "KXNCAAFGAME",
-            "Spread": "KXNCAAFSPREAD",
-            "Total Points": "KXNCAAFTOTAL",
-        },
-    },
-    "EPL": {
-        "label": "English Premier League",
-        "series": {
-            "Game": "KXEPLGAME",
-            "Spread": "KXEPLSPREAD",
-            "Total Goals": "KXEPLTOTAL",
-        },
-    },
-    "La Liga": {
-        "label": "La Liga",
-        "series": {
-            "Game": "KXLALIGAGAME",
-            "Spread": "KXLALIGASPREAD",
-            "Total Goals": "KXLALIGATOTAL",
-        },
-    },
-    "Bundesliga": {
-        "label": "Bundesliga",
-        "series": {
-            "Game": "KXBUNDESLIGAGAME",
-            "Spread": "KXBUNDESLIGASPREAD",
-            "Total Goals": "KXBUNDESLIGATOTAL",
-        },
-    },
-    "Serie A": {
-        "label": "Serie A",
-        "series": {
-            "Game": "KXSERIEAGAME",
-            "Spread": "KXSERIEASPREAD",
-            "Total Goals": "KXSERIEATOTAL",
-        },
-    },
-    "Ligue 1": {
-        "label": "Ligue 1",
-        "series": {
-            "Game": "KXLIGUE1GAME",
-            "Spread": "KXLIGUE1SPREAD",
-            "Total Goals": "KXLIGUE1TOTAL",
-        },
-    },
-    "UCL": {
-        "label": "Champions League",
-        "series": {
-            "Game": "KXUCLGAME",
-            "Spread": "KXUCLSPREAD",
-            "Total Goals": "KXUCLTOTAL",
-        },
-    },
-    "MLS": {
-        "label": "MLS",
-        "series": {
-            "Game": "KXMLSGAME",
-            "Spread": "KXMLSSPREAD",
-            "Total Goals": "KXMLSTOTAL",
-        },
-    },
-    "UFC": {
-        "label": "UFC / MMA",
-        "series": {
-            "Fight Winner": "KXUFCFIGHT",
-        },
-    },
-    "FA Cup": {
-        "label": "FA Cup",
-        "series": {
-            "Game": "KXFACUPGAME",
-        },
-    },
-    "Eredivisie": {
-        "label": "Eredivisie",
-        "series": {
-            "Game": "KXEREDIVISIEGAME",
-        },
-    },
-    "EFL Championship": {
-        "label": "EFL Championship",
-        "series": {
-            "Game": "KXEFLCHAMPIONSHIPGAME",
-        },
-    },
-    "Europa League": {
-        "label": "Europa League",
-        "series": {
-            "Game": "KXUELGAME",
-        },
-    },
-    "Conference League": {
-        "label": "Conference League",
-        "series": {
-            "Game": "KXUECLGAME",
-        },
-    },
-    "Saudi Pro League": {
-        "label": "Saudi Pro League",
-        "series": {
-            "Game": "KXSAUDIPLGAME",
-        },
-    },
-    "Turkish Super Lig": {
-        "label": "Turkish Super Lig",
-        "series": {
-            "Game": "KXSUPERLIGGAME",
-        },
-    },
-    "Ekstraklasa": {
-        "label": "Ekstraklasa",
-        "series": {
-            "Game": "KXEKSTRAKLASAGAME",
-        },
-    },
-    "Swiss Super League": {
-        "label": "Swiss Super League",
-        "series": {
-            "Game": "KXSWISSLEAGUEGAME",
-        },
-    },
-    "NBL": {
-        "label": "NBL (Australia)",
-        "series": {
-            "Game": "KXNBLGAME",
-        },
-    },
-    "Unrivaled": {
-        "label": "Unrivaled Basketball",
-        "series": {
-            "Game": "KXUNRIVALEDGAME",
-        },
-    },
+SPORTS: dict[str, dict] = {}
+
+# Series tickers to exclude (novelty, duplicates, esports, one-offs)
+_EXCLUDED_TICKERS = {
+    "KXBEASTGAMES", "KXCHESSGAME", "KXCOLLEGEGAMEDAYGUEST",
+    "KXFANATICSGAMESFIRSTPLACE", "KXFANATICSGAMESSECONDPLACE",
+    "KXFANATICSGAMESTHIRDPLACE", "KXFIFAUSPULLGAME",
+    "KXMVENBASINGLEGAME", "KXMVENFLMULTIGAME", "KXMVENFLSINGLEGAME",
+    "KXMVESPORTSMULTIGAMEEXTENDED", "KXMVENFLMULTIGAMEEXTENDED",
+    "KXMVENBAMULTIGAMEEXTENDED", "KXNBAFINALSVIEWERGAME7",
+    "KXNBACELEBRITYGAME", "KXNFLCELEBRITYGAME", "KXPICKLEBALLGAMES",
+    "KXPPLGAMES", "KXTTELITEGAME", "KXVALORANTGAMETEAMVSMIBR",
+    "KXNBAGAMES", "KXCS2GAMES", "KXLOLGAMES",
 }
+
+SERIES_CACHE_TTL = 86400  # 24 hours — series list rarely changes
 
 # ── Futures / props / specials ────────────────────────────────────────
 # Multi-outcome markets (pick YES on one option from N choices).
@@ -299,11 +131,17 @@ FUTURES = {
     },
 }
 
+# Map FUTURES key → corresponding SPORTS key (e.g. "NBA" → "KXNBAGAME")
+# Populated by refresh_sports() after SPORTS is built.
+FUTURES_TO_SPORTS: dict[str, str] = {}
+
+# Reverse: SPORTS key → FUTURES key (e.g. "KXNBAGAME" → "NBA")
+SPORTS_TO_FUTURES: dict[str, str] = {}
+
 # Map sport keys to their parent sport for grouping futures with games
 FUTURES_SPORT_MAP = {}
 for _fk in FUTURES:
     FUTURES_SPORT_MAP[_fk] = _fk
-# Boxing is standalone (no SPORTS entry), keep as-is
 
 
 def _team_matches(name1: str, name2: str) -> bool:
@@ -492,16 +330,22 @@ def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str =
         return ""
     try:
         expire = datetime.fromisoformat(expire_str.replace("Z", "+00:00"))
-        # Approximate game duration offset
-        offsets = {
-            "NFL": 4, "NCAAF": 4,
-            "NBA": 3, "NCAAMB": 3, "NCAAWB": 3,
-            "MLB": 4, "NHL": 3,
-            "EPL": 2.5, "La Liga": 2.5, "Bundesliga": 2.5,
-            "Serie A": 2.5, "Ligue 1": 2.5, "UCL": 2.5, "MLS": 2.5,
-            "UFC": 1,
-        }
-        hours = offsets.get(sport_key, 3)
+        # Approximate game duration offset (match by ticker substring)
+        sk = sport_key.upper()
+        if "NFL" in sk or "NCAAF" in sk:
+            hours = 4
+        elif "MLB" in sk:
+            hours = 4
+        elif "NBA" in sk or "NCAAM" in sk or "NCAAW" in sk:
+            hours = 3
+        elif "NHL" in sk:
+            hours = 3
+        elif "UFC" in sk or "MMA" in sk or "BOXING" in sk or "FIGHT" in sk:
+            hours = 1
+        elif "SOCCER" in sk or "EPL" in sk or "LIGA" in sk or "BUNDESLIGA" in sk or "SERIE" in sk or "LIGUE" in sk or "UCL" in sk or "MLS" in sk or "FACUP" in sk or "EREDIVISIE" in sk:
+            hours = 2.5
+        else:
+            hours = 3
         commence = expire - timedelta(hours=hours)
 
         # Validate against event ticker date if available
@@ -784,6 +628,94 @@ class KalshiAPI:
 
         return data
 
+    # ── Sports discovery ────────────────────────────────────────────────
+
+    async def refresh_sports(self) -> None:
+        """Fetch all sports series from Kalshi and populate the SPORTS dict.
+
+        Calls GET /series once, caches for 24h. Builds SPORTS dynamically
+        by finding GAME/FIGHT series and matching SPREAD/TOTAL variants.
+        """
+        data = await self._cached_request(
+            f"{BASE_URL}/series",
+            {},
+            ttl=SERIES_CACHE_TTL,
+        )
+        if not data or "series" not in data:
+            log.warning("Failed to fetch Kalshi series list")
+            return
+
+        all_series = data["series"]
+        game_tickers: dict[str, dict] = {}   # prefix → {ticker, title}
+        spread_tickers: dict[str, str] = {}  # prefix → ticker
+        total_tickers: dict[str, str] = {}   # prefix → ticker
+
+        for item in all_series:
+            ticker = item.get("ticker", "")
+            title = item.get("title", "")
+            cat = item.get("category", "")
+            if cat != "Sports":
+                continue
+            if ticker in _EXCLUDED_TICKERS:
+                continue
+
+            t = ticker.upper()
+            if t.endswith("GAME"):
+                prefix = ticker[:-4]
+                game_tickers[prefix] = {"ticker": ticker, "title": title}
+            elif t.endswith("FIGHT"):
+                prefix = ticker[:-5]
+                game_tickers[prefix] = {"ticker": ticker, "title": title}
+            elif t.endswith("SPREAD"):
+                prefix = ticker[:-6]
+                spread_tickers[prefix] = ticker
+            elif t.endswith("TOTAL"):
+                prefix = ticker[:-5]
+                total_tickers[prefix] = ticker
+
+        # Build SPORTS dict
+        new_sports: dict[str, dict] = {}
+        for prefix, info in game_tickers.items():
+            game_ticker = info["ticker"]
+            label = info["title"]
+            # Clean up label: remove "Game", "Winner", "Fight" suffix noise
+            for suffix in (" Game", " Games", " Winner", " winner", " fight winner"):
+                if label.endswith(suffix):
+                    label = label[:-len(suffix)]
+            label = label.strip()
+            if not label:
+                label = prefix.replace("KX", "")
+
+            # Use the ticker as the sport key (unique, stable)
+            sport_key = game_ticker
+            series = {"Game": game_ticker}
+            if prefix in spread_tickers:
+                series["Spread"] = spread_tickers[prefix]
+            if prefix in total_tickers:
+                series["Total"] = total_tickers[prefix]
+
+            new_sports[sport_key] = {"label": label, "series": series}
+
+        SPORTS.clear()
+        SPORTS.update(new_sports)
+
+        # Build FUTURES ↔ SPORTS cross-references
+        # Match by checking if the FUTURES key appears in the SPORTS ticker
+        # e.g. FUTURES key "NBA" matches SPORTS key "KXNBAGAME"
+        FUTURES_TO_SPORTS.clear()
+        SPORTS_TO_FUTURES.clear()
+        for fut_key in FUTURES:
+            fut_upper = fut_key.upper()
+            for sport_key in SPORTS:
+                # Check if ticker contains the futures key (e.g. "KXNBAGAME" contains "NBA")
+                sk_upper = sport_key.upper().replace("KX", "")
+                if sk_upper.startswith(fut_upper) and sk_upper[len(fut_upper):] in ("GAME", "FIGHT", ""):
+                    FUTURES_TO_SPORTS[fut_key] = sport_key
+                    SPORTS_TO_FUTURES[sport_key] = fut_key
+                    break
+
+        log.info("Loaded %d sports from Kalshi series API", len(SPORTS))
+
     # ── Public API methods ────────────────────────────────────────────
 
     async def get_markets_by_series(self, series_ticker: str, status: str = "open", limit: int = 100) -> list[dict]:
@@ -846,14 +778,10 @@ class KalshiAPI:
                 event_groups[et] = []
             event_groups[et].append(m)
 
-        # Soccer sports use "Home vs Away" title format
-        soccer_sports = {
-            "EPL", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UCL", "MLS",
-            "FA Cup", "Eredivisie", "EFL Championship", "Europa League",
-            "Conference League", "Saudi Pro League", "Turkish Super Lig",
-            "Ekstraklasa", "Swiss Super League",
-        }
-        is_soccer = sport_key in soccer_sports
+        # Auto-detect title format from first market:
+        # Soccer: "Home vs Away Winner?" / US sports: "Away at Home Winner?"
+        first_title = markets[0].get("title", "")
+        is_soccer = " vs " in first_title and " at " not in first_title
 
         games = []
         for event_ticker, group in event_groups.items():
@@ -1047,10 +975,15 @@ class KalshiAPI:
                 except (ValueError, TypeError):
                     pass
 
+        # Ensure SPORTS is populated
+        if not SPORTS:
+            await self.refresh_sports()
+
         games_tasks = {}
         for key, sport in SPORTS.items():
             first_series = next(iter(sport["series"].values()))
-            games_tasks[key] = self.get_markets_by_series(first_series, limit=100)
+            # limit=1: just check if markets exist. Full data fetched on drill-in.
+            games_tasks[key] = self.get_markets_by_series(first_series, limit=1)
 
         futures_tasks = {}
         for sport_key, sport in FUTURES.items():
@@ -1073,42 +1006,33 @@ class KalshiAPI:
             if i < n_games:
                 if has_markets:
                     now = datetime.now(timezone.utc)
-                    # Count unique event_tickers, skipping stale markets
-                    event_tickers = set()
-                    next_upcoming = None  # Next game that hasn't started
+                    # Check if the sample market is stale
+                    m = result[0]
+                    et = m.get("event_ticker", "")
+                    ticker_date = _parse_event_ticker_date(et) if et else None
+                    if ticker_date and (now - ticker_date).total_seconds() / 86400 > 2:
+                        continue  # Skip entire sport — sample market is stale
+
+                    # Estimate next game time from the sample
+                    exp = m.get("expected_expiration_time") or m.get("close_time", "")
+                    est_start = _estimate_commence_time(exp, key, et) if exp else None
+                    next_upcoming = None
                     has_live = False
-                    for m in result:
-                        et = m.get("event_ticker", "")
-                        if not et:
-                            continue
-                        # Skip stale markets (>2 days old by ticker date)
-                        ticker_date = _parse_event_ticker_date(et)
-                        if ticker_date and (now - ticker_date).total_seconds() / 86400 > 2:
-                            continue
-                        event_tickers.add(et)
-                        # Estimate start and expiration
-                        exp = m.get("expected_expiration_time") or m.get("close_time", "")
-                        if exp:
-                            est_start = _estimate_commence_time(exp, key, et)
-                            if est_start:
-                                try:
-                                    start_dt = datetime.fromisoformat(est_start.replace("Z", "+00:00"))
-                                    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-                                    if start_dt > now:
-                                        # Upcoming game
-                                        if next_upcoming is None or est_start < next_upcoming:
-                                            next_upcoming = est_start
-                                    elif now <= exp_dt:
-                                        # Currently live
-                                        has_live = True
-                                except (ValueError, TypeError):
-                                    pass
-                    if event_tickers:
-                        games_available[key] = {
-                            "count": len(event_tickers),
-                            "next_time": next_upcoming,
-                            "has_live": has_live,
-                        }
+                    if est_start:
+                        try:
+                            start_dt = datetime.fromisoformat(est_start.replace("Z", "+00:00"))
+                            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                            if start_dt > now:
+                                next_upcoming = est_start
+                            elif now <= exp_dt:
+                                has_live = True
+                        except (ValueError, TypeError):
+                            pass
+
+                    games_available[key] = {
+                        "next_time": next_upcoming,
+                        "has_live": has_live,
+                    }
             else:
                 if has_markets:
                     sport_key, market_name = key.split(":", 1)

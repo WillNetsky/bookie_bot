@@ -7,7 +7,10 @@ from discord.ext import commands, tasks
 
 from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service
-from bot.services.kalshi_api import kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API, _decimal_to_american
+from bot.services.kalshi_api import (
+    kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API,
+    FUTURES_TO_SPORTS, SPORTS_TO_FUTURES, _decimal_to_american,
+)
 from bot.services.sports_api import SportsAPI
 from bot.cogs.betting import (
     format_matchup, format_game_time, PICK_EMOJI,
@@ -105,18 +108,21 @@ class BrowseView(discord.ui.View):
         game_items.sort(key=lambda x: x[0])
 
         for _, key, info, sport in game_items:
-            count = info.get("count", 0)
             next_time = info.get("next_time")
             has_live = info.get("has_live", False)
-            desc = f"{count} game{'s' if count != 1 else ''}"
             if has_live:
-                desc += " — LIVE now"
+                desc = "LIVE now"
             elif next_time:
-                desc += f" — Next: {format_game_time(next_time)}"
+                desc = f"Next: {format_game_time(next_time)}"
+            else:
+                desc = "Games available"
             if len(desc) > 100:
                 desc = desc[:100]
+            label = sport["label"]
+            if len(label) > 100:
+                label = label[:97] + "..."
             options.append(discord.SelectOption(
-                label=sport["label"],
+                label=label,
                 value=f"games:{key}",
                 description=desc,
                 emoji="\U0001f3c8",
@@ -124,18 +130,23 @@ class BrowseView(discord.ui.View):
 
         # Futures sports (that don't already appear as games)
         for key, markets in futures_available.items():
-            if key not in games_available:
-                fut = FUTURES.get(key)
-                label = fut["label"] if fut else key
-                market_names = ", ".join(markets.keys())
-                if len(market_names) > 90:
-                    market_names = market_names[:87] + "..."
-                options.append(discord.SelectOption(
-                    label=label,
-                    value=f"futures:{key}",
-                    description=market_names[:100] if market_names else "Futures",
-                    emoji="\U0001f3c6",
-                ))
+            # Check if this futures sport already has a games entry via cross-ref
+            sports_key = FUTURES_TO_SPORTS.get(key)
+            if sports_key and sports_key in games_available:
+                continue  # Already shown in games section
+            if key in games_available:
+                continue
+            fut = FUTURES.get(key)
+            label = fut["label"] if fut else key
+            market_names = ", ".join(markets.keys())
+            if len(market_names) > 90:
+                market_names = market_names[:87] + "..."
+            options.append(discord.SelectOption(
+                label=label,
+                value=f"futures:{key}",
+                description=market_names[:100] if market_names else "Futures",
+                emoji="\U0001f3c6",
+            ))
 
         if options:
             self.add_item(CategorySelect(options[:25]))
@@ -157,34 +168,63 @@ class BrowseView(discord.ui.View):
             for key, info in sorted_games:
                 sport = SPORTS.get(key)
                 name = sport["label"] if sport else key
-                count = info.get("count", 0)
                 next_time = info.get("next_time")
                 has_live = info.get("has_live", False)
-                line = f"\U0001f3c8 **{name}** — {count} game{'s' if count != 1 else ''}"
+                line = f"\U0001f3c8 **{name}**"
                 if has_live:
                     line += " \U0001f534 LIVE"
                 elif next_time:
                     line += f" — Next: {format_game_time(next_time)}"
                 game_lines.append(line)
+            total_sports = len(game_lines)
+            games_text = "\n".join(game_lines)
+            # Discord field limit is 1024 chars — truncate if needed
+            if len(games_text) > 1000:
+                truncated = []
+                length = 0
+                for line in game_lines:
+                    if length + len(line) + 1 > 950:
+                        break
+                    truncated.append(line)
+                    length += len(line) + 1
+                remaining = total_sports - len(truncated)
+                games_text = "\n".join(truncated) + f"\n*...and {remaining} more*"
             embed.add_field(
-                name="Games",
-                value="\n".join(game_lines),
+                name=f"Games ({total_sports} sports)",
+                value=games_text,
                 inline=False,
             )
 
-        # Futures section
+        # Futures section (only show if not already represented in games)
         if self.futures_available:
             futures_lines = []
             for key, markets in self.futures_available.items():
+                sports_key = FUTURES_TO_SPORTS.get(key)
+                if sports_key and sports_key in self.games_available:
+                    continue  # Already shown in games section
+                if key in self.games_available:
+                    continue
                 fut = FUTURES.get(key)
                 name = fut["label"] if fut else key
                 market_names = ", ".join(markets.keys())
                 futures_lines.append(f"\U0001f3c6 **{name}** — {market_names}")
-            embed.add_field(
-                name="Futures & Props",
-                value="\n".join(futures_lines),
-                inline=False,
-            )
+            if futures_lines:
+                futures_text = "\n".join(futures_lines)
+                if len(futures_text) > 1000:
+                    truncated = []
+                    length = 0
+                    for line in futures_lines:
+                        if length + len(line) + 1 > 950:
+                            break
+                        truncated.append(line)
+                        length += len(line) + 1
+                    remaining = len(futures_lines) - len(truncated)
+                    futures_text = "\n".join(truncated) + f"\n*...and {remaining} more*"
+                embed.add_field(
+                    name="Futures & Props",
+                    value=futures_text,
+                    inline=False,
+                )
 
         if not self.games_available and not self.futures_available:
             embed.description = "No open markets right now."
@@ -914,14 +954,18 @@ async def _show_sport_hub(interaction: discord.Interaction, sport_key: str) -> N
     games = []
     futures_markets = {}
 
-    if sport_key in SPORTS:
-        sport_label = SPORTS[sport_key]["label"]
-        games = await kalshi_api.get_sport_games(sport_key)
-    elif sport_key in FUTURES:
-        sport_label = FUTURES[sport_key]["label"]
+    # Resolve cross-references: sport_key could be a SPORTS ticker or FUTURES key
+    games_key = sport_key if sport_key in SPORTS else FUTURES_TO_SPORTS.get(sport_key)
+    futures_key = sport_key if sport_key in FUTURES else SPORTS_TO_FUTURES.get(sport_key)
 
-    if sport_key in FUTURES:
-        futures_markets = FUTURES[sport_key]["markets"]
+    if games_key and games_key in SPORTS:
+        sport_label = SPORTS[games_key]["label"]
+        games = await kalshi_api.get_sport_games(games_key)
+    elif futures_key and futures_key in FUTURES:
+        sport_label = FUTURES[futures_key]["label"]
+
+    if futures_key and futures_key in FUTURES:
+        futures_markets = FUTURES[futures_key]["markets"]
 
     view = SportHubView(
         sport_key=sport_key,
@@ -1102,6 +1146,7 @@ class KalshiCog(commands.Cog):
         self.sports_api = SportsAPI()
 
     async def cog_load(self) -> None:
+        await kalshi_api.refresh_sports()
         self.check_kalshi_results.start()
 
     async def cog_unload(self) -> None:
@@ -1163,26 +1208,28 @@ class KalshiCog(commands.Cog):
         sport_key = sport
         valid_sport = sport_key in SPORTS or sport_key in FUTURES
         if not valid_sport:
-            all_keys = sorted(set(list(SPORTS.keys()) + list(FUTURES.keys())))
             await interaction.followup.send(
-                f"Unknown sport. Available: {', '.join(all_keys)}", ephemeral=True
+                "Unknown sport. Use the autocomplete to pick one.", ephemeral=True
             )
             return
 
-        # Sport-specific hub
+        # Sport-specific hub — resolve cross-references
+        games_key = sport_key if sport_key in SPORTS else FUTURES_TO_SPORTS.get(sport_key)
+        futures_key = sport_key if sport_key in FUTURES else SPORTS_TO_FUTURES.get(sport_key)
+
         sport_label = sport_key
-        if sport_key in SPORTS:
-            sport_label = SPORTS[sport_key]["label"]
-        elif sport_key in FUTURES:
-            sport_label = FUTURES[sport_key]["label"]
+        if games_key and games_key in SPORTS:
+            sport_label = SPORTS[games_key]["label"]
+        elif futures_key and futures_key in FUTURES:
+            sport_label = FUTURES[futures_key]["label"]
 
         games = []
-        if sport_key in SPORTS:
-            games = await kalshi_api.get_sport_games(sport_key)
+        if games_key and games_key in SPORTS:
+            games = await kalshi_api.get_sport_games(games_key)
 
         futures_markets = {}
-        if sport_key in FUTURES:
-            futures_markets = FUTURES[sport_key]["markets"]
+        if futures_key and futures_key in FUTURES:
+            futures_markets = FUTURES[futures_key]["markets"]
 
         if not games and not futures_markets:
             await interaction.followup.send(
