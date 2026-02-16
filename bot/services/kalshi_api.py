@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CACHE_TTL = 300  # 5 minutes
-DISCOVERY_TTL = 600  # 10 minutes for availability checks
+DISCOVERY_TTL = 1800  # 30 minutes for availability checks
 
 # ── Kalshi → Odds-API sport key mapping (for live scores) ─────────────
 KALSHI_TO_ODDS_API = {

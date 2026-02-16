@@ -1404,7 +1404,7 @@ class KalshiCog(commands.Cog):
 
     # ── Periodic discovery (pre-warm cache) ─────────────────────────
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=30)
     async def refresh_discovery(self) -> None:
         try:
             result = await kalshi_api.discover_available(force=True)
