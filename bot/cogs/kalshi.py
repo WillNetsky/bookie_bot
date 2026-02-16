@@ -67,29 +67,31 @@ def _fmt_american(odds: int) -> str:
     return f"{odds:+d}" if odds else "?"
 
 
+def _is_ended(expiration_time: str) -> bool:
+    """Check if a game has ended based on expected_expiration_time."""
+    if not expiration_time:
+        return False
+    try:
+        et = datetime.fromisoformat(expiration_time.replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) > et
+    except (ValueError, TypeError):
+        return False
+
+
 def _is_live(commence_time: str, expiration_time: str = "") -> bool:
     """Check if a game is currently in progress.
 
-    A game is live if it has started (past commence_time) but not yet
-    ended (before expiration_time). Without expiration_time, falls back
-    to commence_time only.
+    A game is live if it has started (past commence_time) and
+    expected_expiration_time hasn't passed yet.
     """
     if not commence_time:
+        return False
+    if _is_ended(expiration_time):
         return False
     try:
         now = datetime.now(timezone.utc)
         ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-        if ct > now:
-            return False
-        # If we have expiration time, check we haven't passed it
-        if expiration_time:
-            try:
-                et = datetime.fromisoformat(expiration_time.replace("Z", "+00:00"))
-                if now > et:
-                    return False  # Game is over, not live
-            except (ValueError, TypeError):
-                pass
-        return True
+        return ct <= now
     except (ValueError, TypeError):
         return False
 
@@ -98,18 +100,13 @@ def _format_game_time_with_status(commence_time: str, expiration_time: str = "")
     """Format game time, showing LIVE/Final if started."""
     if not commence_time:
         return "TBD"
+    # Check if game ended (expected_expiration_time passed)
+    if _is_ended(expiration_time):
+        return "Final"
     try:
         now = datetime.now(timezone.utc)
         ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
         if ct <= now:
-            # Past start time — check if game is over
-            if expiration_time:
-                try:
-                    et = datetime.fromisoformat(expiration_time.replace("Z", "+00:00"))
-                    if now > et:
-                        return "Final"
-                except (ValueError, TypeError):
-                    pass
             return "\U0001f534 LIVE"
     except (ValueError, TypeError):
         pass

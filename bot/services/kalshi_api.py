@@ -457,7 +457,7 @@ def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str =
         elif "UFC" in sk or "MMA" in sk or "BOXING" in sk or "FIGHT" in sk:
             hours = 1
         elif "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "CHALLENGER" in sk or "SIXKINGS" in sk:
-            hours = 3
+            hours = 5
         elif "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk:
             hours = 4
         elif "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk:
@@ -946,10 +946,21 @@ class KalshiAPI:
         is_soccer = " vs " in first_title and " at " not in first_title
 
         games = []
+        now = datetime.now(timezone.utc)
         for event_ticker, group in event_groups.items():
             game = _parse_game_from_markets(group, event_ticker, sport_key, sport["label"], is_soccer)
-            if game:
-                games.append(game)
+            if not game:
+                continue
+            # Skip games whose expected_expiration_time has passed (likely ended)
+            exp = game.get("expiration_time", "")
+            if exp:
+                try:
+                    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                    if now > exp_dt:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            games.append(game)
 
         # Sort by commence_time
         games.sort(key=lambda g: g.get("commence_time", "9999"))
