@@ -826,6 +826,41 @@ class KalshiAPI:
             {k: v for k, v in FUTURES_TO_SPORTS.items()},
         )
 
+    async def get_all_open_markets(self) -> list[dict]:
+        """Fetch all open markets from Kalshi using pagination.
+        
+        Uses a single endpoint with pagination instead of many per-series calls
+         to avoid hitting rate limits.
+        """
+        all_markets = []
+        cursor = None
+        
+        while True:
+            params = {"status": "open", "limit": 1000}
+            if cursor:
+                params["cursor"] = cursor
+            
+            data = await self._cached_request(
+                f"{BASE_URL}/markets",
+                params,
+                ttl=CACHE_TTL
+            )
+            
+            if not data or "markets" not in data:
+                break
+                
+            all_markets.extend(data["markets"])
+            cursor = data.get("cursor")
+            
+            if not cursor:
+                break
+                
+            # Small delay between pages to be safe
+            await asyncio.sleep(0.2)
+            
+        log.info("Fetched %d total open markets from Kalshi", len(all_markets))
+        return all_markets
+
     # ── Public API methods ────────────────────────────────────────────
 
     async def get_markets_by_series(self, series_ticker: str, status: str = "open", limit: int = 100) -> list[dict]:
@@ -999,39 +1034,73 @@ class KalshiAPI:
         return parsed
 
     async def get_all_games(self) -> list[dict]:
-        """Fetch games across all sports concurrently.
+        """Fetch games across all sports efficiently.
 
-        Returns a flat list of game dicts sorted by commence_time.
+        Uses get_all_open_markets to fetch everything once, then filters and
+        groups by event locally. This replaces 140+ individual API calls with 1-2.
         """
-        tasks = {}
-        for key in SPORTS:
-            tasks[key] = self.get_sport_games(key)
+        all_markets = await self.get_all_open_markets()
+        
+        # Build mapping of series_ticker -> (sport_key, sport_label, is_soccer)
+        series_to_sport = {}
+        for sk, info in SPORTS.items():
+            label = info["label"]
+            # We need to know if it's soccer for title parsing
+            # (Matches logic in get_sport_games)
+            # Find a representative market to check title format?
+            # Instead, just check if "Soccer" is in label or sport_key
+            is_soccer = "soccer" in label.lower() or "soccer" in sk.lower()
+            
+            for ticker in info["series"].values():
+                series_to_sport[ticker] = (sk, label, is_soccer)
 
-        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        # Group markets by event_ticker
+        event_groups: dict[str, list[dict]] = {}
+        for m in all_markets:
+            st = m.get("series_ticker", "")
+            if st in series_to_sport:
+                et = m.get("event_ticker", "")
+                if et not in event_groups:
+                    event_groups[et] = []
+                event_groups[et].append(m)
+
         all_games = []
-        for key, result in zip(tasks.keys(), results):
-            if isinstance(result, list):
-                all_games.extend(result)
+        now = datetime.now(timezone.utc)
+        for event_ticker, group in event_groups.items():
+            # Get sport info from the first market in group
+            st = group[0].get("series_ticker", "")
+            sk, label, is_soccer = series_to_sport[st]
+            
+            game = _parse_game_from_markets(group, event_ticker, sk, label, is_soccer)
+            if not game:
+                continue
+                
+            # Skip games whose expected_expiration_time has passed
+            exp = game.get("expiration_time", "")
+            if exp:
+                try:
+                    exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                    if now > exp_dt:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            all_games.append(game)
 
         all_games.sort(key=lambda g: g.get("commence_time", "9999"))
         return all_games
 
     async def get_available_sports(self) -> list[str]:
-        """Return sport keys that currently have open markets.
-
-        Checks the first bet type (usually 'Game') for each sport.
-        """
+        """Return sport keys that currently have open markets."""
+        all_markets = await self.get_all_open_markets()
+        
+        # Get set of all active series tickers
+        active_series = {m.get("series_ticker") for m in all_markets}
+        
         available = []
-        # Check all sports concurrently
-        tasks = {}
-        for key, sport in SPORTS.items():
-            first_series = next(iter(sport["series"].values()))
-            tasks[key] = self.get_markets_by_series(first_series, limit=1)
-
-        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        for key, result in zip(tasks.keys(), results):
-            if isinstance(result, list) and len(result) > 0:
-                available.append(key)
+        for sk, info in SPORTS.items():
+            # If ANY of this sport's series are active, include it
+            if any(ticker in active_series for ticker in info["series"].values()):
+                available.append(sk)
 
         return available
 
@@ -1074,8 +1143,7 @@ class KalshiAPI:
                 "futures": {sport_key: {name: True, ...}, ...},
             }
 
-        Results are cached as a single entry for DISCOVERY_TTL (10 min)
-        to avoid bursting 31 API requests on each /kalshi call.
+        Results are cached as a single entry for DISCOVERY_TTL (10 min).
         """
         # Check for cached discovery result first
         cache_key = "kalshi:discovery:all"
@@ -1107,93 +1175,65 @@ class KalshiAPI:
             log.info("SPORTS empty — calling refresh_sports()")
             await self.refresh_sports()
 
-        log.info("Discovery cache miss — checking %d sports + %d futures series",
-                 len(SPORTS), sum(len(f["markets"]) for f in FUTURES.values()))
+        log.info("Discovery cache miss — fetching all open markets")
+        all_markets = await self.get_all_open_markets()
 
-        # Build list of (key, series_ticker) to check
-        check_list: list[tuple[str, str]] = []
-        for key, sport in SPORTS.items():
-            first_series = next(iter(sport["series"].values()))
-            check_list.append((key, first_series))
+        # Build reverse mappings for fast lookup
+        game_series_to_sport = {}
+        for sk, info in SPORTS.items():
+            for series_type, ticker in info["series"].items():
+                if series_type == "Game":
+                    game_series_to_sport[ticker] = sk
 
-        n_games = len(check_list)  # first N are game sports, rest are futures
-
-        for sport_key, sport in FUTURES.items():
-            for market_name, series_ticker in sport["markets"].items():
-                check_list.append((f"{sport_key}:{market_name}", series_ticker))
-
-        # Process in small batches with generous delays to avoid 429s.
-        # 143 sports → ~29 batches × 2s ≈ 60s total (acceptable for background).
-        BATCH_SIZE = 5
-        BATCH_DELAY = 2.0
-        results: list = []
-        for batch_start in range(0, len(check_list), BATCH_SIZE):
-            batch = check_list[batch_start:batch_start + BATCH_SIZE]
-            batch_coros = [self.get_markets_by_series(st, limit=5) for _, st in batch]
-            batch_results = await asyncio.gather(*batch_coros, return_exceptions=True)
-            results.extend(batch_results)
-            if batch_start + BATCH_SIZE < len(check_list):
-                await asyncio.sleep(BATCH_DELAY)
-
-        all_keys = [k for k, _ in check_list]
+        futures_series_to_cat = {}
+        for sk, info in FUTURES.items():
+            for name, ticker in info["markets"].items():
+                futures_series_to_cat[ticker] = (sk, name)
 
         games_available = {}
         futures_available = {}
+        now = datetime.now(timezone.utc)
 
-        for i, key in enumerate(all_keys):
-            result = results[i]
-            has_markets = isinstance(result, list) and len(result) > 0
-            if i < n_games:
-                if has_markets:
-                    now = datetime.now(timezone.utc)
-
-                    # Check all sample markets — find the freshest one
-                    # (a single stale market shouldn't hide the whole sport)
-                    best_market = None
-                    for m in result:
-                        exp = m.get("expected_expiration_time") or m.get("close_time", "")
-                        if not exp:
-                            best_market = m
-                            break
-                        try:
-                            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-                            if (now - exp_dt).total_seconds() / 86400 <= 2:
-                                best_market = m
-                                break
-                        except (ValueError, TypeError):
-                            best_market = m
-                            break
-
-                    if best_market is None:
-                        continue  # All sample markets are stale
-
-                    exp = best_market.get("expected_expiration_time") or best_market.get("close_time", "")
-
-                    next_upcoming = None
-                    has_live = False
+        for m in all_markets:
+            st = m.get("series_ticker", "")
+            
+            # Check if it's a game market
+            if st in game_series_to_sport:
+                sk = game_series_to_sport[st]
+                exp = m.get("expected_expiration_time") or m.get("close_time", "")
+                
+                # Freshness check (within 2 days)
+                is_fresh = False
+                if exp:
+                    try:
+                        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                        if (now - exp_dt).total_seconds() / 86400 <= 2:
+                            is_fresh = True
+                    except (ValueError, TypeError):
+                        is_fresh = True
+                else:
+                    is_fresh = True
+                
+                if is_fresh:
+                    if sk not in games_available:
+                        games_available[sk] = {"next_time": None, "has_live": False}
+                    
                     if exp:
                         try:
                             exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                            current_next = games_available[sk]["next_time"]
                             if exp_dt > now:
-                                next_upcoming = exp
+                                if not current_next or exp < current_next:
+                                    games_available[sk]["next_time"] = exp
                         except (ValueError, TypeError):
                             pass
 
-                    games_available[key] = {
-                        "next_time": next_upcoming,
-                        "has_live": has_live,
-                    }
-            else:
-                if has_markets:
-                    sport_key, market_name = key.split(":", 1)
-                    if sport_key not in futures_available:
-                        futures_available[sport_key] = {}
-                    futures_available[sport_key][market_name] = True
-
-        # Log errors from gather
-        error_count = sum(1 for r in results if isinstance(r, Exception))
-        if error_count:
-            log.warning("Discovery: %d/%d API calls failed", error_count, len(results))
+            # Check if it's a futures market
+            elif st in futures_series_to_cat:
+                cat_key, market_name = futures_series_to_cat[st]
+                if cat_key not in futures_available:
+                    futures_available[cat_key] = {}
+                futures_available[cat_key][market_name] = True
 
         result = {"games": games_available, "futures": futures_available}
         game_names = [SPORTS.get(k, {}).get("label", k) for k in games_available]
