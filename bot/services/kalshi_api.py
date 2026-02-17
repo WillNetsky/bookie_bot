@@ -628,168 +628,98 @@ class KalshiAPI:
 
     # ── Caching layer (reuses games_cache table) ──────────────────────
 
-        async def _cached_request(
-
-            self, url: str, params: dict, ttl: int | None = None, prune_func: callable | None = None
-
-        ) -> list | dict | None:
-
-            cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
-
-            effective_ttl = ttl if ttl is not None else CACHE_TTL
-
-            short_url = url.replace(BASE_URL, "")
-
-    
-
-            stale_data = None
-
-            db = await get_connection()
-
-            try:
-
-                cursor = await db.execute(
-
-                    "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
-
-                    (cache_key,),
-
-                )
-
-                row = await cursor.fetchone()
-
-                if row:
-
-                    fetched_at = row[1]
-
-                    try:
-
-                        fetched_dt = datetime.fromisoformat(fetched_at)
-
-                        if fetched_dt.tzinfo is None:
-
-                            fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
-
-                        age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
-
-                        if age < effective_ttl:
-
-                            log.debug("Cache HIT %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
-
-                            data = json.loads(row[0])
-
-                            if prune_func:
-
-                                data = prune_func(data)
-
-                            return data
-
-                        log.debug("Cache STALE %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
-
-                    except (ValueError, TypeError):
-
-                        pass
-
-                    stale_data = row[0]
-
-            finally:
-
-                await db.close()
-
-    
-
-            # Cache miss or stale — fetch from API
-
-            # ... (skipping some logs)
-
-            async with self._semaphore:
-
-                session = await self._get_session()
-
-                for attempt in range(MAX_RETRIES + 1):
-
-                    try:
-
-                        headers = self._auth_headers("GET", url)
-
-                        async with session.get(url, params=params, headers=headers) as resp:
-
-                            # ... (handle 429 and error codes)
-
-                            if resp.status == 429:
-
-                                if attempt < MAX_RETRIES:
-
-                                    wait = RETRY_BACKOFF * (2 ** attempt)
-
-                                    log.info("Kalshi 429 rate limited, retrying in %.1fs...", wait)
-
-                                    await asyncio.sleep(wait)
-
-                                    continue
-
-                                log.warning("Kalshi API %s returned 429 after %d retries", url, MAX_RETRIES)
-
-                                if stale_data:
-
-                                    data = json.loads(stale_data)
-
-                                    return prune_func(data) if prune_func else data
-
-                                return None
-
-                            if resp.status != 200:
-
-                                log.warning("Kalshi API %s returned %s", url, resp.status)
-
-                                if stale_data:
-
-                                    data = json.loads(stale_data)
-
-                                    return prune_func(data) if prune_func else data
-
-                                return None
-
-                            data = await resp.json()
-
-                            break
-
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-
-                        log.warning("Kalshi API request failed: %s", e)
-
-                        if stale_data:
-
-                            data = json.loads(stale_data)
-
-                            return prune_func(data) if prune_func else data
-
-                        return None
-
-    
-
-            # Store in cache
-
-            # ... (existing cache logic)
-
-     with retries for locked database
-        for attempt in range(3):
-            db = await get_connection()
-            try:
-                await db.execute(
-                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
-                    " VALUES (?, 'kalshi', ?, datetime('now'))",
-                    (cache_key, json.dumps(data)),
-                )
-                await db.commit()
-                break
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e) and attempt < 2:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
-                log.warning("Failed to update cache for %s: %s", short_url, e)
-            finally:
-                await db.close()
+    async def _cached_request(
+        self, url: str, params: dict, ttl: int | None = None, prune_func: callable | None = None
+    ) -> list | dict | None:
+        cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
+        effective_ttl = ttl if ttl is not None else CACHE_TTL
+        short_url = url.replace(BASE_URL, "")
+
+        stale_data = None
+        db = await get_connection()
+        try:
+            cursor = await db.execute(
+                "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
+                (cache_key,),
+            )
+            row = await cursor.fetchone()
+            if row:
+                fetched_at = row[1]
+                try:
+                    fetched_dt = datetime.fromisoformat(fetched_at)
+                    if fetched_dt.tzinfo is None:
+                        fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
+                    if age < effective_ttl:
+                        log.debug("Cache HIT %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
+                        data = json.loads(row[0])
+                        # Pruning already happened before storage, but we apply prune_func
+                        # just in case it's a new pruning requirement or stale data
+                        return prune_func(data) if prune_func else data
+                    log.debug("Cache STALE %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
+                except (ValueError, TypeError):
+                    pass
+                stale_data = row[0]
+        finally:
+            await db.close()
+
+        # Cache miss or stale — fetch from API with rate limiting + retry
+        log.debug("Cache MISS %s — fetching from API (auth=%s)", short_url, bool(KALSHI_API_KEY_ID))
+        async with self._semaphore:
+            session = await self._get_session()
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    headers = self._auth_headers("GET", url)
+                    async with session.get(url, params=params, headers=headers) as resp:
+                        if resp.status == 429:
+                            if attempt < MAX_RETRIES:
+                                wait = RETRY_BACKOFF * (2 ** attempt)
+                                log.info("Kalshi 429 rate limited, retrying in %.1fs...", wait)
+                                await asyncio.sleep(wait)
+                                continue
+                            log.warning("Kalshi API %s returned 429 after %d retries", url, MAX_RETRIES)
+                            if stale_data:
+                                data = json.loads(stale_data)
+                                return prune_func(data) if prune_func else data
+                            return None
+                        if resp.status != 200:
+                            log.warning("Kalshi API %s returned %s", url, resp.status)
+                            if stale_data:
+                                data = json.loads(stale_data)
+                                return prune_func(data) if prune_func else data
+                            return None
+                        data = await resp.json()
+                        break
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    log.warning("Kalshi API request failed: %s", e)
+                    if stale_data:
+                        data = json.loads(stale_data)
+                        return prune_func(data) if prune_func else data
+                    return None
+
+        # Store in cache with retries for locked database
+        if data:
+            # Prune BEFORE storing to save disk space
+            pruned_data = prune_func(data) if prune_func else data
+            data_str = json.dumps(pruned_data)
+            
+            for attempt in range(3):
+                db = await get_connection()
+                try:
+                    await db.execute(
+                        "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
+                        " VALUES (?, 'kalshi', ?, datetime('now'))",
+                        (cache_key, data_str),
+                    )
+                    await db.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e) and attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    log.warning("Failed to update cache for %s: %s", short_url, e)
+                finally:
+                    await db.close()
 
         return data
 

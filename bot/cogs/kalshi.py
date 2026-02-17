@@ -18,6 +18,7 @@ from bot.utils import (
     format_matchup, format_game_time, format_pick_label,
     format_american, decimal_to_american
 )
+from bot.db.database import cleanup_cache, vacuum_db
 
 log = logging.getLogger(__name__)
 
@@ -1797,12 +1798,14 @@ class KalshiCog(commands.Cog):
         self.refresh_discovery.start()
         self.refresh_sports_loop.start()
         self.check_legacy_results.start()
+        self.db_maintenance.start()
 
     async def cog_unload(self) -> None:
         self.check_kalshi_results.cancel()
         self.refresh_discovery.cancel()
         self.refresh_sports_loop.cancel()
         self.check_legacy_results.cancel()
+        self.db_maintenance.cancel()
         await kalshi_api.close()
 
     # ── Sport autocomplete ────────────────────────────────────────────
@@ -2819,6 +2822,24 @@ class KalshiCog(commands.Cog):
 
     @refresh_sports_loop.before_loop
     async def before_refresh_sports_loop(self) -> None:
+        await self.bot.wait_until_ready()
+
+    # ── Database maintenance task ────────────────────────────────────
+
+    @tasks.loop(hours=24)
+    async def db_maintenance(self) -> None:
+        """Periodic database cleanup to save disk space."""
+        try:
+            log.info("Starting database maintenance...")
+            deleted = await cleanup_cache(max_age_days=3) # Keep cache only for 3 days
+            log.info(f"Cleaned up {deleted} stale cache entries.")
+            await vacuum_db()
+            log.info("Database vacuumed successfully.")
+        except Exception:
+            log.exception("Error in db_maintenance loop")
+
+    @db_maintenance.before_loop
+    async def before_db_maintenance(self) -> None:
         await self.bot.wait_until_ready()
 
     # ── Legacy check_results loop (the-odds-api) ──────────────────────

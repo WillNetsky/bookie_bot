@@ -64,9 +64,66 @@ class SportsAPI:
             "last": self.requests_last,
         }
 
+    # ── Pruning helpers ──────────────────────────────────────────────────
+
+    def _prune_events(self, data: list) -> list:
+        if not isinstance(data, list): return data
+        return [
+            {
+                "id": e.get("id"),
+                "sport_key": e.get("sport_key"),
+                "sport_title": e.get("sport_title"),
+                "commence_time": e.get("commence_time"),
+                "home_team": e.get("home_team"),
+                "away_team": e.get("away_team"),
+            }
+            for e in data
+        ]
+
+    def _prune_odds(self, data: list) -> list:
+        if not isinstance(data, list): return data
+        pruned = []
+        for e in data:
+            item = {
+                "id": e.get("id"),
+                "sport_key": e.get("sport_key"),
+                "sport_title": e.get("sport_title"),
+                "commence_time": e.get("commence_time"),
+                "home_team": e.get("home_team"),
+                "away_team": e.get("away_team"),
+                "bookmakers": []
+            }
+            # Only keep the first bookmaker's markets to save space
+            if e.get("bookmakers"):
+                bm = e["bookmakers"][0]
+                item["bookmakers"].append({
+                    "key": bm.get("key"),
+                    "title": bm.get("title"),
+                    "markets": bm.get("markets", [])
+                })
+            pruned.append(item)
+        return pruned
+
+    def _prune_scores(self, data: list) -> list:
+        if not isinstance(data, list): return data
+        return [
+            {
+                "id": e.get("id"),
+                "sport_key": e.get("sport_key"),
+                "commence_time": e.get("commence_time"),
+                "completed": e.get("completed"),
+                "home_team": e.get("home_team"),
+                "away_team": e.get("away_team"),
+                "scores": e.get("scores"),
+            }
+            for e in data
+        ]
+
     # ── Caching layer ────────────────────────────────────────────────────
 
-    async def _cached_request(self, url: str, params: dict, ttl: int | None = None) -> list | dict | None:
+    async def _cached_request(
+        self, url: str, params: dict, ttl: int | None = None, prune_func: callable | None = None
+    ) -> list | dict | None:
         cache_key = f"{url}:{json.dumps(params, sort_keys=True)}"
         effective_ttl = ttl if ttl is not None else CACHE_TTL
 
@@ -83,7 +140,8 @@ class SportsAPI:
                 fetched = datetime.fromisoformat(fetched_at).replace(tzinfo=timezone.utc)
                 now = datetime.now(timezone.utc)
                 if (now - fetched).total_seconds() < effective_ttl:
-                    return json.loads(row[0])
+                    data = json.loads(row[0])
+                    return prune_func(data) if prune_func else data
                 # Keep stale data as fallback in case the API call fails
                 stale_data = row[0]
         finally:
@@ -100,7 +158,10 @@ class SportsAPI:
 
         if not ODDS_API_KEY:
             log.warning("No ODDS_API_KEY configured — cannot fetch fresh data for %s", url)
-            return json.loads(stale_data) if stale_data else None
+            if stale_data:
+                data = json.loads(stale_data)
+                return prune_func(data) if prune_func else data
+            return None
 
         session = await self._get_session()
         full_params = {**params, "apiKey": ODDS_API_KEY}
@@ -110,29 +171,39 @@ class SportsAPI:
                 self._update_quota(resp)
                 if resp.status != 200:
                     log.warning("API returned %s for %s — using stale cache", resp.status, url)
-                    return json.loads(stale_data) if stale_data else None
+                    if stale_data:
+                        data = json.loads(stale_data)
+                        return prune_func(data) if prune_func else data
+                    return None
                 data = await resp.json()
         except aiohttp.ClientError:
             log.warning("API request failed for %s — using stale cache", url)
-            return json.loads(stale_data) if stale_data else None
+            if stale_data:
+                data = json.loads(stale_data)
+                return prune_func(data) if prune_func else data
+            return None
 
         # Store in cache with retries for locked database
-        for attempt in range(3):
-            db = await get_connection()
-            try:
-                await db.execute(
-                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data) VALUES (?, ?, ?)",
-                    (cache_key, "odds_api", json.dumps(data)),
-                )
-                await db.commit()
-                break
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e) and attempt < 2:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
-                log.warning("Failed to update cache for %s: %s", url, e)
-            finally:
-                await db.close()
+        if data:
+            pruned_data = prune_func(data) if prune_func else data
+            data_str = json.dumps(pruned_data)
+            
+            for attempt in range(3):
+                db = await get_connection()
+                try:
+                    await db.execute(
+                        "INSERT OR REPLACE INTO games_cache (game_id, sport, data) VALUES (?, ?, ?)",
+                        (cache_key, "odds_api", data_str),
+                    )
+                    await db.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e) and attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    log.warning("Failed to update cache for %s: %s", url, e)
+                finally:
+                    await db.close()
 
         return data
 
@@ -144,19 +215,8 @@ class SportsAPI:
         return data if isinstance(data, list) else []
 
     async def get_events(self, sport: str = DEFAULT_SPORT, hours: int | None = None) -> list[dict]:
-        """Fetch upcoming events (FREE — no quota cost).
-
-        Returns: id, sport_key, sport_title, commence_time, home_team, away_team.
-        No odds data — use get_odds_for_sport() to fetch odds separately.
-
-        The /events endpoint doesn't support the "upcoming" keyword, so when
-        sport is "upcoming" we fetch active sports and query each one.
-        """
+        """Fetch upcoming events (FREE — no quota cost)."""
         if sport == "upcoming":
-            # /events doesn't support "upcoming" keyword, so fetch active
-            # sports and query each one — both endpoints are FREE.
-            # Use gather for concurrency (cached hits are instant, only
-            # uncached requests hit the rate limiter).
             active_sports = await self.get_sports()
             sport_keys = [
                 sp["key"] for sp in active_sports
@@ -166,6 +226,7 @@ class SportsAPI:
             async def _fetch_sport(sk: str) -> list[dict]:
                 result = await self._cached_request(
                     f"{BASE_URL}/sports/{sk}/events", {},
+                    prune_func=self._prune_events
                 )
                 return result if isinstance(result, list) else []
 
@@ -174,6 +235,7 @@ class SportsAPI:
         else:
             data = await self._cached_request(
                 f"{BASE_URL}/sports/{sport}/events", {},
+                prune_func=self._prune_events
             )
             if not isinstance(data, list):
                 return []
@@ -197,22 +259,16 @@ class SportsAPI:
         return upcoming
 
     async def get_odds_for_sport(self, sport: str) -> list[dict]:
-        """Fetch odds for all games in a sport (costs markets × regions = 3 credits).
-
-        Cached for 15 min. Use this when user needs actual odds, not for browsing.
-        """
+        """Fetch odds for all games in a sport (costs markets × regions = 3 credits)."""
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/odds",
             {"regions": "us", "markets": "h2h,spreads,totals", "oddsFormat": "american"},
+            prune_func=self._prune_odds
         )
         return data if isinstance(data, list) else []
 
     async def get_odds_for_event(self, sport: str, event_id: str) -> dict | None:
-        """Fetch odds for a single event. Costs markets × regions = 3 credits.
-
-        Prefer get_odds_for_sport() if you'll need odds for multiple games in the
-        same sport — it fetches all games for the same cost.
-        """
+        """Fetch odds for a single event. Costs 3 credits."""
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/odds",
             {
@@ -221,20 +277,18 @@ class SportsAPI:
                 "oddsFormat": "american",
                 "eventIds": event_id,
             },
+            prune_func=self._prune_odds
         )
         if isinstance(data, list) and data:
             return data[0]
         return None
 
     async def get_upcoming_games(self, sport: str = DEFAULT_SPORT, hours: int | None = None) -> list[dict]:
-        """Fetch upcoming games with h2h odds (costs 3 credits).
-
-        DEPRECATED for browsing — prefer get_events() (free) + get_odds_for_sport() on demand.
-        Kept for backward compatibility with /bet command.
-        """
+        """Fetch upcoming games with odds (DEPRECATED)."""
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/odds",
             {"regions": "us", "markets": "h2h,spreads,totals", "oddsFormat": "american"},
+            prune_func=self._prune_odds
         )
         if not isinstance(data, list):
             return []
@@ -272,6 +326,7 @@ class SportsAPI:
                 f"{BASE_URL}/sports/{sk}/scores",
                 {"eventIds": event_id},
                 ttl=SCORES_CACHE_TTL,
+                prune_func=self._prune_scores
             )
             if isinstance(data, list) and data:
                 return data[0]
@@ -287,6 +342,7 @@ class SportsAPI:
                 "oddsFormat": "american",
                 "eventIds": event_id,
             },
+            prune_func=self._prune_odds
         )
         if not isinstance(data, list) or not data:
             return None
@@ -295,16 +351,14 @@ class SportsAPI:
         return self.parse_odds(game)
 
     async def get_scores(self, sport: str, days_from: int | None = None) -> list[dict]:
-        """Get completed/live scores for a sport.
-
-        Without daysFrom costs 1 credit; with daysFrom costs 2.
-        """
+        """Get completed/live scores for a sport."""
         params = {}
         if days_from:
             params["daysFrom"] = days_from
         data = await self._cached_request(
             f"{BASE_URL}/sports/{sport}/scores", params,
             ttl=SCORES_CACHE_TTL,
+            prune_func=self._prune_scores
         )
         return data if isinstance(data, list) else []
 
@@ -359,6 +413,7 @@ class SportsAPI:
             f"{BASE_URL}/sports/{sport}/scores",
             {"daysFrom": days_from},
             ttl=SCORES_CACHE_TTL,
+            prune_func=self._prune_scores
         )
         if not isinstance(data, list):
             return {}

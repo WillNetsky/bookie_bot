@@ -153,3 +153,26 @@ async def init_db() -> None:
         await db.commit()
     finally:
         await db.close()
+
+@db_retry()
+async def vacuum_db() -> None:
+    """Reclaim unused disk space."""
+    db = await get_connection()
+    try:
+        await db.execute("VACUUM")
+    finally:
+        await db.close()
+
+@db_retry()
+async def cleanup_cache(max_age_days: int = 7) -> int:
+    """Remove old cache entries to save disk space."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM games_cache WHERE fetched_at < datetime('now', '-' || ? || ' days')",
+            (max_age_days,),
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
