@@ -94,6 +94,10 @@ class SportsAPI:
                 await asyncio.sleep(1.0 - elapsed)
             self._last_request_time = time.monotonic()
 
+        if not ODDS_API_KEY:
+            log.warning("No ODDS_API_KEY configured — cannot fetch fresh data for %s", url)
+            return json.loads(stale_data) if stale_data else None
+
         session = await self._get_session()
         full_params = {**params, "apiKey": ODDS_API_KEY}
         log.debug("API call: %s", url)
