@@ -63,6 +63,10 @@ _EXCLUDED_TICKERS = {
     "KXEWCTEAMFIGHTTACTICS",
 }
 
+# Suffixes that are derivative markets (spread/total), not primary game series.
+# We include everything in the Sports category EXCEPT these + _EXCLUDED_TICKERS.
+_DERIVATIVE_SUFFIXES = ("SPREAD", "TOTAL", "SACK", "TD", "TO", "FG")
+
 SERIES_CACHE_TTL = 86400  # 24 hours — series list rarely changes
 
 # Label overrides — Kalshi titles are often generic ("Professional Basketball")
@@ -808,24 +812,45 @@ class KalshiAPI:
                 continue
 
             t = ticker.upper()
-            if t.endswith("GAME"):
-                prefix = ticker[:-4]
+
+            # Classify as derivative (spread/total) or primary (game) series.
+            # Use blacklist approach: anything that doesn't end with a known
+            # derivative suffix is treated as a primary game series.
+            is_derivative = False
+            for suffix in _DERIVATIVE_SUFFIXES:
+                if t.endswith(suffix):
+                    is_derivative = True
+                    prefix = ticker[:-len(suffix)]
+                    if suffix == "SPREAD":
+                        spread_tickers[prefix] = ticker
+                    elif suffix == "TOTAL":
+                        total_tickers[prefix] = ticker
+                    # Other derivative suffixes (SACK, TD, etc.) are just skipped
+                    break
+
+            if not is_derivative:
+                # Determine prefix by stripping known game suffixes
+                if t.endswith("GAMES"):
+                    prefix = ticker[:-5]
+                elif t.endswith("GAME"):
+                    prefix = ticker[:-4]
+                elif t.endswith("FIGHT"):
+                    prefix = ticker[:-5]
+                elif t.endswith("MATCH"):
+                    prefix = ticker[:-5]
+                elif t.endswith("BOUT"):
+                    prefix = ticker[:-4]
+                elif t.endswith("RACE"):
+                    prefix = ticker[:-4]
+                elif t.endswith("ROUND"):
+                    prefix = ticker[:-5]
+                elif t.endswith("SET"):
+                    prefix = ticker[:-3]
+                else:
+                    # Unknown suffix — still include it, use ticker as its own prefix
+                    prefix = ticker
+                    log.info("New sports series with unknown suffix: %s (%s)", ticker, title)
                 game_tickers[prefix] = {"ticker": ticker, "title": title}
-            elif t.endswith("GAMES"):
-                prefix = ticker[:-5]
-                game_tickers[prefix] = {"ticker": ticker, "title": title}
-            elif t.endswith("FIGHT"):
-                prefix = ticker[:-5]
-                game_tickers[prefix] = {"ticker": ticker, "title": title}
-            elif t.endswith("MATCH"):
-                prefix = ticker[:-5]
-                game_tickers[prefix] = {"ticker": ticker, "title": title}
-            elif t.endswith("SPREAD"):
-                prefix = ticker[:-6]
-                spread_tickers[prefix] = ticker
-            elif t.endswith("TOTAL"):
-                prefix = ticker[:-5]
-                total_tickers[prefix] = ticker
 
         # Build SPORTS dict
         new_sports: dict[str, dict] = {}
@@ -869,7 +894,8 @@ class KalshiAPI:
             for sport_key in SPORTS:
                 # Check if ticker contains the futures key (e.g. "KXNBAGAME" contains "NBA")
                 sk_upper = sport_key.upper().replace("KX", "")
-                if sk_upper.startswith(fut_upper) and sk_upper[len(fut_upper):] in ("GAME", "GAMES", "FIGHT", "MATCH", ""):
+                remainder = sk_upper[len(fut_upper):]
+                if sk_upper.startswith(fut_upper) and remainder in ("GAME", "GAMES", "FIGHT", "MATCH", "BOUT", "RACE", "ROUND", "SET", ""):
                     FUTURES_TO_SPORTS[fut_key] = sport_key
                     SPORTS_TO_FUTURES[sport_key] = fut_key
                     break
@@ -1186,7 +1212,7 @@ class KalshiAPI:
         results: list = []
         for batch_start in range(0, len(check_list), BATCH_SIZE):
             batch = check_list[batch_start:batch_start + BATCH_SIZE]
-            batch_coros = [self.get_markets_by_series(st, limit=1) for _, st in batch]
+            batch_coros = [self.get_markets_by_series(st, limit=5) for _, st in batch]
             batch_results = await asyncio.gather(*batch_coros, return_exceptions=True)
             results.extend(batch_results)
             if batch_start + BATCH_SIZE < len(check_list):
@@ -1203,18 +1229,29 @@ class KalshiAPI:
             if i < n_games:
                 if has_markets:
                     now = datetime.now(timezone.utc)
-                    m = result[0]
-                    et = m.get("event_ticker", "")
 
-                    # Use expiration time to determine if market is stale
-                    exp = m.get("expected_expiration_time") or m.get("close_time", "")
-                    if exp:
+                    # Check all sample markets — find the freshest one
+                    # (a single stale market shouldn't hide the whole sport)
+                    best_market = None
+                    for m in result:
+                        exp = m.get("expected_expiration_time") or m.get("close_time", "")
+                        if not exp:
+                            best_market = m
+                            break
                         try:
                             exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-                            if (now - exp_dt).total_seconds() / 86400 > 2:
-                                continue  # Sample market expired >2 days ago — stale
+                            if (now - exp_dt).total_seconds() / 86400 <= 2:
+                                best_market = m
+                                break
                         except (ValueError, TypeError):
-                            pass
+                            best_market = m
+                            break
+
+                    if best_market is None:
+                        continue  # All sample markets are stale
+
+                    et = best_market.get("event_ticker", "")
+                    exp = best_market.get("expected_expiration_time") or best_market.get("close_time", "")
 
                     est_start = _estimate_commence_time(exp, key, et) if exp else None
                     next_upcoming = None
