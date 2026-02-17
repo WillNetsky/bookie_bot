@@ -628,68 +628,151 @@ class KalshiAPI:
 
     # ── Caching layer (reuses games_cache table) ──────────────────────
 
-    async def _cached_request(self, url: str, params: dict, ttl: int | None = None) -> list | dict | None:
-        cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
-        effective_ttl = ttl if ttl is not None else CACHE_TTL
-        short_url = url.replace(BASE_URL, "")
+        async def _cached_request(
 
-        stale_data = None
-        db = await get_connection()
-        try:
-            cursor = await db.execute(
-                "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
-                (cache_key,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                fetched_at = row[1]
-                try:
-                    fetched_dt = datetime.fromisoformat(fetched_at)
-                    if fetched_dt.tzinfo is None:
-                        fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
-                    age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
-                    if age < effective_ttl:
-                        log.debug("Cache HIT %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
-                        return json.loads(row[0])
-                    log.debug("Cache STALE %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
-                except (ValueError, TypeError):
-                    pass
-                stale_data = row[0]
-        finally:
-            await db.close()
+            self, url: str, params: dict, ttl: int | None = None, prune_func: callable | None = None
 
-        # Cache miss or stale — fetch from API with rate limiting + retry
-        log.debug("Cache MISS %s — fetching from API (auth=%s)", short_url, bool(KALSHI_API_KEY_ID))
-        async with self._semaphore:
-            session = await self._get_session()
-            for attempt in range(MAX_RETRIES + 1):
-                try:
-                    headers = self._auth_headers("GET", url)
-                    async with session.get(url, params=params, headers=headers) as resp:
-                        if resp.status == 429:
-                            if attempt < MAX_RETRIES:
-                                wait = RETRY_BACKOFF * (2 ** attempt)
-                                log.info("Kalshi 429 rate limited, retrying in %.1fs...", wait)
-                                await asyncio.sleep(wait)
-                                continue
-                            log.warning("Kalshi API %s returned 429 after %d retries", url, MAX_RETRIES)
-                            if stale_data:
-                                return json.loads(stale_data)
-                            return None
-                        if resp.status != 200:
-                            log.warning("Kalshi API %s returned %s", url, resp.status)
-                            if stale_data:
-                                return json.loads(stale_data)
-                            return None
-                        data = await resp.json()
-                        break
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    log.warning("Kalshi API request failed: %s", e)
-                    if stale_data:
-                        return json.loads(stale_data)
-                    return None
+        ) -> list | dict | None:
 
-        # Store in cache with retries for locked database
+            cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
+
+            effective_ttl = ttl if ttl is not None else CACHE_TTL
+
+            short_url = url.replace(BASE_URL, "")
+
+    
+
+            stale_data = None
+
+            db = await get_connection()
+
+            try:
+
+                cursor = await db.execute(
+
+                    "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
+
+                    (cache_key,),
+
+                )
+
+                row = await cursor.fetchone()
+
+                if row:
+
+                    fetched_at = row[1]
+
+                    try:
+
+                        fetched_dt = datetime.fromisoformat(fetched_at)
+
+                        if fetched_dt.tzinfo is None:
+
+                            fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
+
+                        age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
+
+                        if age < effective_ttl:
+
+                            log.debug("Cache HIT %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
+
+                            data = json.loads(row[0])
+
+                            if prune_func:
+
+                                data = prune_func(data)
+
+                            return data
+
+                        log.debug("Cache STALE %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
+
+                    except (ValueError, TypeError):
+
+                        pass
+
+                    stale_data = row[0]
+
+            finally:
+
+                await db.close()
+
+    
+
+            # Cache miss or stale — fetch from API
+
+            # ... (skipping some logs)
+
+            async with self._semaphore:
+
+                session = await self._get_session()
+
+                for attempt in range(MAX_RETRIES + 1):
+
+                    try:
+
+                        headers = self._auth_headers("GET", url)
+
+                        async with session.get(url, params=params, headers=headers) as resp:
+
+                            # ... (handle 429 and error codes)
+
+                            if resp.status == 429:
+
+                                if attempt < MAX_RETRIES:
+
+                                    wait = RETRY_BACKOFF * (2 ** attempt)
+
+                                    log.info("Kalshi 429 rate limited, retrying in %.1fs...", wait)
+
+                                    await asyncio.sleep(wait)
+
+                                    continue
+
+                                log.warning("Kalshi API %s returned 429 after %d retries", url, MAX_RETRIES)
+
+                                if stale_data:
+
+                                    data = json.loads(stale_data)
+
+                                    return prune_func(data) if prune_func else data
+
+                                return None
+
+                            if resp.status != 200:
+
+                                log.warning("Kalshi API %s returned %s", url, resp.status)
+
+                                if stale_data:
+
+                                    data = json.loads(stale_data)
+
+                                    return prune_func(data) if prune_func else data
+
+                                return None
+
+                            data = await resp.json()
+
+                            break
+
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+
+                        log.warning("Kalshi API request failed: %s", e)
+
+                        if stale_data:
+
+                            data = json.loads(stale_data)
+
+                            return prune_func(data) if prune_func else data
+
+                        return None
+
+    
+
+            # Store in cache
+
+            # ... (existing cache logic)
+
+     with retries for locked database
         for attempt in range(3):
             db = await get_connection()
             try:
@@ -722,13 +805,13 @@ class KalshiAPI:
             f"{BASE_URL}/series",
             {"limit": 10000},
             ttl=SERIES_CACHE_TTL,
+            prune_func=self._prune_series_list
         )
         if not data or "series" not in data:
             log.warning("Failed to fetch Kalshi series list")
             return
 
         all_series = data["series"]
-        log.info("Fetched %d total series from Kalshi", len(all_series))
         game_tickers: dict[str, dict] = {}   # prefix → {ticker, title}
         spread_tickers: dict[str, str] = {}  # prefix → ticker
         total_tickers: dict[str, str] = {}   # prefix → ticker
@@ -840,12 +923,48 @@ class KalshiAPI:
             {k: v for k, v in FUTURES_TO_SPORTS.items()},
         )
 
+    def _prune_market(self, m: dict) -> dict:
+        """Keep only fields we actually use to save RAM."""
+        return {
+            "ticker": m.get("ticker"),
+            "event_ticker": m.get("event_ticker"),
+            "series_ticker": m.get("series_ticker"),
+            "title": m.get("title"),
+            "yes_sub_title": m.get("yes_sub_title"),
+            "yes_ask_dollars": m.get("yes_ask_dollars"),
+            "last_price_dollars": m.get("last_price_dollars"),
+            "expected_expiration_time": m.get("expected_expiration_time"),
+            "close_time": m.get("close_time"),
+            "floor_strike": m.get("floor_strike"),
+            # For resolution
+            "status": m.get("status"),
+            "settlement_value_dollars": m.get("settlement_value_dollars"),
+            "result": m.get("result"),
+        }
+
+    def _prune_markets_list(self, data: dict) -> dict:
+        """Pruning function for market list responses."""
+        if not data or "markets" not in data:
+            return data
+        data["markets"] = [self._prune_market(m) for m in data["markets"]]
+        return data
+
+    def _prune_series_list(self, data: dict) -> dict:
+        """Pruning function for series list responses."""
+        if not data or "series" not in data:
+            return data
+        data["series"] = [
+            {
+                "ticker": s.get("ticker"),
+                "title": s.get("title"),
+                "category": s.get("category"),
+            }
+            for s in data["series"]
+        ]
+        return data
+
     async def get_all_open_markets(self) -> list[dict]:
-        """Fetch all open markets from Kalshi using pagination.
-        
-        Uses a single endpoint with pagination instead of many per-series calls
-         to avoid hitting rate limits.
-        """
+        """Fetch all open markets from Kalshi using pagination."""
         all_markets = []
         cursor = None
         
@@ -857,7 +976,8 @@ class KalshiAPI:
             data = await self._cached_request(
                 f"{BASE_URL}/markets",
                 params,
-                ttl=CACHE_TTL
+                ttl=CACHE_TTL,
+                prune_func=self._prune_markets_list
             )
             
             if not data or "markets" not in data:
@@ -869,7 +989,6 @@ class KalshiAPI:
             if not cursor:
                 break
                 
-            # Small delay between pages to be safe
             await asyncio.sleep(0.2)
             
         log.info("Fetched %d total open markets from Kalshi", len(all_markets))
@@ -913,19 +1032,20 @@ class KalshiAPI:
         return await self.get_markets_by_series(series_ticker)
 
     async def get_sport_games(self, sport_key: str) -> list[dict]:
-        """Fetch game markets for a sport and group into game objects.
-
-        Returns a list of game dicts with home/away teams, moneyline odds,
-        and commence_time — matching the format used by /odds.
-        """
+        """Fetch game markets for a sport and group into game objects efficiently."""
         sport = SPORTS.get(sport_key)
         if not sport:
             return []
 
-        # Get first series key (usually "Game" or "Fight Winner")
-        first_key = next(iter(sport["series"].keys()))
-        series_ticker = sport["series"][first_key]
-        markets = await self.get_markets_by_series(series_ticker)
+        # Fetch ALL open markets once (pruned and cached)
+        all_markets = await self.get_all_open_markets()
+        
+        # Get primary series tickers for this sport
+        target_series = set(sport["series"].values())
+        
+        # Filter to markets belonging to this sport
+        markets = [m for m in all_markets if m.get("series_ticker") in target_series]
+        
         if not markets:
             return []
 
@@ -937,10 +1057,8 @@ class KalshiAPI:
                 event_groups[et] = []
             event_groups[et].append(m)
 
-        # Auto-detect title format from first market:
-        # Soccer: "Home vs Away Winner?" / US sports: "Away at Home Winner?"
-        first_title = markets[0].get("title", "")
-        is_soccer = " vs " in first_title and " at " not in first_title
+        # Detect soccer for title parsing
+        is_soccer = "soccer" in sport["label"].lower() or "soccer" in sport_key.lower()
 
         games = []
         now = datetime.now(timezone.utc)
@@ -948,7 +1066,7 @@ class KalshiAPI:
             game = _parse_game_from_markets(group, event_ticker, sport_key, sport["label"], is_soccer)
             if not game:
                 continue
-            # Skip games whose expected_expiration_time has passed (likely ended)
+            # Skip games whose expected_expiration_time has passed
             exp = game.get("expiration_time", "")
             if exp:
                 try:
@@ -1119,23 +1237,23 @@ class KalshiAPI:
         return available
 
     async def get_futures_markets(self, series_ticker: str) -> list[dict]:
-        """Fetch open markets for a futures/props series, sorted by probability.
-
-        Returns list of dicts with: ticker, title, yes_price, american_odds, subtitle.
-        """
-        markets = await self.get_markets_by_series(series_ticker, limit=200)
-        if not markets:
+        """Fetch open markets for a futures/props series, sorted by probability."""
+        data = await self._cached_request(
+            f"{BASE_URL}/markets",
+            {"series_ticker": series_ticker, "status": "open", "limit": 200},
+        )
+        if not data or "markets" not in data:
             return []
 
         options = []
-        for m in markets:
+        for m in data["markets"]:
             yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0")
             if yes_price <= 0:
                 continue
             decimal_odds = round(1.0 / yes_price, 3)
             american = decimal_to_american(decimal_odds)
             options.append({
-                "ticker": m.get("ticker", ""),
+                "ticker": m.get("ticker"),
                 "title": m.get("yes_sub_title") or m.get("title", ""),
                 "yes_price": yes_price,
                 "decimal_odds": decimal_odds,
