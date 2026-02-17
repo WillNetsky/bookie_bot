@@ -1553,7 +1553,7 @@ class Betting(commands.Cog):
             )
 
         # Show pending Kalshi bets
-        from bot.services.kalshi_api import _parse_event_ticker_date, _estimate_commence_time
+        from bot.services.kalshi_api import _parse_event_ticker_date
         for kb in kalshi_bets:
             potential = round(kb["amount"] * kb["odds"], 2)
             title = kb.get("title") or kb["market_ticker"]

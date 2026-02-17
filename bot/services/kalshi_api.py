@@ -399,17 +399,12 @@ def _parse_game_from_markets(
         if days_old > 2:
             return None
 
-    # Estimate game start time.
-    # close_time = when betting closes (during/end of game, NOT game start)
-    # expected_expiration_time = when market settles (after game ends)
-    # Best approach: estimate from expected_expiration_time minus game duration.
-    # Validate against event ticker date (e.g. 26FEB14 = Feb 14, 2026).
-    expire_str = first.get("expected_expiration_time") or first.get("close_time", "")
-    commence_time = _estimate_commence_time(expire_str, sport_key, event_ticker)
-
-    # Store close/expiration time for display
+    # Use expected_expiration_time as the display time.
+    # Kalshi doesn't expose actual game start times — expiration is the
+    # closest reliable timestamp (when the market settles, shortly after
+    # the game ends).
+    expiration_time = first.get("expected_expiration_time") or first.get("close_time", "")
     close_time = first.get("close_time", "")
-    expiration_time = first.get("expected_expiration_time", "")
 
     return {
         "id": event_ticker,
@@ -417,7 +412,7 @@ def _parse_game_from_markets(
         "away_team": away_team,
         "sport_key": sport_key,
         "sport_title": sport_label,
-        "commence_time": commence_time,
+        "commence_time": expiration_time,
         "close_time": close_time,
         "expiration_time": expiration_time,
         "_kalshi_markets": {
@@ -426,76 +421,6 @@ def _parse_game_from_markets(
         },
     }
 
-
-def _estimate_commence_time(expire_str: str, sport_key: str, event_ticker: str = "") -> str:
-    """Estimate game start time from Kalshi's expected_expiration_time.
-
-    If the event ticker embeds a time (e.g. KXAHLGAME-26FEB191200IOWCHI),
-    use that directly. Otherwise, estimate by subtracting sport duration
-    from expiration time, validated against the ticker date.
-    """
-    if not expire_str:
-        return ""
-    try:
-        expire = datetime.fromisoformat(expire_str.replace("Z", "+00:00"))
-
-        # If ticker embeds a time, use it directly as the start time
-        if event_ticker:
-            ticker_dt = _parse_event_ticker_date(event_ticker)
-            if ticker_dt and (ticker_dt.hour != 0 or ticker_dt.minute != 0):
-                # Non-midnight = real embedded time
-                return ticker_dt.isoformat().replace("+00:00", "Z")
-
-        # Fall back to estimating from expiration - sport duration
-        sk = sport_key.upper()
-        if "NFL" in sk or "NCAAF" in sk:
-            hours = 4
-        elif "MLB" in sk:
-            hours = 4
-        elif "NBA" in sk or "NCAAM" in sk or "NCAAW" in sk:
-            hours = 3
-        elif "NHL" in sk:
-            hours = 3
-        elif "CS2" in sk or "LOL" in sk or "DOTA" in sk or "VALORANT" in sk or "ESPORT" in sk:
-            hours = 4
-        elif "UFC" in sk or "MMA" in sk or "BOXING" in sk or "FIGHT" in sk:
-            hours = 1
-        elif "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "CHALLENGER" in sk or "SIXKINGS" in sk:
-            hours = 5
-        elif "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk:
-            hours = 4
-        elif "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk:
-            hours = 2.5
-        elif "DARTS" in sk:
-            hours = 2
-        elif "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk:
-            hours = 3
-        elif "CURL" in sk:
-            hours = 3
-        elif "LAX" in sk or "LACROSSE" in sk:
-            hours = 2.5
-        elif "SOCCER" in sk or "EPL" in sk or "LIGA" in sk or "BUNDESLIGA" in sk or "SERIE" in sk or "LIGUE" in sk or "UCL" in sk or "MLS" in sk or "FACUP" in sk or "EREDIVISIE" in sk:
-            hours = 2.5
-        else:
-            hours = 3
-        commence = expire - timedelta(hours=hours)
-
-        # Validate against event ticker date if available.
-        # Ticker date is the US calendar date. Evening US games (e.g. 7 PM ET)
-        # are midnight+ UTC, so commence can legitimately be ticker_date or
-        # ticker_date+1 in UTC. Only correct if the difference is > 1 day.
-        if event_ticker:
-            ticker_date = _parse_event_ticker_date(event_ticker)
-            if ticker_date:
-                day_diff = (commence.date() - ticker_date.date()).days
-                if day_diff < 0 or day_diff > 1:
-                    # Way off — correct to ticker date with a default evening time
-                    # (23:00 UTC ≈ 6 PM ET, reasonable for most US sporting events)
-                    commence = ticker_date.replace(hour=23, minute=0)
-
-        return commence.isoformat().replace("+00:00", "Z")
-    except (ValueError, TypeError):
-        return expire_str
 
 
 def _extract_spread_team(yes_sub_title: str) -> str | None:
@@ -1250,20 +1175,15 @@ class KalshiAPI:
                     if best_market is None:
                         continue  # All sample markets are stale
 
-                    et = best_market.get("event_ticker", "")
                     exp = best_market.get("expected_expiration_time") or best_market.get("close_time", "")
 
-                    est_start = _estimate_commence_time(exp, key, et) if exp else None
                     next_upcoming = None
                     has_live = False
-                    if est_start:
+                    if exp:
                         try:
-                            start_dt = datetime.fromisoformat(est_start.replace("Z", "+00:00"))
                             exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-                            if start_dt > now:
-                                next_upcoming = est_start
-                            elif now <= exp_dt:
-                                has_live = True
+                            if exp_dt > now:
+                                next_upcoming = exp
                         except (ValueError, TypeError):
                             pass
 

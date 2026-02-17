@@ -78,38 +78,10 @@ def _is_ended(expiration_time: str) -> bool:
         return False
 
 
-def _is_live(commence_time: str, expiration_time: str = "") -> bool:
-    """Check if a game is currently in progress.
-
-    A game is live if it has started (past commence_time) and
-    expected_expiration_time hasn't passed yet.
-    """
-    if not commence_time:
-        return False
-    if _is_ended(expiration_time):
-        return False
-    try:
-        now = datetime.now(timezone.utc)
-        ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-        return ct <= now
-    except (ValueError, TypeError):
-        return False
-
-
-def _format_game_time_with_status(commence_time: str, expiration_time: str = "") -> str:
-    """Format game time, showing LIVE/Final if started."""
+def _format_game_time(commence_time: str) -> str:
+    """Format game time for display. Shows the event date from the ticker."""
     if not commence_time:
         return "TBD"
-    # Check if game ended (expected_expiration_time passed)
-    if _is_ended(expiration_time):
-        return "Final"
-    try:
-        now = datetime.now(timezone.utc)
-        ct = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-        if ct <= now:
-            return "\U0001f534 LIVE"
-    except (ValueError, TypeError):
-        pass
     return format_game_time(commence_time)
 
 
@@ -135,23 +107,18 @@ class BrowseView(discord.ui.View):
         # Build all category options sorted properly
         self.all_options: list[discord.SelectOption] = []
 
-        # Game sports — sorted: live first, then by next game time
+        # Game sports — sorted by next game time
         game_items = []
         for key, info in games_available.items():
             sport = SPORTS.get(key)
             if sport:
-                has_live = info.get("has_live", False)
                 next_time = info.get("next_time") or ""
-                sort_key = (0 if has_live else 1, next_time or "9999")
-                game_items.append((sort_key, key, info, sport))
+                game_items.append((next_time or "9999", key, info, sport))
         game_items.sort(key=lambda x: x[0])
 
         for _, key, info, sport in game_items:
             next_time = info.get("next_time")
-            has_live = info.get("has_live", False)
-            if has_live:
-                desc = "LIVE now"
-            elif next_time:
+            if next_time:
                 desc = f"Next: {format_game_time(next_time)}"
             else:
                 desc = "Games available"
@@ -253,11 +220,8 @@ class BrowseView(discord.ui.View):
                 sport = SPORTS.get(key)
                 name = sport["label"] if sport else key
                 next_time = info.get("next_time")
-                has_live = info.get("has_live", False)
                 line = f"{emoji} **{name}**"
-                if has_live:
-                    line += " \U0001f534 LIVE"
-                elif next_time:
+                if next_time:
                     line += f" — Next: {format_game_time(next_time)}"
                 game_lines.append(line)
             elif cat_type == "futures":
@@ -373,7 +337,7 @@ class SportHubView(discord.ui.View):
             for g in self.games[:15]:
                 home = g.get("home_team", "?")
                 away = g.get("away_team", "?")
-                time_str = _format_game_time_with_status(g.get("commence_time", ""), g.get("expiration_time", ""))
+                time_str = _format_game_time(g.get("commence_time", ""))
                 embed.add_field(
                     name=f"{away} @ {home}",
                     value=time_str,
@@ -725,7 +689,7 @@ class KalshiGameSelect(discord.ui.Select):
             label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
-            desc = _format_game_time_with_status(g.get("commence_time", ""), g.get("expiration_time", ""))
+            desc = _format_game_time(g.get("commence_time", ""))
             if len(desc) > 100:
                 desc = desc[:100]
             self.games_map[game_id] = g
@@ -754,7 +718,7 @@ class KalshiGameSelect(discord.ui.Select):
 
         # Build a new view for bet type selection
         bet_view = GameBetTypeView(game, parsed, view)
-        time_str = _format_game_time_with_status(game.get("commence_time", ""), game.get("expiration_time", ""))
+        time_str = _format_game_time(game.get("commence_time", ""))
         embed = discord.Embed(
             title=game.get("sport_title", ""),
             description=f"**{format_matchup(home, away)}**\n{time_str}",
@@ -948,7 +912,7 @@ class KalshiBetAmountModal(discord.ui.Modal, title="Place Bet"):
 
         payout = round(amount * decimal_odds, 2)
 
-        time_str = _format_game_time_with_status(game.get("commence_time", ""), game.get("expiration_time", ""))
+        time_str = _format_game_time(game.get("commence_time", ""))
 
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
         embed.add_field(name="Bet ID", value=f"#K{bet_id}", inline=True)
@@ -1148,10 +1112,8 @@ class GamesListView(discord.ui.View):
                     detail += f"\n{time_line}"
                 lines.append(f"{score_str}\n{detail}")
             else:
-                exp = g.get("expiration_time", "")
-                time_str = _format_game_time_with_status(g.get("commence_time", ""), exp)
-                exp_str = f" — Ends ~{format_game_time(exp)}" if exp else ""
-                lines.append(f"**{away}** @ **{home}**{odds_str}\n{sport} · {time_str}{exp_str}")
+                time_str = _format_game_time(g.get("commence_time", ""))
+                lines.append(f"**{away}** @ **{home}**{odds_str}\n{sport} · {time_str}")
 
         embed.description = "\n\n".join(lines)
 
@@ -1290,7 +1252,7 @@ class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
             label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
-            desc = _format_game_time_with_status(g.get("commence_time", ""), g.get("expiration_time", ""))
+            desc = _format_game_time(g.get("commence_time", ""))
             if len(desc) > 100:
                 desc = desc[:100]
             self.games_map[game_id] = g
@@ -1318,7 +1280,7 @@ class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
 
         # Build bet type selection for this game
         bet_view = KalshiParlayBetTypeView(game, parsed, view)
-        time_str = _format_game_time_with_status(game.get("commence_time", ""), game.get("expiration_time", ""))
+        time_str = _format_game_time(game.get("commence_time", ""))
         embed = discord.Embed(
             title="Add Parlay Leg",
             description=f"**{format_matchup(home, away)}**\n{time_str}\n\nPick a bet type:",
@@ -1717,11 +1679,8 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("No games right now.")
             return
 
-        # Sort: live games first, then upcoming by commence_time
-        all_games.sort(key=lambda g: (
-            0 if _is_live(g.get("commence_time", ""), g.get("expiration_time", "")) else 1,
-            g.get("commence_time", "9999"),
-        ))
+        # Sort by commence_time (soonest first)
+        all_games.sort(key=lambda g: g.get("commence_time", "9999"))
 
         view = GamesListView(all_games=all_games, title="Games")
         embed = view.build_embed()
@@ -1745,11 +1704,8 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("No games available right now.")
             return
 
-        # Sort: live first, then upcoming
-        games.sort(key=lambda g: (
-            0 if _is_live(g.get("commence_time", ""), g.get("expiration_time", "")) else 1,
-            g.get("commence_time", "9999"),
-        ))
+        # Sort by commence_time (soonest first)
+        games.sort(key=lambda g: g.get("commence_time", "9999"))
 
         view = KalshiParlayView(games)
         embed = view.build_embed()
@@ -1889,8 +1845,8 @@ class KalshiCog(commands.Cog):
         else:
             all_games = await kalshi_api.get_all_games()
 
-        # Filter to live only (started but not finished)
-        live_games = [g for g in all_games if _is_live(g.get("commence_time", ""), g.get("expiration_time", ""))]
+        # Filter to games that haven't expired yet
+        live_games = [g for g in all_games if not _is_ended(g.get("expiration_time", ""))]
 
         if not live_games:
             await interaction.followup.send("No live games right now.")
