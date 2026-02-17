@@ -232,80 +232,64 @@ class BrowseView(discord.ui.View):
             color=discord.Color.blue(),
         )
 
-        # Games section
-        if self.games_available:
-            game_lines = []
-            # Sort: live first, then by next game time
-            sorted_games = sorted(
-                self.games_available.items(),
-                key=lambda kv: (0 if kv[1].get("has_live") else 1, kv[1].get("next_time") or "9999"),
-            )
-            for key, info in sorted_games:
+        if not self.all_options:
+            embed.description = "No open markets right now."
+            return embed
+
+        # Show only the options on the current page (matches the dropdown)
+        page_start = self.page * 25
+        page_options = self.all_options[page_start:page_start + 25]
+
+        game_lines = []
+        futures_lines = []
+
+        for opt in page_options:
+            val = opt.value
+            cat_type, key = val.split(":", 1)
+            emoji = opt.emoji or ""
+
+            if cat_type == "games":
+                info = self.games_available.get(key, {})
                 sport = SPORTS.get(key)
                 name = sport["label"] if sport else key
                 next_time = info.get("next_time")
                 has_live = info.get("has_live", False)
-                line = f"{_sport_emoji(key)} **{name}**"
+                line = f"{emoji} **{name}**"
                 if has_live:
                     line += " \U0001f534 LIVE"
                 elif next_time:
                     line += f" — Next: {format_game_time(next_time)}"
                 game_lines.append(line)
-            total_sports = len(game_lines)
+            elif cat_type == "futures":
+                fut = FUTURES.get(key)
+                name = fut["label"] if fut else key
+                markets = self.futures_available.get(key, {})
+                market_names = ", ".join(markets.keys())
+                futures_lines.append(f"{emoji} **{name}** — {market_names}")
+
+        if game_lines:
             games_text = "\n".join(game_lines)
-            # Discord field limit is 1024 chars — truncate if needed
             if len(games_text) > 1000:
-                truncated = []
-                length = 0
-                for line in game_lines:
-                    if length + len(line) + 1 > 950:
-                        break
-                    truncated.append(line)
-                    length += len(line) + 1
-                remaining = total_sports - len(truncated)
-                games_text = "\n".join(truncated) + f"\n*...and {remaining} more*"
+                games_text = games_text[:997] + "..."
             embed.add_field(
-                name=f"Games ({total_sports} sports)",
+                name=f"Games ({len(game_lines)})",
                 value=games_text,
                 inline=False,
             )
 
-        # Futures section (only show if not already represented in games)
-        if self.futures_available:
-            futures_lines = []
-            for key, markets in self.futures_available.items():
-                sports_key = FUTURES_TO_SPORTS.get(key)
-                if sports_key and sports_key in self.games_available:
-                    continue  # Already shown in games section
-                if key in self.games_available:
-                    continue
-                fut = FUTURES.get(key)
-                name = fut["label"] if fut else key
-                market_names = ", ".join(markets.keys())
-                fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
-                futures_lines.append(f"{_sport_emoji(fut_sport_key)} **{name}** — {market_names}")
-            if futures_lines:
-                futures_text = "\n".join(futures_lines)
-                if len(futures_text) > 1000:
-                    truncated = []
-                    length = 0
-                    for line in futures_lines:
-                        if length + len(line) + 1 > 950:
-                            break
-                        truncated.append(line)
-                        length += len(line) + 1
-                    remaining = len(futures_lines) - len(truncated)
-                    futures_text = "\n".join(truncated) + f"\n*...and {remaining} more*"
-                embed.add_field(
-                    name="Futures & Props",
-                    value=futures_text,
-                    inline=False,
-                )
+        if futures_lines:
+            futures_text = "\n".join(futures_lines)
+            if len(futures_text) > 1000:
+                futures_text = futures_text[:997] + "..."
+            embed.add_field(
+                name="Futures & Props",
+                value=futures_text,
+                inline=False,
+            )
 
-        if not self.games_available and not self.futures_available:
-            embed.description = "No open markets right now."
-
-        embed.set_footer(text="Select a category below to browse")
+        total = len(self.all_options)
+        footer = f"Page {self.page + 1}/{self.total_pages} · {total} markets total · Select a category below"
+        embed.set_footer(text=footer)
         return embed
 
     async def on_timeout(self) -> None:
