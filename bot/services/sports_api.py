@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -12,7 +13,7 @@ import aiohttp
 import aiosqlite
 
 from bot.config import ODDS_API_KEY
-from bot.db.database import DB_PATH
+from bot.db.database import DB_PATH, get_connection
 
 BASE_URL = "https://api.the-odds-api.com/v4"
 CACHE_TTL = 7200  # 2 hours — odds don't change fast enough to matter
@@ -70,7 +71,8 @@ class SportsAPI:
         effective_ttl = ttl if ttl is not None else CACHE_TTL
 
         stale_data = None
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await get_connection()
+        try:
             cursor = await db.execute(
                 "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
                 (cache_key,),
@@ -84,6 +86,8 @@ class SportsAPI:
                     return json.loads(row[0])
                 # Keep stale data as fallback in case the API call fails
                 stale_data = row[0]
+        finally:
+            await db.close()
 
         # Rate limit: at least 1 second between API calls to avoid 429s.
         # Lock ensures concurrent gather() calls serialize properly.
@@ -112,12 +116,23 @@ class SportsAPI:
             log.warning("API request failed for %s — using stale cache", url)
             return json.loads(stale_data) if stale_data else None
 
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO games_cache (game_id, sport, data) VALUES (?, ?, ?)",
-                (cache_key, "odds_api", json.dumps(data)),
-            )
-            await db.commit()
+        # Store in cache with retries for locked database
+        for attempt in range(3):
+            db = await get_connection()
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data) VALUES (?, ?, ?)",
+                    (cache_key, "odds_api", json.dumps(data)),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < 2:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                log.warning("Failed to update cache for %s: %s", url, e)
+            finally:
+                await db.close()
 
         return data
 

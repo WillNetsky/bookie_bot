@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ import aiohttp
 import aiosqlite
 
 from bot.config import KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH
-from bot.db.database import DB_PATH
+from bot.db.database import DB_PATH, get_connection
 from bot.utils import decimal_to_american
 
 log = logging.getLogger(__name__)
@@ -633,7 +634,8 @@ class KalshiAPI:
         short_url = url.replace(BASE_URL, "")
 
         stale_data = None
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await get_connection()
+        try:
             cursor = await db.execute(
                 "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
                 (cache_key,),
@@ -653,6 +655,8 @@ class KalshiAPI:
                 except (ValueError, TypeError):
                     pass
                 stale_data = row[0]
+        finally:
+            await db.close()
 
         # Cache miss or stale — fetch from API with rate limiting + retry
         log.debug("Cache MISS %s — fetching from API (auth=%s)", short_url, bool(KALSHI_API_KEY_ID))
@@ -685,14 +689,24 @@ class KalshiAPI:
                         return json.loads(stale_data)
                     return None
 
-        # Store in cache
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
-                " VALUES (?, 'kalshi', ?, datetime('now'))",
-                (cache_key, json.dumps(data)),
-            )
-            await db.commit()
+        # Store in cache with retries for locked database
+        for attempt in range(3):
+            db = await get_connection()
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
+                    " VALUES (?, 'kalshi', ?, datetime('now'))",
+                    (cache_key, json.dumps(data)),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < 2:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                log.warning("Failed to update cache for %s: %s", short_url, e)
+            finally:
+                await db.close()
 
         return data
 

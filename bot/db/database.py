@@ -1,6 +1,33 @@
 import aiosqlite
+import sqlite3
+import asyncio
+import functools
+import logging
+
+log = logging.getLogger(__name__)
 
 DB_PATH = "bookie_bot.db"
+
+def db_retry(max_attempts=3, initial_delay=0.5):
+    """Decorator to retry database operations if they fail due to locking."""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_err = None
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except sqlite3.OperationalError as e:
+                    last_err = e
+                    if "locked" in str(e).lower() and attempt < max_attempts - 1:
+                        delay = initial_delay * (attempt + 1)
+                        log.debug(f"Database locked, retrying {func.__name__} (attempt {attempt + 1})...")
+                        await asyncio.sleep(delay)
+                        continue
+                    raise
+            raise last_err
+        return wrapper
+    return decorator
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -96,6 +123,8 @@ async def get_connection() -> aiosqlite.Connection:
     db = await aiosqlite.connect(DB_PATH)
     db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA journal_mode=WAL")
+    await db.execute("PRAGMA synchronous=NORMAL")
+    await db.execute("PRAGMA busy_timeout=5000")
     return db
 
 
@@ -113,7 +142,8 @@ MIGRATIONS = [
 
 
 async def init_db() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    db = await get_connection()
+    try:
         await db.executescript(SCHEMA)
         for migration in MIGRATIONS:
             try:
@@ -121,3 +151,5 @@ async def init_db() -> None:
             except Exception:
                 pass  # column already exists
         await db.commit()
+    finally:
+        await db.close()

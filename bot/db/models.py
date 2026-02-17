@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from bot.db.database import get_connection
+from bot.db.database import get_connection, db_retry
 from bot.config import STARTING_BALANCE
 
 
+@db_retry()
+@db_retry()
 async def get_or_create_user(discord_id: int) -> dict:
     db = await get_connection()
     try:
@@ -24,6 +26,8 @@ async def get_or_create_user(discord_id: int) -> dict:
         await db.close()
 
 
+@db_retry()
+@db_retry()
 async def update_balance(discord_id: int, delta: int) -> int:
     db = await get_connection()
     try:
@@ -41,6 +45,8 @@ async def update_balance(discord_id: int, delta: int) -> int:
         await db.close()
 
 
+@db_retry()
+@db_retry()
 async def add_voice_minutes(discord_id: int, minutes: int) -> None:
     db = await get_connection()
     try:
@@ -53,6 +59,8 @@ async def add_voice_minutes(discord_id: int, minutes: int) -> None:
         await db.close()
 
 
+@db_retry()
+@db_retry()
 async def create_bet(
     user_id: int,
     game_id: str,
@@ -79,6 +87,8 @@ async def create_bet(
         await db.close()
 
 
+@db_retry()
+@db_retry()
 async def get_user_bets(user_id: int, status: str | None = None) -> list[dict]:
     db = await get_connection()
     try:
@@ -98,6 +108,7 @@ async def get_user_bets(user_id: int, status: str | None = None) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_bets_by_game(game_id: str) -> list[dict]:
     db = await get_connection()
     try:
@@ -111,6 +122,7 @@ async def get_pending_bets_by_game(game_id: str) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_game_ids() -> list[str]:
     db = await get_connection()
     try:
@@ -123,6 +135,7 @@ async def get_pending_game_ids() -> list[str]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_games_with_commence() -> list[dict]:
     """Return pending game IDs with their commence times from single bets."""
     db = await get_connection()
@@ -138,6 +151,7 @@ async def get_pending_games_with_commence() -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_parlay_games_with_commence() -> list[dict]:
     """Return pending parlay leg game IDs with their commence times."""
     db = await get_connection()
@@ -153,6 +167,7 @@ async def get_pending_parlay_games_with_commence() -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def delete_bet(bet_id: int) -> bool:
     db = await get_connection()
     try:
@@ -163,6 +178,7 @@ async def delete_bet(bet_id: int) -> bool:
         await db.close()
 
 
+@db_retry()
 async def get_bet_by_id(bet_id: int) -> dict | None:
     db = await get_connection()
     try:
@@ -173,6 +189,7 @@ async def get_bet_by_id(bet_id: int) -> dict | None:
         await db.close()
 
 
+@db_retry()
 async def create_parlay(
     user_id: int, amount: int, total_odds: float, legs: list[dict]
 ) -> int:
@@ -206,6 +223,7 @@ async def create_parlay(
         await db.close()
 
 
+@db_retry()
 async def get_parlay_by_id(parlay_id: int) -> dict | None:
     db = await get_connection()
     try:
@@ -216,6 +234,7 @@ async def get_parlay_by_id(parlay_id: int) -> dict | None:
         await db.close()
 
 
+@db_retry()
 async def get_parlay_legs(parlay_id: int) -> list[dict]:
     db = await get_connection()
     try:
@@ -228,6 +247,7 @@ async def get_parlay_legs(parlay_id: int) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_user_parlays(user_id: int, status: str | None = None) -> list[dict]:
     db = await get_connection()
     try:
@@ -247,6 +267,7 @@ async def get_user_parlays(user_id: int, status: str | None = None) -> list[dict
         await db.close()
 
 
+@db_retry()
 async def get_pending_parlay_legs_by_game(game_id: str) -> list[dict]:
     db = await get_connection()
     try:
@@ -260,6 +281,7 @@ async def get_pending_parlay_legs_by_game(game_id: str) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def update_parlay_leg_status(leg_id: int, status: str) -> None:
     db = await get_connection()
     try:
@@ -271,6 +293,7 @@ async def update_parlay_leg_status(leg_id: int, status: str) -> None:
         await db.close()
 
 
+@db_retry()
 async def update_parlay(parlay_id: int, status: str, payout: int | None = None) -> None:
     db = await get_connection()
     try:
@@ -283,6 +306,7 @@ async def update_parlay(parlay_id: int, status: str, payout: int | None = None) 
         await db.close()
 
 
+@db_retry()
 async def delete_parlay(parlay_id: int) -> bool:
     db = await get_connection()
     try:
@@ -294,6 +318,7 @@ async def delete_parlay(parlay_id: int) -> bool:
         await db.close()
 
 
+@db_retry()
 async def get_pending_parlay_game_ids() -> list[str]:
     db = await get_connection()
     try:
@@ -306,6 +331,7 @@ async def get_pending_parlay_game_ids() -> list[str]:
         await db.close()
 
 
+@db_retry()
 async def get_user_resolved_bets(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
     db = await get_connection()
     try:
@@ -320,6 +346,7 @@ async def get_user_resolved_bets(user_id: int, limit: int = 10, offset: int = 0)
         await db.close()
 
 
+@db_retry()
 async def get_user_resolved_parlays(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
     db = await get_connection()
     try:
@@ -334,6 +361,7 @@ async def get_user_resolved_parlays(user_id: int, limit: int = 10, offset: int =
         await db.close()
 
 
+@db_retry()
 async def get_user_bet_stats(user_id: int) -> dict:
     db = await get_connection()
     try:
@@ -379,6 +407,7 @@ async def get_user_bet_stats(user_id: int) -> dict:
         await db.close()
 
 
+@db_retry()
 async def count_user_resolved_bets(user_id: int) -> int:
     db = await get_connection()
     try:
@@ -392,6 +421,7 @@ async def count_user_resolved_bets(user_id: int) -> int:
         await db.close()
 
 
+@db_retry()
 async def count_user_resolved_parlays(user_id: int) -> int:
     db = await get_connection()
     try:
@@ -405,6 +435,7 @@ async def count_user_resolved_parlays(user_id: int) -> int:
         await db.close()
 
 
+@db_retry()
 async def get_leaderboard(limit: int = 10) -> list[dict]:
     db = await get_connection()
     try:
@@ -418,6 +449,7 @@ async def get_leaderboard(limit: int = 10) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def reset_all_balances(amount: int) -> int:
     """Reset all user balances to the given amount and clear all bets.
 
@@ -442,6 +474,7 @@ async def reset_all_balances(amount: int) -> int:
         await db.close()
 
 
+@db_retry()
 async def devalue_all_balances(percent: float) -> tuple[int, int]:
     """Reduce all user balances by a percentage.
 
@@ -473,6 +506,7 @@ async def devalue_all_balances(percent: float) -> tuple[int, int]:
 # ── Kalshi bets ───────────────────────────────────────────────────────
 
 
+@db_retry()
 async def create_kalshi_bet(
     user_id: int,
     market_ticker: str,
@@ -497,6 +531,7 @@ async def create_kalshi_bet(
         await db.close()
 
 
+@db_retry()
 async def get_user_kalshi_bets(user_id: int, status: str | None = None) -> list[dict]:
     db = await get_connection()
     try:
@@ -516,6 +551,7 @@ async def get_user_kalshi_bets(user_id: int, status: str | None = None) -> list[
         await db.close()
 
 
+@db_retry()
 async def get_kalshi_bet_by_id(bet_id: int) -> dict | None:
     db = await get_connection()
     try:
@@ -526,6 +562,7 @@ async def get_kalshi_bet_by_id(bet_id: int) -> dict | None:
         await db.close()
 
 
+@db_retry()
 async def delete_kalshi_bet(bet_id: int) -> bool:
     db = await get_connection()
     try:
@@ -536,6 +573,7 @@ async def delete_kalshi_bet(bet_id: int) -> bool:
         await db.close()
 
 
+@db_retry()
 async def get_pending_kalshi_market_tickers() -> list[str]:
     db = await get_connection()
     try:
@@ -548,6 +586,7 @@ async def get_pending_kalshi_market_tickers() -> list[str]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_kalshi_tickers_with_close_time() -> list[dict]:
     """Return pending tickers with their earliest close_time.
 
@@ -566,6 +605,7 @@ async def get_pending_kalshi_tickers_with_close_time() -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_all_pending_kalshi_bets() -> list[dict]:
     db = await get_connection()
     try:
@@ -578,6 +618,7 @@ async def get_all_pending_kalshi_bets() -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_kalshi_bets_by_market(market_ticker: str) -> list[dict]:
     db = await get_connection()
     try:
@@ -591,6 +632,7 @@ async def get_pending_kalshi_bets_by_market(market_ticker: str) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def resolve_kalshi_bet(bet_id: int, won: bool, payout: int) -> None:
     db = await get_connection()
     try:
@@ -612,6 +654,7 @@ async def resolve_kalshi_bet(bet_id: int, won: bool, payout: int) -> None:
         await db.close()
 
 
+@db_retry()
 async def get_user_resolved_kalshi_bets(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
     db = await get_connection()
     try:
@@ -626,6 +669,7 @@ async def get_user_resolved_kalshi_bets(user_id: int, limit: int = 10, offset: i
         await db.close()
 
 
+@db_retry()
 async def count_user_resolved_kalshi_bets(user_id: int) -> int:
     db = await get_connection()
     try:
@@ -642,6 +686,7 @@ async def count_user_resolved_kalshi_bets(user_id: int) -> int:
 # ── Kalshi parlays ────────────────────────────────────────────────────
 
 
+@db_retry()
 async def create_kalshi_parlay(
     user_id: int, amount: int, total_odds: float, legs: list[dict]
 ) -> int:
@@ -673,6 +718,7 @@ async def create_kalshi_parlay(
         await db.close()
 
 
+@db_retry()
 async def get_kalshi_parlay_by_id(parlay_id: int) -> dict | None:
     db = await get_connection()
     try:
@@ -683,6 +729,7 @@ async def get_kalshi_parlay_by_id(parlay_id: int) -> dict | None:
         await db.close()
 
 
+@db_retry()
 async def get_kalshi_parlay_legs(parlay_id: int) -> list[dict]:
     db = await get_connection()
     try:
@@ -695,6 +742,7 @@ async def get_kalshi_parlay_legs(parlay_id: int) -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_user_kalshi_parlays(user_id: int, status: str | None = None) -> list[dict]:
     db = await get_connection()
     try:
@@ -714,6 +762,7 @@ async def get_user_kalshi_parlays(user_id: int, status: str | None = None) -> li
         await db.close()
 
 
+@db_retry()
 async def delete_kalshi_parlay(parlay_id: int) -> bool:
     db = await get_connection()
     try:
@@ -725,6 +774,7 @@ async def delete_kalshi_parlay(parlay_id: int) -> bool:
         await db.close()
 
 
+@db_retry()
 async def update_kalshi_parlay(parlay_id: int, status: str, payout: int | None = None) -> None:
     db = await get_connection()
     try:
@@ -737,6 +787,7 @@ async def update_kalshi_parlay(parlay_id: int, status: str, payout: int | None =
         await db.close()
 
 
+@db_retry()
 async def update_kalshi_parlay_leg_status(leg_id: int, status: str) -> None:
     db = await get_connection()
     try:
@@ -748,6 +799,7 @@ async def update_kalshi_parlay_leg_status(leg_id: int, status: str) -> None:
         await db.close()
 
 
+@db_retry()
 async def get_pending_kalshi_parlay_tickers_with_close_time() -> list[dict]:
     """Return pending kalshi parlay leg tickers with their earliest close_time."""
     db = await get_connection()
@@ -763,6 +815,7 @@ async def get_pending_kalshi_parlay_tickers_with_close_time() -> list[dict]:
         await db.close()
 
 
+@db_retry()
 async def get_pending_kalshi_parlay_legs_by_market(market_ticker: str) -> list[dict]:
     db = await get_connection()
     try:
@@ -776,6 +829,7 @@ async def get_pending_kalshi_parlay_legs_by_market(market_ticker: str) -> list[d
         await db.close()
 
 
+@db_retry()
 async def get_user_resolved_kalshi_parlays(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
     db = await get_connection()
     try:
@@ -790,6 +844,7 @@ async def get_user_resolved_kalshi_parlays(user_id: int, limit: int = 10, offset
         await db.close()
 
 
+@db_retry()
 async def count_user_resolved_kalshi_parlays(user_id: int) -> int:
     db = await get_connection()
     try:
@@ -803,6 +858,7 @@ async def count_user_resolved_kalshi_parlays(user_id: int) -> int:
         await db.close()
 
 
+@db_retry()
 async def get_user_kalshi_parlay_stats(user_id: int) -> dict:
     db = await get_connection()
     try:
@@ -825,6 +881,7 @@ async def get_user_kalshi_parlay_stats(user_id: int) -> dict:
         await db.close()
 
 
+@db_retry()
 async def get_user_kalshi_bet_stats(user_id: int) -> dict:
     db = await get_connection()
     try:
