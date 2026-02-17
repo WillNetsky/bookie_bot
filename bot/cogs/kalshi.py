@@ -2561,6 +2561,24 @@ class KalshiCog(commands.Cog):
             else:
                 await interaction.response.send_message(msg, ephemeral=True)
 
+    # ── /vacuum (admin) ───────────────────────────────────────────────────
+
+    @app_commands.command(name="vacuum", description="[Admin] Force cleanup of cache and reclaim disk space")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def vacuum(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            log.info(f"Manual vacuum triggered by {interaction.user}")
+            deleted = await cleanup_cache(max_age_days=0)  # Clear all cache
+            await vacuum_db()
+            await interaction.followup.send(
+                f"Maintenance complete. Cleared {deleted} cache entries and vacuumed database.",
+                ephemeral=True
+            )
+        except Exception as e:
+            log.exception("Vacuum command failed")
+            await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
     # ── /resolve (admin) ───────────────────────────────────────────────
 
     @app_commands.command(name="resolve", description="[Admin] Manually resolve a game")
