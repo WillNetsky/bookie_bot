@@ -14,6 +14,7 @@ import aiosqlite
 
 from bot.config import KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH
 from bot.db.database import DB_PATH
+from bot.utils import decimal_to_american
 
 log = logging.getLogger(__name__)
 
@@ -305,16 +306,6 @@ def _parse_event_ticker_date(event_ticker: str) -> datetime | None:
         return None
 
 
-def _decimal_to_american(decimal_odds: float) -> int:
-    """Convert decimal odds to American odds."""
-    if decimal_odds <= 1.0:
-        return -10000  # Extreme favorite / essentially no odds
-    if decimal_odds >= 2.0:
-        return round((decimal_odds - 1) * 100)
-    else:
-        return round(-100 / (decimal_odds - 1))
-
-
 def _parse_game_from_markets(
     markets: list[dict], event_ticker: str, sport_key: str, sport_label: str, is_soccer: bool
 ) -> dict | None:
@@ -418,6 +409,7 @@ def _parse_game_from_markets(
         "_kalshi_markets": {
             "home": home_market,
             "away": away_market,
+            "all": markets,
         },
     }
 
@@ -467,12 +459,12 @@ def _pick_best_spread(markets: list[dict]) -> dict | None:
         return None
 
     yes_decimal = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-    yes_american = _decimal_to_american(yes_decimal)
+    yes_american = decimal_to_american(yes_decimal)
 
     # NO side: opposing team covers at +strike
     no_price = 1.0 - yes_price
     no_decimal = round(1.0 / no_price, 3) if no_price > 0 else 2.0
-    no_american = _decimal_to_american(no_decimal)
+    no_american = decimal_to_american(no_decimal)
 
     # Find the opposing team name from other markets in this game
     other_team = None
@@ -526,11 +518,11 @@ def _pick_best_total(markets: list[dict]) -> dict | None:
     strike = float(best.get("floor_strike") or 0)
     yes_price = float(best.get("yes_ask_dollars") or best.get("last_price_dollars") or "0.5")
     over_decimal = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-    over_american = _decimal_to_american(over_decimal)
+    over_american = decimal_to_american(over_decimal)
 
     no_price = 1.0 - yes_price
     under_decimal = round(1.0 / no_price, 3) if no_price > 0 else 2.0
-    under_american = _decimal_to_american(under_decimal)
+    under_american = decimal_to_american(under_decimal)
 
     ticker = best.get("ticker")
     return {
@@ -946,7 +938,7 @@ class KalshiAPI:
                 continue
             yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
             decimal_odds = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-            american = _decimal_to_american(decimal_odds)
+            american = decimal_to_american(decimal_odds)
             parsed[side] = {"decimal": decimal_odds, "american": american, "point": None}
 
         # Fetch spread and total markets concurrently
@@ -1058,7 +1050,7 @@ class KalshiAPI:
             if yes_price <= 0:
                 continue
             decimal_odds = round(1.0 / yes_price, 3)
-            american = _decimal_to_american(decimal_odds)
+            american = decimal_to_american(decimal_odds)
             options.append({
                 "ticker": m.get("ticker", ""),
                 "title": m.get("yes_sub_title") or m.get("title", ""),

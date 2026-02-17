@@ -11,7 +11,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 COGS = [
-    "bot.cogs.betting",
     "bot.cogs.wallet",
     "bot.cogs.voice_rewards",
     "bot.cogs.kalshi",

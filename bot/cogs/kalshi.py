@@ -9,11 +9,14 @@ from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service
 from bot.services.kalshi_api import (
     kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API,
-    FUTURES_TO_SPORTS, SPORTS_TO_FUTURES, _decimal_to_american,
+    FUTURES_TO_SPORTS, SPORTS_TO_FUTURES,
+    _parse_event_ticker_date
 )
 from bot.services.sports_api import SportsAPI
-from bot.cogs.betting import (
-    format_matchup, format_game_time, PICK_EMOJI,
+from bot.constants import PICK_EMOJI, PICK_LABELS
+from bot.utils import (
+    format_matchup, format_game_time, format_pick_label,
+    format_american, decimal_to_american
 )
 
 log = logging.getLogger(__name__)
@@ -60,11 +63,6 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3ac"  # 🎬
     # Soccer — anything left with league-like tickers
     return "\u26bd"  # ⚽
-
-
-def _fmt_american(odds: int) -> str:
-    """Format American odds with +/- prefix."""
-    return f"{odds:+d}" if odds else "?"
 
 
 def _is_ended(expiration_time: str) -> bool:
@@ -446,7 +444,7 @@ class FuturesOptionsView(discord.ui.View):
         # Row 0: Options dropdown
         select_options = []
         for i, opt in enumerate(page_options):
-            odds_str = _fmt_american(opt["american_odds"])
+            odds_str = format_american(opt["american_odds"])
             prob_pct = f"{opt['yes_price'] * 100:.0f}%"
             label = opt["title"]
             if len(label) > 90:
@@ -485,7 +483,7 @@ class FuturesOptionsView(discord.ui.View):
         page_options = self.all_options[start:start + OPTIONS_PER_PAGE]
         lines = []
         for i, opt in enumerate(page_options, start=start + 1):
-            odds_str = _fmt_american(opt["american_odds"])
+            odds_str = format_american(opt["american_odds"])
             prob_pct = f"{opt['yes_price'] * 100:.0f}%"
             lines.append(f"**{i}.** {opt['title']} — {odds_str} ({prob_pct})")
 
@@ -667,7 +665,7 @@ class FuturesBetModal(discord.ui.Modal, title="Place Futures Bet"):
         embed.add_field(name="Market", value=self.market_title, inline=True)
         embed.add_field(name="Pick", value=pick_display, inline=True)
         embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="Odds", value=_fmt_american(american_odds), inline=True)
+        embed.add_field(name="Odds", value=format_american(american_odds), inline=True)
         embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
 
         await interaction.followup.send(embed=embed)
@@ -714,7 +712,7 @@ class KalshiGameSelect(discord.ui.Select):
 
         home = game.get("home_team", "?")
         away = game.get("away_team", "?")
-        fmt = _fmt_american
+        fmt = format_american
 
         # Build a new view for bet type selection
         bet_view = GameBetTypeView(game, parsed, view)
@@ -737,7 +735,7 @@ class GameBetTypeView(discord.ui.View):
 
         home = game.get("home_team", "?")
         away = game.get("away_team", "?")
-        fmt = _fmt_american
+        fmt = format_american
 
         # Row 0: Moneyline
         row = 0
@@ -920,7 +918,7 @@ class KalshiBetAmountModal(discord.ui.Modal, title="Place Bet"):
         embed.add_field(name="Time", value=time_str, inline=True)
         embed.add_field(name="Pick", value=pick_display, inline=True)
         embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="Odds", value=_fmt_american(american_odds), inline=True)
+        embed.add_field(name="Odds", value=format_american(american_odds), inline=True)
         embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
 
         await interaction.followup.send(embed=embed)
@@ -1087,9 +1085,24 @@ class GamesListView(discord.ui.View):
                 home_price = float(home_m.get("yes_ask_dollars") or home_m.get("last_price_dollars") or "0")
                 away_price = float(away_m.get("yes_ask_dollars") or away_m.get("last_price_dollars") or "0")
                 if home_price > 0 and away_price > 0:
-                    home_am = _fmt_american(_decimal_to_american(round(1.0 / home_price, 3)))
-                    away_am = _fmt_american(_decimal_to_american(round(1.0 / away_price, 3)))
+                    home_am = format_american(decimal_to_american(round(1.0 / home_price, 3)))
+                    away_am = format_american(decimal_to_american(round(1.0 / away_price, 3)))
                     odds_str = f"  ({away_am} / {home_am})"
+            
+            if not odds_str and "all" in kalshi_m:
+                # Try to show something from other markets if ML is missing
+                for m in kalshi_m["all"]:
+                    price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0")
+                    if 0 < price < 1:
+                        am = format_american(decimal_to_american(round(1.0 / price, 3)))
+                        sub = m.get("yes_sub_title") or ""
+                        if sub:
+                            if len(sub) > 20:
+                                sub = sub[:17] + "..."
+                            odds_str = f"  ({sub}: {am})"
+                        else:
+                            odds_str = f"  ({am})"
+                        break
 
             score = self._find_score(g) if self.is_live_mode else None
             if score and score.get("started") and score.get("home_score") is not None:
@@ -1211,7 +1224,7 @@ class KalshiParlayView(discord.ui.View):
         total_odds = 1.0
         for i, leg in enumerate(self.legs, 1):
             total_odds *= leg["odds"]
-            odds_str = _fmt_american(leg.get("american", 0))
+            odds_str = format_american(leg.get("american", 0))
             embed.add_field(
                 name=f"Leg {i}: {leg['pick_display']}",
                 value=f"{leg.get('title', '?')} — {odds_str} ({leg['odds']:.2f}x)",
@@ -1299,7 +1312,7 @@ class KalshiParlayBetTypeView(discord.ui.View):
 
         home = game.get("home_team", "?")
         away = game.get("away_team", "?")
-        fmt = _fmt_american
+        fmt = format_american
 
         row = 0
         if "home" in parsed:
@@ -1533,7 +1546,7 @@ class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
         embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
 
         for i, leg in enumerate(pv.legs, 1):
-            odds_str = _fmt_american(leg.get("american", 0))
+            odds_str = format_american(leg.get("american", 0))
             embed.add_field(
                 name=f"Leg {i}",
                 value=f"{leg['pick_display']} — {odds_str}",
@@ -1548,6 +1561,229 @@ class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
 # ── Cog ───────────────────────────────────────────────────────────────
 
 
+class HistoryView(discord.ui.View):
+    """Paginated view for /myhistory showing resolved bets with stats."""
+
+    PAGE_SIZE = 10
+
+    def __init__(self, user_id: int, stats: dict, total_items: int, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+        self.stats = stats
+        self.total_items = total_items
+        self.page = 0
+        self.total_pages = max(1, (total_items + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.message: discord.Message | None = None
+        self._update_buttons()
+
+    def _update_buttons(self) -> None:
+        self.prev_button.disabled = self.page <= 0
+        self.next_button.disabled = self.page >= self.total_pages - 1
+
+    async def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Bet History", color=discord.Color.blue())
+
+        # Stats header
+        stats = self.stats
+        total = stats.get("total") or 0
+        wins = stats.get("wins") or 0
+        losses = stats.get("losses") or 0
+        pushes = stats.get("pushes") or 0
+        total_wagered = stats.get("total_wagered") or 0
+        total_payout = stats.get("total_payout") or 0
+        profit = total_payout - total_wagered
+        win_rate = (wins / total * 100) if total > 0 else 0
+        profit_sign = "+" if profit >= 0 else ""
+
+        embed.description = (
+            f"**Record:** {wins}W - {losses}L - {pushes}P ({win_rate:.0f}% win rate)\n"
+            f"**Wagered:** ${total_wagered:,.2f} · **Profit:** {profit_sign}${profit:,.2f}"
+        )
+
+        # Fetch page data
+        items = await betting_service.get_user_history(
+            self.user_id, page=self.page, page_size=self.PAGE_SIZE
+        )
+
+        if not items:
+            embed.add_field(name="No bets", value="No resolved bets found.", inline=False)
+        else:
+            for item in items:
+                if item.get("type") == "parlay":
+                    self._add_parlay_field(embed, item)
+                elif item.get("type") == "kalshi":
+                    self._add_kalshi_field(embed, item)
+                elif item.get("type") == "kalshi_parlay":
+                    self._add_kalshi_parlay_field(embed, item)
+                else:
+                    self._add_bet_field(embed, item)
+
+        embed.set_footer(text=f"Page {self.page + 1}/{self.total_pages}")
+        return embed
+
+    def _add_bet_field(self, embed: discord.Embed, b: dict) -> None:
+        status = b["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${b.get('payout', 0):.2f}**"
+        elif status == "push":
+            icon = "\U0001f535"
+            status_text = f"Push — **${b.get('payout', 0):.2f}** refunded"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        is_outright = (b.get("market") or "") == "outrights"
+        home = b.get("home_team")
+        away = b.get("away_team")
+        sport = b.get("sport_title")
+
+        if is_outright:
+            matchup = sport or "Futures"
+        elif home and away:
+            matchup = format_matchup(home, away)
+        else:
+            matchup = "Unknown"
+
+        sport_line = f"{sport} · " if sport and not is_outright else ""
+        pick_label = b["pick"] if is_outright else format_pick_label(b)
+
+        embed.add_field(
+            name=f"{icon} Bet #{b['id']} · {status_text}",
+            value=(
+                f"{sport_line}**{matchup}**\n"
+                f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']}x"
+            ),
+            inline=False,
+        )
+
+    def _add_parlay_field(self, embed: discord.Embed, p: dict) -> None:
+        status = p["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${p.get('payout', 0):.2f}**"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        leg_lines = []
+        for leg in p.get("legs", []):
+            ls = leg["status"]
+            if ls == "won":
+                leg_icon = "\U0001f7e2"
+            elif ls == "lost":
+                leg_icon = "\U0001f534"
+            elif ls == "push":
+                leg_icon = "\U0001f535"
+            else:
+                leg_icon = "\U0001f7e1"
+
+            home = leg.get("home_team") or "?"
+            away = leg.get("away_team") or "?"
+            pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+            point = leg.get("point")
+            if point is not None:
+                if leg["pick"] in ("spread_home", "spread_away"):
+                    pick_label += f" {point:+g}"
+                else:
+                    pick_label += f" {point:g}"
+            leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
+
+        embed.add_field(
+            name=f"{icon} Parlay #{p['id']} · {status_text}",
+            value=(
+                f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                + "\n".join(leg_lines)
+            ),
+            inline=False,
+        )
+
+    def _add_kalshi_field(self, embed: discord.Embed, b: dict) -> None:
+        status = b["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${b.get('payout', 0):.2f}**"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        title = b.get("title") or b.get("market_ticker", "Unknown")
+        pick_label = b.get("pick_display") or b["pick"].upper()
+
+        embed.add_field(
+            name=f"{icon} Kalshi #{b['id']} · {status_text}",
+            value=(
+                f"**{title}**\n"
+                f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']:.2f}x"
+            ),
+            inline=False,
+        )
+
+    def _add_kalshi_parlay_field(self, embed: discord.Embed, p: dict) -> None:
+        status = p["status"]
+        if status == "won":
+            icon = "\U0001f7e2"
+            status_text = f"Won — **${p.get('payout', 0):.2f}**"
+        else:
+            icon = "\U0001f534"
+            status_text = "Lost"
+
+        leg_lines = []
+        for leg in p.get("legs", []):
+            ls = leg["status"]
+            if ls == "won":
+                leg_icon = "\U0001f7e2"
+            elif ls == "lost":
+                leg_icon = "\U0001f534"
+            else:
+                leg_icon = "\U0001f7e1"
+            pick_label = leg.get("pick_display") or leg["pick"].upper()
+            leg_lines.append(f"{leg_icon} {leg.get('title', '?')} — {pick_label} ({leg['odds']:.2f}x)")
+
+        embed.add_field(
+            name=f"{icon} Kalshi Parlay #KP{p['id']} · {status_text}",
+            value=(
+                f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                + "\n".join(leg_lines)
+            ),
+            inline=False,
+        )
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, emoji="\u25c0")
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your history.", ephemeral=True)
+            return
+        self.page = max(0, self.page - 1)
+        self._update_buttons()
+        embed = await self.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            pass
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, emoji="\u25b6")
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your history.", ephemeral=True)
+            return
+        self.page = min(self.total_pages - 1, self.page + 1)
+        self._update_buttons()
+        embed = await self.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.NotFound:
+            pass
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
 class KalshiCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -1560,11 +1796,13 @@ class KalshiCog(commands.Cog):
         self.check_kalshi_results.start()
         self.refresh_discovery.start()
         self.refresh_sports_loop.start()
+        self.check_legacy_results.start()
 
     async def cog_unload(self) -> None:
         self.check_kalshi_results.cancel()
         self.refresh_discovery.cancel()
         self.refresh_sports_loop.cancel()
+        self.check_legacy_results.cancel()
         await kalshi_api.close()
 
     # ── Sport autocomplete ────────────────────────────────────────────
@@ -1832,6 +2070,680 @@ class KalshiCog(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    # ── /myhistory ──────────────────────────────────────────────────────
+
+    @app_commands.command(name="myhistory", description="View your resolved bets with stats")
+    async def myhistory(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        stats = await betting_service.get_user_stats(interaction.user.id)
+        total_items = await betting_service.count_user_resolved(interaction.user.id)
+
+        if total_items == 0:
+            await interaction.followup.send("You have no resolved bets yet.")
+            return
+
+        view = HistoryView(interaction.user.id, stats, total_items)
+        embed = await view.build_embed()
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
+
+    # ── /mybets ──────────────────────────────────────────────────────────
+
+    @app_commands.command(name="mybets", description="View your active/pending bets")
+    async def mybets(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        bets = await betting_service.get_user_bets(interaction.user.id, status="pending")
+        parlays = await betting_service.get_user_parlays(interaction.user.id, status="pending")
+        kalshi_bets = await betting_service.get_user_kalshi_bets(interaction.user.id, status="pending")
+
+        if not bets and not parlays and not kalshi_bets:
+            await interaction.followup.send("You have no pending bets. Use `/myhistory` to view past bets.")
+            return
+
+        # Fetch live scores for pending bets (uses cached data, skip outrights)
+        live_scores: dict[str, dict] = {}
+        for b in bets:
+            if (b.get("market") or "") == "outrights":
+                continue
+            composite = b["game_id"]
+            if composite in live_scores:
+                continue
+            parts = composite.split("|")
+            event_id = parts[0]
+            sport_key = parts[1] if len(parts) > 1 else None
+            status = await self.sports_api.get_fixture_status(event_id, sport_key)
+            if status:
+                live_scores[composite] = status
+
+        embed = discord.Embed(title="Your Active Bets", color=discord.Color.blue())
+
+        for b in bets:
+            potential = round(b["amount"] * b["odds"], 2)
+            icon = "\U0001f7e1"  # yellow circle
+            status_text = f"Pending — potential **${potential:.2f}**"
+
+            home = b.get("home_team")
+            away = b.get("away_team")
+            sport = b.get("sport_title")
+            live = live_scores.get(b["game_id"])
+
+            if not home and live:
+                home = live.get("home_team")
+            if not away and live:
+                away = live.get("away_team")
+
+            is_outright = (b.get("market") or "") == "outrights"
+
+            if is_outright:
+                matchup = sport or "Futures"
+            elif home and away:
+                matchup = format_matchup(home, away)
+            else:
+                raw_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
+                matchup = f"Game `{raw_id}`"
+
+            score_line = ""
+            if not is_outright and live and live["started"] and live["home_score"] is not None and live["away_score"] is not None:
+                score_line = f"\nScore: **{home}** {live['home_score']} - {live['away_score']} **{away}**"
+
+            sport_line = f"{sport} · " if sport and not is_outright else ""
+            pick_label = b["pick"] if is_outright else format_pick_label(b)
+
+            embed.add_field(
+                name=f"{icon} Bet #{b['id']} (legacy) · {status_text}",
+                value=(
+                    f"{sport_line}**{matchup}**\n"
+                    f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']}x"
+                    f"{score_line}"
+                ),
+                inline=False,
+            )
+
+        # Show pending parlays inline
+        for p in parlays:
+            icon = "\U0001f7e1"
+            potential = round(p["amount"] * p["total_odds"], 2)
+            status_text = f"Pending — potential **${potential:.2f}**"
+
+            leg_lines = []
+            for leg in p.get("legs", []):
+                ls = leg["status"]
+                if ls == "won":
+                    leg_icon = "\U0001f7e2"
+                elif ls == "lost":
+                    leg_icon = "\U0001f534"
+                elif ls == "push":
+                    leg_icon = "\U0001f535"
+                else:
+                    leg_icon = "\U0001f7e1"
+
+                home = leg.get("home_team") or "?"
+                away = leg.get("away_team") or "?"
+                pick_label = PICK_LABELS.get(leg["pick"], leg["pick"])
+                point = leg.get("point")
+                if point is not None:
+                    if leg["pick"] in ("spread_home", "spread_away"):
+                        pick_label += f" {point:+g}"
+                    else:
+                        pick_label += f" {point:g}"
+                leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
+
+            embed.add_field(
+                name=f"{icon} Parlay #{p['id']} (legacy) · {status_text}",
+                value=(
+                    f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
+                    + "\n".join(leg_lines)
+                ),
+                inline=False,
+            )
+
+        # Show pending Kalshi bets
+        for kb in kalshi_bets:
+            potential = round(kb["amount"] * kb["odds"], 2)
+            title = kb.get("title") or kb["market_ticker"]
+            pick_label = kb.get("pick_display") or kb["pick"].upper()
+
+            # Determine live/upcoming status from event_ticker date
+            event_ticker = kb.get("event_ticker", "")
+            ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
+            now = datetime.now(timezone.utc)
+
+            if ticker_date and ticker_date.date() < now.date():
+                icon = "\U0001f534"  # red — likely live/completed
+                time_line = "\n\U0001f534 LIVE"
+            elif ticker_date and ticker_date.date() == now.date():
+                icon = "\U0001f7e0"  # orange — today
+                time_line = "\nToday"
+            else:
+                icon = "\U0001f7e3"  # purple — future
+                time_line = ""
+                if ticker_date:
+                    time_line = f"\n{ticker_date.strftime('%-m/%-d')}"
+
+            status_text = f"Pending — potential **${potential:.2f}**"
+
+            embed.add_field(
+                name=f"{icon} Kalshi #{kb['id']} · {status_text}",
+                value=(
+                    f"**{title}**\n"
+                    f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
+                    f"{time_line}"
+                ),
+                inline=False,
+            )
+
+        embed.set_footer(text="Use /myhistory to view resolved bets")
+        await interaction.followup.send(embed=embed)
+
+    # ── /livescores ────────────────────────────────────────────────────
+
+    @app_commands.command(name="livescores", description="View live scores for all pending bets")
+    async def livescores(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+
+        from bot.db import models as _models
+        from bot.services.kalshi_api import _parse_event_ticker_date
+
+        embed = discord.Embed(title="\U0001f534 Live Scores", color=discord.Color.red())
+        found_any = False
+        now = datetime.now(timezone.utc)
+
+        # ── Odds-API bets with live scores ──
+        game_ids = await betting_service.get_pending_game_ids()
+        for composite_id in game_ids[:15]:
+            bets_for_game = await betting_service.get_bets_by_game(composite_id)
+            if not bets_for_game:
+                continue
+
+            # Skip outrights
+            if (bets_for_game[0].get("market") or "") == "outrights":
+                continue
+
+            parts = composite_id.split("|")
+            event_id = parts[0]
+            sport_key = parts[1] if len(parts) > 1 else None
+            status = await self.sports_api.get_fixture_status(event_id, sport_key)
+            if not status or not status["started"]:
+                continue
+
+            home = status.get("home_team") or bets_for_game[0].get("home_team", "Home")
+            away = status.get("away_team") or bets_for_game[0].get("away_team", "Away")
+
+            if status["home_score"] is not None and status["away_score"] is not None:
+                score_text = f"**{home}** {status['home_score']} - {status['away_score']} **{away}**"
+                if status["completed"]:
+                    score_text += "  (Final)"
+            else:
+                score_text = f"**{away}** @ **{home}**"
+
+            bet_lines = []
+            for b in bets_for_game:
+                pick_label = format_pick_label(b)
+                potential = round(b["amount"] * b["odds"], 2)
+                bet_lines.append(
+                    f"<@{b['user_id']}> — {pick_label} · ${b['amount']:.2f} → ${potential:.2f}"
+                )
+
+            sport = bets_for_game[0].get("sport_title", "")
+            embed.add_field(
+                name=f"{sport} · {score_text}",
+                value="\n".join(bet_lines),
+                inline=False,
+            )
+            found_any = True
+
+        # ── Kalshi bets on live games ──
+        kalshi_bets = await _models.get_all_pending_kalshi_bets()
+        live_kalshi = []
+        for kb in kalshi_bets:
+            event_ticker = kb.get("event_ticker", "")
+            ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
+            if ticker_date and ticker_date.date() <= now.date():
+                live_kalshi.append(kb)
+
+        if live_kalshi:
+            kalshi_lines = []
+            for kb in live_kalshi[:15]:
+                title = kb.get("title") or kb["market_ticker"]
+                if len(title) > 50:
+                    title = title[:47] + "..."
+                pick_label = kb.get("pick_display") or kb["pick"].upper()
+                potential = round(kb["amount"] * kb["odds"], 2)
+                kalshi_lines.append(
+                    f"<@{kb['user_id']}> — {pick_label} · ${kb['amount']:.2f} → ${potential:.2f}\n{title}"
+                )
+
+            embed.add_field(
+                name=f"\U0001f534 Kalshi — Live ({len(live_kalshi)})",
+                value="\n".join(kalshi_lines),
+                inline=False,
+            )
+            found_any = True
+
+        if not found_any:
+            embed.description = "No pending bets have games in progress right now."
+
+        await interaction.followup.send(embed=embed)
+
+    # ── /cancelbet ───────────────────────────────────────────────────────
+
+    @app_commands.command(name="cancelbet", description="Cancel a pending bet")
+    @app_commands.describe(bet_id="The ID of the bet to cancel (can be numeric or start with K)")
+    async def cancelbet(self, interaction: discord.Interaction, bet_id: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        # Handle Kalshi bet IDs (e.g., "K123")
+        if bet_id.upper().startswith("K"):
+            try:
+                numeric_id = int(bet_id[1:])
+                result = await betting_service.cancel_kalshi_bet(numeric_id, interaction.user.id)
+                if result:
+                    embed = discord.Embed(
+                        title="Bet Cancelled",
+                        description=f"Kalshi bet #K{numeric_id} cancelled. **${result['amount']:.2f}** refunded.",
+                        color=discord.Color.orange(),
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+            except ValueError:
+                pass
+
+        # Handle legacy numeric IDs
+        try:
+            numeric_id = int(bet_id)
+            # Look up the bet to check game status
+            bets = await betting_service.get_user_bets(interaction.user.id)
+            target = next((b for b in bets if b["id"] == numeric_id), None)
+
+            if target:
+                # Parse composite game_id
+                parts = target["game_id"].split("|")
+                event_id = parts[0]
+                sport_key = parts[1] if len(parts) > 1 else None
+
+                status = await self.sports_api.get_fixture_status(event_id, sport_key)
+                if status and status["started"]:
+                    await interaction.followup.send(
+                        "Cannot cancel — this game has already started.", ephemeral=True
+                    )
+                    return
+
+            result = await betting_service.cancel_bet(numeric_id, interaction.user.id)
+            if result:
+                embed = discord.Embed(
+                    title="Bet Cancelled",
+                    description=f"Legacy bet #{numeric_id} cancelled. **${result['amount']:.2f}** refunded.",
+                    color=discord.Color.orange(),
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+        except ValueError:
+            pass
+
+        await interaction.followup.send(
+            "Could not cancel bet. Make sure the ID is correct, you own it, and it's still pending.",
+            ephemeral=True,
+        )
+
+    # ── /pendingbets (admin) ─────────────────────────────────────────────
+
+    @app_commands.command(name="pendingbets", description="[Admin] View all pending bets")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def pendingbets(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        game_ids = await betting_service.get_pending_game_ids()
+
+        embed = discord.Embed(title="Pending Bets", color=discord.Color.orange())
+
+        for composite_id in game_ids[:15]:
+            bets = await betting_service.get_bets_by_game(composite_id)
+            if not bets:
+                continue
+
+            first = bets[0]
+            home = first.get("home_team")
+            away = first.get("away_team")
+            sport = first.get("sport_title") or ""
+            is_outright = (first.get("market") or "") == "outrights"
+
+            if is_outright:
+                matchup = sport or "Futures"
+            elif home and away:
+                matchup = format_matchup(home, away)
+            else:
+                matchup = "Unknown"
+
+            lines = []
+            total_wagered = 0
+            for b in bets:
+                pick_label = b["pick"] if is_outright else format_pick_label(b)
+                lines.append(
+                    f"<@{b['user_id']}> — {pick_label} · ${b['amount']:.2f} @ {b['odds']}x"
+                )
+                total_wagered += b["amount"]
+
+            # Show game time from first bet's commence_time
+            time_str = ""
+            ct = first.get("commence_time")
+            if ct:
+                try:
+                    ct_dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+                    if ct_dt <= datetime.now(timezone.utc):
+                        time_str = " \U0001f534 LIVE"
+                    else:
+                        time_str = f"\n{format_game_time(ct)}"
+                except (ValueError, TypeError):
+                    pass
+
+            raw_id = composite_id.split("|")[0] if "|" in composite_id else composite_id
+            header = f"{matchup} ({len(bets)} bet{'s' if len(bets) != 1 else ''} · ${total_wagered:.2f}){time_str}"
+            value = "\n".join(lines) + f"\nID: `{raw_id}`"
+
+            embed.add_field(name=header, value=value, inline=False)
+
+        if len(game_ids) > 15:
+            embed.set_footer(text=f"Showing 15 of {len(game_ids)} games")
+
+        # Also show pending parlays
+        from bot.db.database import get_connection as _get_conn
+        from bot.db import models as _models
+        _db = await _get_conn()
+        try:
+            _cursor = await _db.execute(
+                "SELECT * FROM parlays WHERE status = 'pending' ORDER BY created_at DESC LIMIT 15"
+            )
+            _rows = await _cursor.fetchall()
+            pending_parlays = [dict(r) for r in _rows]
+        finally:
+            await _db.close()
+
+        if pending_parlays:
+            parlay_lines = []
+            for p in pending_parlays:
+                legs = await _models.get_parlay_legs(p["id"])
+                leg_count = len(legs)
+                parlay_lines.append(
+                    f"<@{p['user_id']}> — Parlay #{p['id']} · {leg_count} legs · "
+                    f"${p['amount']:.2f} @ {p['total_odds']:.2f}x"
+                )
+            embed.add_field(
+                name=f"Pending Parlays ({len(pending_parlays)})",
+                value="\n".join(parlay_lines),
+                inline=False,
+            )
+
+        # Kalshi bets
+        kalshi_bets = await _models.get_all_pending_kalshi_bets()
+        if kalshi_bets:
+            kalshi_lines = []
+            total_kalshi_wagered = 0
+            for kb in kalshi_bets[:20]:
+                pick_display = kb.get("pick_display") or kb["pick"]
+                title = kb.get("title") or kb["market_ticker"]
+                if len(title) > 40:
+                    title = title[:37] + "..."
+                # Parse game time from event ticker
+                time_info = ""
+                et = kb.get("event_ticker", "")
+                ticker_date = _parse_event_ticker_date(et) if et else None
+                if ticker_date:
+                    now = datetime.now(timezone.utc)
+                    if ticker_date.date() < now.date():
+                        time_info = " \U0001f534 LIVE"
+                    else:
+                        time_info = f" · {ticker_date.strftime('%-m/%-d')}"
+                kalshi_lines.append(
+                    f"<@{kb['user_id']}> — {pick_display} · "
+                    f"${kb['amount']:.2f} @ {kb['odds']:.2f}x{time_info}\n{title}"
+                )
+                total_kalshi_wagered += kb["amount"]
+            header = f"Kalshi Bets ({len(kalshi_bets)} · ${total_kalshi_wagered:.2f})"
+            value = "\n".join(kalshi_lines)
+            if len(kalshi_bets) > 20:
+                value += f"\n*...and {len(kalshi_bets) - 20} more*"
+            embed.add_field(name=header, value=value[:1024], inline=False)
+
+        if not game_ids and not pending_parlays and not kalshi_bets:
+            embed.description = "No pending bets."
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @pendingbets.error
+    async def pendingbets_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You need administrator permissions to use this command."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            log.exception("Error in /pendingbets command", exc_info=error)
+
+    # ── /quota (admin) ────────────────────────────────────────────────────
+
+    @app_commands.command(name="quota", description="[Admin] Check API quota usage")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def quota(self, interaction: discord.Interaction) -> None:
+        q = self.sports_api.get_quota()
+        used = q["used"]
+        remaining = q["remaining"]
+        last = q["last"]
+
+        if used is None and remaining is None:
+            embed = discord.Embed(
+                title="API Quota",
+                description="No API calls made yet this session — quota unknown.",
+                color=discord.Color.greyple(),
+            )
+        else:
+            total = (used or 0) + (remaining or 0)
+            embed = discord.Embed(title="API Quota", color=discord.Color.blue())
+            embed.add_field(name="Used", value=str(used or 0), inline=True)
+            embed.add_field(name="Remaining", value=str(remaining or 0), inline=True)
+            embed.add_field(name="Total", value=str(total), inline=True)
+            if last:
+                embed.set_footer(text=f"Last request: {last}")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @quota.error
+    async def quota_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You need administrator permissions to use this command."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+
+    # ── /resolve (admin) ───────────────────────────────────────────────
+
+    @app_commands.command(name="resolve", description="[Admin] Manually resolve a game")
+    @app_commands.describe(
+        game_id="Game ID to resolve",
+        winner="The winning side: home, away, or draw",
+        home_score="Home team final score (needed for spread/total bets)",
+        away_score="Away team final score (needed for spread/total bets)",
+        winner_name="For futures: the winning team/outcome name",
+    )
+    @app_commands.choices(
+        winner=[
+            app_commands.Choice(name="Home", value="home"),
+            app_commands.Choice(name="Away", value="away"),
+            app_commands.Choice(name="Draw", value="draw"),
+        ]
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def resolve(
+        self,
+        interaction: discord.Interaction,
+        game_id: str,
+        winner: app_commands.Choice[str],
+        home_score: int | None = None,
+        away_score: int | None = None,
+        winner_name: str | None = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        # Find any pending bets matching this game_id (full or partial match)
+        pending_ids = await betting_service.get_pending_game_ids()
+        matching = [gid for gid in pending_ids if game_id in gid]
+
+        if not matching:
+            await interaction.followup.send(
+                f"No pending bets found for game `{game_id}`.", ephemeral=True
+            )
+            return
+
+        all_resolved: list[dict] = []
+        for composite_id in matching:
+            resolved = await betting_service.resolve_game(
+                composite_id, winner.value,
+                home_score=home_score, away_score=away_score,
+                winner_name=winner_name,
+            )
+            all_resolved.extend(resolved)
+        total_resolved = len(all_resolved)
+
+        if all_resolved:
+            await self._post_resolution_announcement(
+                all_resolved, home_score=home_score, away_score=away_score,
+            )
+
+        if winner_name:
+            desc = (
+                f"Futures event `{game_id}` resolved.\n"
+                f"Winner: **{winner_name}**\n"
+                f"**{total_resolved}** bet(s) settled."
+            )
+        else:
+            score_note = ""
+            if home_score is not None and away_score is not None:
+                score_note = f"\nScore: {home_score} - {away_score} (spread/total bets resolved)"
+            else:
+                score_note = "\nNote: Spread/total bets need scores to resolve — provide home_score and away_score."
+            desc = (
+                f"Game `{game_id}` resolved as **{winner.name}** win.\n"
+                f"**{total_resolved}** bet(s) settled."
+                f"{score_note}"
+            )
+
+        embed = discord.Embed(
+            title="Game Resolved",
+            description=desc,
+            color=discord.Color.green(),
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @resolve.error
+    async def resolve_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "You need administrator permissions to use this command.", ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "You need administrator permissions to use this command.", ephemeral=True
+                )
+        else:
+            log.exception("Error in /resolve command", exc_info=error)
+
+    # ── Resolution announcement ────────────────────────────────────────
+
+    async def _post_resolution_announcement(
+        self,
+        resolved_bets: list[dict],
+        home_score: int | None = None,
+        away_score: int | None = None,
+    ) -> None:
+        """Post an embed announcing resolved bets to the results channel."""
+        if not resolved_bets:
+            return
+
+        channel = self.bot.get_channel(BET_RESULTS_CHANNEL_ID)
+        if channel is None:
+            log.warning("Results channel %s not found", BET_RESULTS_CHANNEL_ID)
+            return
+
+        first = resolved_bets[0]
+        home = first.get("home_team") or "Home"
+        away = first.get("away_team") or "Away"
+        is_outright = (first.get("market") or "") == "outrights"
+
+        if is_outright:
+            title = f"Result: {first.get('sport_title', 'Futures')}"
+            description = ""
+        else:
+            title = f"Game Result: {format_matchup(home, away)}"
+            if home_score is not None and away_score is not None:
+                description = f"**{home}** {home_score} - {away_score} **{away}**"
+            else:
+                description = ""
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.blue(),
+        )
+
+        lines = []
+        single_bets = [b for b in resolved_bets if b.get("type") != "parlay"]
+        for bet in single_bets:
+            result = bet["result"]
+            if result == "won":
+                icon = "\U0001f7e2"
+                result_text = f"Won **${bet['payout']:.2f}**"
+            elif result == "push":
+                icon = "\U0001f535"
+                result_text = f"Push (${bet['payout']:.2f} refunded)"
+            else:
+                icon = "\U0001f534"
+                result_text = "Lost"
+
+            pick_label = format_pick_label(bet) if not is_outright else bet["pick"]
+            lines.append(
+                f"{icon} <@{bet['user_id']}> — {pick_label} · "
+                f"${bet['amount']:.2f} @ {bet['odds']}x → {result_text}"
+            )
+
+        if lines:
+            embed.add_field(name="Bets", value="\n".join(lines), inline=False)
+
+        # Parlay results
+        parlay_entries = [b for b in resolved_bets if b.get("type") == "parlay"]
+        if parlay_entries:
+            parlay_lines = []
+            for p in parlay_entries:
+                result = p["result"]
+                if result == "won":
+                    icon = "\U0001f7e2"
+                    result_text = f"Won **${p['payout']:.2f}**"
+                else:
+                    icon = "\U0001f534"
+                    result_text = "Lost"
+                # Build leg summary with team names
+                leg_parts = []
+                for leg in p.get("legs", []):
+                    h = leg.get("home_team") or "?"
+                    a = leg.get("away_team") or "?"
+                    pick_label = format_pick_label(leg)
+                    leg_icon = "\u2705" if leg.get("status") == "won" else "\u274c" if leg.get("status") == "lost" else "\u23f3"
+                    leg_parts.append(f"  {leg_icon} {format_matchup(h, a)} — {pick_label}")
+                legs_text = "\n".join(leg_parts)
+                parlay_lines.append(
+                    f"{icon} <@{p['user_id']}> — Parlay #{p['id']} · "
+                    f"${p['amount']:.2f} @ {p.get('total_odds', 0):.2f}x → {result_text}\n{legs_text}"
+                )
+            embed.add_field(name="Parlays", value="\n".join(parlay_lines), inline=False)
+
+        try:
+            await channel.send(embed=embed)
+        except discord.HTTPException:
+            log.exception("Failed to send resolution announcement")
+
     # ── /live ─────────────────────────────────────────────────────────
 
     @app_commands.command(name="live", description="View live games with scores")
@@ -1907,6 +2819,127 @@ class KalshiCog(commands.Cog):
 
     @refresh_sports_loop.before_loop
     async def before_refresh_sports_loop(self) -> None:
+        await self.bot.wait_until_ready()
+
+    # ── Legacy check_results loop (the-odds-api) ──────────────────────
+
+    # Estimated game durations by sport prefix (hours).
+    SPORT_DURATION: dict[str, float] = {
+        "americanfootball": 3.5,
+        "baseball": 3.0,
+        "basketball": 2.5,
+        "icehockey": 2.5,
+        "soccer": 2.0,
+        "mma": 1.5,
+        "boxing": 1.5,
+    }
+    DEFAULT_SPORT_DURATION = 2.0  # fallback
+
+    @tasks.loop(minutes=30)
+    async def check_legacy_results(self) -> None:
+        """Check scores for legacy games likely near completion."""
+        try:
+            started_games = await betting_service.get_started_pending_games()
+            if not started_games:
+                from bot.db import models
+                pending_single = await models.get_pending_games_with_commence()
+                pending_parlay = await models.get_pending_parlay_games_with_commence()
+                if not pending_single and not pending_parlay:
+                    log.debug("No pending legacy bets remain.")
+                    # self.check_legacy_results.stop() # Could stop it
+                return
+
+            # Skip if quota is critically low (< 50 remaining)
+            quota = self.sports_api.get_quota()
+            if quota["remaining"] is not None and quota["remaining"] < 50:
+                log.warning("API quota low (%s remaining), skipping score check", quota["remaining"])
+                return
+
+            now = datetime.now(timezone.utc)
+
+            # Filter to games likely near completion based on sport duration
+            ready_games: dict[str, str | None] = {}
+            for composite_id, commence_time in started_games.items():
+                parts = composite_id.split("|")
+                sport_key = parts[1] if len(parts) > 1 else None
+
+                if commence_time is None:
+                    ready_games[composite_id] = commence_time
+                    continue
+
+                try:
+                    game_start = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    ready_games[composite_id] = commence_time
+                    continue
+
+                duration = self.DEFAULT_SPORT_DURATION
+                if sport_key:
+                    for prefix, dur in self.SPORT_DURATION.items():
+                        if sport_key.startswith(prefix):
+                            duration = dur
+                            break
+
+                min_elapsed = min(duration * 0.75, 1.5)
+                elapsed_hours = (now - game_start).total_seconds() / 3600
+
+                if elapsed_hours >= min_elapsed:
+                    ready_games[composite_id] = commence_time
+
+            if not ready_games:
+                return
+
+            sport_games: dict[str, list[str]] = {}
+            for composite_id in ready_games:
+                parts = composite_id.split("|")
+                sport_key = parts[1] if len(parts) > 1 else None
+                if not sport_key:
+                    continue
+                sport_games.setdefault(sport_key, []).append(composite_id)
+
+            all_sport_keys = list(sport_games.keys())
+            if len(all_sport_keys) > 8:
+                all_sport_keys.sort()
+                offset = (now.minute // 30) % len(all_sport_keys)
+                rotated = all_sport_keys[offset:] + all_sport_keys[:offset]
+                sport_keys = rotated[:8]
+            else:
+                sport_keys = all_sport_keys
+
+            for sport_key in sport_keys:
+                composites = sport_games[sport_key]
+                scores_map = await self.sports_api.get_scores_by_sport(sport_key)
+                if not scores_map:
+                    continue
+
+                for composite_id in composites:
+                    event_id = composite_id.split("|")[0]
+                    status = scores_map.get(event_id)
+                    if not status or not status["completed"]:
+                        continue
+
+                    home_score = status["home_score"]
+                    away_score = status["away_score"]
+
+                    if home_score is None or away_score is None:
+                        continue
+
+                    winner = "home" if home_score > away_score else "away" if away_score > home_score else "draw"
+
+                    resolved = await betting_service.resolve_game(
+                        composite_id, winner,
+                        home_score=home_score, away_score=away_score,
+                    )
+                    if resolved:
+                        log.info("Resolved %d legacy bets for game %s", len(resolved), event_id)
+                        await self._post_resolution_announcement(
+                            resolved, home_score=home_score, away_score=away_score,
+                        )
+        except Exception:
+            log.exception("Error in check_legacy_results loop")
+
+    @check_legacy_results.before_loop
+    async def before_check_legacy_results(self) -> None:
         await self.bot.wait_until_ready()
 
     # ── Resolution loop ───────────────────────────────────────────────
