@@ -214,12 +214,16 @@ async def _handle_injection(db: aiosqlite.Connection) -> None:
 
 @db_retry()
 async def vacuum_db() -> None:
-    """Reclaim unused disk space."""
-    db = await get_connection()
-    try:
-        await db.execute("VACUUM")
-    finally:
-        await db.close()
+    """Reclaim unused disk space. Requires exclusive access."""
+    # Using isolation_level=None ensures we aren't in a transaction
+    async with aiosqlite.connect(DB_PATH, isolation_level=None) as db:
+        try:
+            await db.execute("VACUUM")
+        except sqlite3.OperationalError as e:
+            if "statements in progress" in str(e):
+                log.warning("VACUUM skipped: Database is currently busy with other queries.")
+            else:
+                raise
 
 @db_retry()
 async def cleanup_cache(max_age_days: int = 7) -> int:

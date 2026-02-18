@@ -12,8 +12,8 @@
   "pending_kalshi_bets": [
     {
       "user_id": 228767925836709889,
-      "market_ticker": "T20C-26FEB17-ZIM-IRE",
-      "event_ticker": "T20C-26FEB17-ZIM-IRE",
+      "market_ticker": "KXT20MATCH-26FEB17ZIMIRL-IRL",
+      "event_ticker": "KXT20MATCH-26FEB17ZIMIRL-IRL",
       "pick": "yes",
       "amount": 10,
       "odds": 2.44,
@@ -22,8 +22,8 @@
     },
     {
       "user_id": 228767925836709889,
-      "market_ticker": "CLAX-26FEB17-HAR-COL",
-      "event_ticker": "CLAX-26FEB17-HAR-COL",
+      "market_ticker": "KXNCAAMLAXGAME-26FEB17COLHAR-COL",
+      "event_ticker": "KXNCAAMLAXGAME-26FEB17COLHAR-COL",
       "pick": "yes",
       "amount": 10,
       "odds": 3.70,
@@ -32,8 +32,8 @@
     },
     {
       "user_id": 228767925836709889,
-      "market_ticker": "MLB-WS-2026-SFG",
-      "event_ticker": "MLB-WS-2026",
+      "market_ticker": "KXMLBWS-2026-SFG",
+      "event_ticker": "KXMLBWS-2026-SFG",
       "pick": "yes",
       "amount": 1,
       "odds": 50.00,
