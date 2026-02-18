@@ -1,0 +1,44 @@
+{
+  "users": [
+    {"id": 337797910387359745, "name": "Kecker", "balance": 891},
+    {"id": 691348686835548212, "name": "The Beardo Weirdo", "balance": 361},
+    {"id": 228767925836709889, "name": "WillNetsky", "balance": 342},
+    {"id": 770865343404703776, "name": "Galloway", "balance": 174},
+    {"id": 542410185272983574, "name": "Toilets", "balance": 138},
+    {"id": 1106829692855656569, "name": "kAoTiC_rEiGn_666", "balance": 126},
+    {"id": 207353800166604812, "name": "rebel-rider", "balance": 114},
+    {"id": 678134053064671232, "name": "HOZR", "balance": 114}
+  ],
+  "pending_kalshi_bets": [
+    {
+      "user_id": 228767925836709889,
+      "market_ticker": "T20C-26FEB17-ZIM-IRE",
+      "event_ticker": "T20C-26FEB17-ZIM-IRE",
+      "pick": "yes",
+      "amount": 10,
+      "odds": 2.44,
+      "title": "Zimbabwe @ Ireland (T20 Cricket)",
+      "pick_display": "Ireland ML"
+    },
+    {
+      "user_id": 228767925836709889,
+      "market_ticker": "CLAX-26FEB17-HAR-COL",
+      "event_ticker": "CLAX-26FEB17-HAR-COL",
+      "pick": "yes",
+      "amount": 10,
+      "odds": 3.70,
+      "title": "Harvard @ Colgate (College Lacrosse (M))",
+      "pick_display": "Colgate ML"
+    },
+    {
+      "user_id": 228767925836709889,
+      "market_ticker": "MLB-WS-2026-SFG",
+      "event_ticker": "MLB-WS-2026",
+      "pick": "yes",
+      "amount": 1,
+      "odds": 50.00,
+      "title": "MLB Baseball — World Series",
+      "pick_display": "San Francisco"
+    }
+  ]
+}

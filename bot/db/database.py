@@ -3,10 +3,15 @@ import sqlite3
 import asyncio
 import functools
 import logging
+import os
+import json
+import shutil
 
 log = logging.getLogger(__name__)
 
 DB_PATH = "bookie_bot.db"
+INJECTION_FILE = "injection.json"
+USED_DIR = "used"
 
 def db_retry(max_attempts=3, initial_delay=0.5):
     """Decorator to retry database operations if they fail due to locking."""
@@ -142,6 +147,7 @@ MIGRATIONS = [
 
 
 async def init_db() -> None:
+    is_new = not os.path.exists(DB_PATH)
     db = await get_connection()
     try:
         await db.executescript(SCHEMA)
@@ -151,8 +157,60 @@ async def init_db() -> None:
             except Exception:
                 pass  # column already exists
         await db.commit()
+        
+        # Automatic injection for fresh databases
+        if is_new and os.path.exists(INJECTION_FILE):
+            await _handle_injection(db)
+            
     finally:
         await db.close()
+
+async def _handle_injection(db: aiosqlite.Connection) -> None:
+    """Inject data from injection.json and move files to used/."""
+    try:
+        log.info("New database detected and %s found. Starting auto-injection...", INJECTION_FILE)
+        with open(INJECTION_FILE, 'r') as f:
+            data = json.load(f)
+
+        # Inject Users
+        for user in data.get('users', []):
+            await db.execute(
+                "INSERT OR REPLACE INTO users (discord_id, balance) VALUES (?, ?)",
+                (user['id'], user['balance'])
+            )
+        
+        # Inject Kalshi Bets
+        for bet in data.get('pending_kalshi_bets', []):
+            await db.execute(
+                """
+                INSERT INTO kalshi_bets 
+                (user_id, market_ticker, event_ticker, pick, amount, odds, title, pick_display, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                """,
+                (
+                    bet['user_id'], bet['market_ticker'], bet['event_ticker'], 
+                    bet['pick'], bet['amount'], bet['odds'], 
+                    bet['title'], bet['pick_display']
+                )
+            )
+
+        await db.commit()
+        log.info("Auto-injection complete.")
+
+        # Cleanup
+        if not os.path.exists(USED_DIR):
+            os.makedirs(USED_DIR)
+        
+        shutil.move(INJECTION_FILE, os.path.join(USED_DIR, INJECTION_FILE))
+        log.info("Moved %s to %s/", INJECTION_FILE, USED_DIR)
+        
+        log_file = "discord_logs_to_inject.txt"
+        if os.path.exists(log_file):
+            shutil.move(log_file, os.path.join(USED_DIR, log_file))
+            log.info("Moved %s to %s/", log_file, USED_DIR)
+
+    except Exception:
+        log.exception("Failed to perform auto-injection")
 
 @db_retry()
 async def vacuum_db() -> None:
