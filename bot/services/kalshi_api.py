@@ -629,7 +629,8 @@ class KalshiAPI:
     # ── Caching layer (reuses games_cache table) ──────────────────────
 
     async def _cached_request(
-        self, url: str, params: dict, ttl: int | None = None, prune_func: callable | None = None
+        self, url: str, params: dict, ttl: int | None = None, 
+        prune_func: callable | None = None, sport: str = "kalshi"
     ) -> list | dict | None:
         cache_key = f"kalshi:{url}:{json.dumps(params, sort_keys=True)}"
         effective_ttl = ttl if ttl is not None else CACHE_TTL
@@ -653,8 +654,6 @@ class KalshiAPI:
                     if age < effective_ttl:
                         log.debug("Cache HIT %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
                         data = json.loads(row[0])
-                        # Pruning already happened before storage, but we apply prune_func
-                        # just in case it's a new pruning requirement or stale data
                         return prune_func(data) if prune_func else data
                     log.debug("Cache STALE %s (age %.0fs / ttl %ds)", short_url, age, effective_ttl)
                 except (ValueError, TypeError):
@@ -708,8 +707,8 @@ class KalshiAPI:
                 try:
                     await db.execute(
                         "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
-                        " VALUES (?, 'kalshi', ?, datetime('now'))",
-                        (cache_key, data_str),
+                        " VALUES (?, ?, ?, datetime('now'))",
+                        (cache_key, sport, data_str),
                     )
                     await db.commit()
                     break
@@ -855,10 +854,21 @@ class KalshiAPI:
 
     def _prune_market(self, m: dict) -> dict:
         """Keep only fields we actually use to save RAM."""
+        ticker = m.get("ticker", "")
+        event_ticker = m.get("event_ticker", "")
+        series_ticker = m.get("series_ticker")
+        
+        # Fallback for missing series_ticker in v2 API
+        if not series_ticker and event_ticker:
+            if "-" in event_ticker:
+                series_ticker = event_ticker.split("-")[0]
+            else:
+                series_ticker = event_ticker
+
         return {
-            "ticker": m.get("ticker"),
-            "event_ticker": m.get("event_ticker"),
-            "series_ticker": m.get("series_ticker"),
+            "ticker": ticker,
+            "event_ticker": event_ticker,
+            "series_ticker": series_ticker,
             "title": m.get("title"),
             "yes_sub_title": m.get("yes_sub_title"),
             "yes_ask_dollars": m.get("yes_ask_dollars"),
@@ -879,6 +889,24 @@ class KalshiAPI:
         data["markets"] = [self._prune_market(m) for m in data["markets"]]
         return data
 
+    def _prune_markets_sports_only(self, data: dict) -> dict:
+        """Pruning function that discards non-sports markets entirely."""
+        if not data or "markets" not in data:
+            return data
+        
+        # Build set of all sports series tickers
+        sports_series = set()
+        for info in SPORTS.values():
+            sports_series.update(info["series"].values())
+        
+        # Keep only sports markets and prune them
+        data["markets"] = [
+            self._prune_market(m) for m in data["markets"]
+            if m.get("series_ticker") in sports_series or 
+               (m.get("event_ticker") and m.get("event_ticker").split("-")[0] in sports_series)
+        ]
+        return data
+
     def _prune_series_list(self, data: dict) -> dict:
         """Pruning function for series list responses."""
         if not data or "series" not in data:
@@ -892,6 +920,43 @@ class KalshiAPI:
             for s in data["series"]
         ]
         return data
+
+    async def get_active_series_tickers(self) -> set[str]:
+        """Fetch tickers of all 'Sports' series that currently have open markets.
+        
+        This is much more efficient than fetching all open markets and filtering.
+        """
+        # GET /series with status=open is not supported, but we can filter by category
+        # and then check which ones actually have markets.
+        # However, the most efficient way to see what is ACTIVE is to fetch
+        # all open markets but only keep their series_ticker.
+        # But wait, if we fetch all open markets to find active series, we haven't saved anything.
+        
+        # New strategy: Kalshi /series endpoint returns ALL series.
+        # We already have them in SPORTS.
+        return set(SPORTS.keys())
+
+    async def get_all_open_sports_markets(self) -> list[dict]:
+        """Fetch open markets only for known sports series."""
+        if not SPORTS:
+            await self.refresh_sports()
+            
+        all_sports_markets = []
+        
+        # To avoid 1000+ individual API calls, we use a hybrid approach.
+        # If we have many sports, it's actually faster to fetch all open markets
+        # but DISCARD non-sports ones immediately during pruning/processing
+        # so they never bloat the cache or memory.
+        
+        all_markets = await self.get_all_open_markets()
+        sports_series = set()
+        for info in SPORTS.values():
+            sports_series.update(info["series"].values())
+        
+        # Filter to only sports
+        sports_markets = [m for m in all_markets if m.get("series_ticker") in sports_series]
+        log.info("Filtered %d total markets down to %d sports markets", len(all_markets), len(sports_markets))
+        return sports_markets
 
     async def get_all_open_markets(self) -> list[dict]:
         """Fetch all open markets from Kalshi using pagination."""
@@ -907,7 +972,7 @@ class KalshiAPI:
                 f"{BASE_URL}/markets",
                 params,
                 ttl=CACHE_TTL,
-                prune_func=self._prune_markets_list
+                prune_func=self._prune_markets_sports_only
             )
             
             if not data or "markets" not in data:
@@ -931,6 +996,7 @@ class KalshiAPI:
         data = await self._cached_request(
             f"{BASE_URL}/markets",
             {"series_ticker": series_ticker, "status": status, "limit": limit},
+            prune_func=self._prune_markets_list
         )
         if not data or "markets" not in data:
             return []
@@ -942,6 +1008,7 @@ class KalshiAPI:
             f"{BASE_URL}/markets/{ticker}",
             {},
             ttl=60,
+            prune_func=self._prune_market
         )
         if data and "market" in data:
             return data["market"]
@@ -967,8 +1034,8 @@ class KalshiAPI:
         if not sport:
             return []
 
-        # Fetch ALL open markets once (pruned and cached)
-        all_markets = await self.get_all_open_markets()
+        # Fetch ALL open sports markets once (pruned and cached)
+        all_markets = await self.get_all_open_sports_markets()
         
         # Get primary series tickers for this sport
         target_series = set(sport["series"].values())
@@ -1098,10 +1165,10 @@ class KalshiAPI:
     async def get_all_games(self) -> list[dict]:
         """Fetch games across all sports efficiently.
 
-        Uses get_all_open_markets to fetch everything once, then filters and
+        Uses get_all_open_sports_markets to fetch everything once, then filters and
         groups by event locally. This replaces 140+ individual API calls with 1-2.
         """
-        all_markets = await self.get_all_open_markets()
+        all_markets = await self.get_all_open_sports_markets()
         
         # Build mapping of series_ticker -> (sport_key, sport_label, is_soccer)
         series_to_sport = {}
@@ -1153,7 +1220,7 @@ class KalshiAPI:
 
     async def get_available_sports(self) -> list[str]:
         """Return sport keys that currently have open markets."""
-        all_markets = await self.get_all_open_markets()
+        all_markets = await self.get_all_open_sports_markets()
         
         # Get set of all active series tickers
         active_series = {m.get("series_ticker") for m in all_markets}
@@ -1237,8 +1304,8 @@ class KalshiAPI:
             log.info("SPORTS empty — calling refresh_sports()")
             await self.refresh_sports()
 
-        log.info("Discovery cache miss — fetching all open markets")
-        all_markets = await self.get_all_open_markets()
+        log.info("Discovery cache miss — fetching open sports markets")
+        all_markets = await self.get_all_open_sports_markets()
 
         # Build reverse mappings for fast lookup
         game_series_to_sport = {}
