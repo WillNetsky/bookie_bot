@@ -84,175 +84,104 @@ def _format_game_time(commence_time: str) -> str:
     return format_game_time(commence_time)
 
 
-# ── Browse View (landing page) ────────────────────────────────────────
+# ── Sport category classification ─────────────────────────────────────
+
+CATEGORY_META: list[tuple[str, str]] = [
+    # (slug, display_label)
+    ("american",      "\U0001f3c8 American Sports"),
+    ("soccer",        "\u26bd Soccer"),
+    ("combat",        "\U0001f94a Combat Sports"),
+    ("esports",       "\U0001f3ae Esports"),
+    ("international", "\U0001f30d International"),
+    ("other",         "\U0001f3b2 Other"),
+]
+
+_CATEGORY_EMOJI: dict[str, str] = {
+    "american":      "\U0001f3c8",
+    "soccer":        "\u26bd",
+    "combat":        "\U0001f94a",
+    "esports":       "\U0001f3ae",
+    "international": "\U0001f30d",
+    "other":         "\U0001f3b2",
+}
 
 
-class BrowseView(discord.ui.View):
-    """Landing page showing all available Kalshi markets."""
+def _classify_sport(sport_key: str) -> str:
+    """Assign a sport/futures key to a browse category slug."""
+    sk = sport_key.upper().replace("KX", "")
+    if any(p in sk for p in ("NBA", "WNBA", "NFL", "MLB", "NHL", "NCAA", "AHL",
+                              "UNRIVALED", "EUROLEAGUE", "EUROCUP", "ACB", "BSL",
+                              "KBL", "BBL", "FIBA", "ABA", "GBL", "VTB", "CBA", "NBL")):
+        return "american"
+    if any(p in sk for p in ("EPL", "LALIGA", "BUNDESLIGA", "SERIEA", "LIGUE1", "UCL",
+                              "UEL", "UECL", "MLS", "FACUP", "EREDIVISIE", "LIGAMX",
+                              "SAUDIPL", "FIFAUS", "SOCCER")):
+        return "soccer"
+    if any(p in sk for p in ("UFC", "BOXING", "FIGHT", "MCGREGOR", "CRYPTOFIGHT", "MMA")):
+        return "combat"
+    if any(p in sk for p in ("CS2", "CSGO", "LOL", "VALORANT", "DOTA", "OW", "R6", "COD", "EWC")):
+        return "esports"
+    if any(p in sk for p in ("TENNIS", "ATP", "WTA", "CRICKET", "IPL", "WPL", "RUGBY",
+                              "DARTS", "GOLF", "TGL", "PICKLE", "CURL", "CHESS",
+                              "SIXNATIONS", "NRL", "T20", "SSHIELD", "SIXKINGS",
+                              "DAVISCUP", "UNITEDCUP", "CHALLENGER", "PGARYDER",
+                              "LACROSSE", "LAX")):
+        return "international"
+    return "other"
+
+
+# ── Category Browse View (landing page) ──────────────────────────────────
+
+
+class CategoryView(discord.ui.View):
+    """Landing page: shows sport categories as a single dropdown."""
 
     def __init__(
         self,
         games_available: dict[str, dict],
         futures_available: dict[str, dict[str, bool]],
-        page: int = 0,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
         self.games_available = games_available
         self.futures_available = futures_available
-        self.page = page
         self.message: discord.Message | None = None
 
-        # Build all category options sorted properly
-        self.all_options: list[discord.SelectOption] = []
-
-        # Game sports — sorted by next game time
-        game_items = []
-        for key, info in games_available.items():
-            sport = SPORTS.get(key)
-            if sport:
-                next_time = info.get("next_time") or ""
-                game_items.append((next_time or "9999", key, info, sport))
-        game_items.sort(key=lambda x: x[0])
-
-        for _, key, info, sport in game_items:
-            next_time = info.get("next_time")
-            if next_time:
-                desc = f"Next: {format_game_time(next_time)}"
-            else:
-                desc = "Games available"
-            if len(desc) > 100:
-                desc = desc[:100]
-            label = sport["label"]
-            if len(label) > 100:
-                label = label[:97] + "..."
-            self.all_options.append(discord.SelectOption(
-                label=label,
-                value=f"games:{key}",
-                description=desc,
-                emoji=_sport_emoji(key),
-            ))
-
-        # Futures sports (that don't already appear as games)
-        for key, markets in futures_available.items():
-            sports_key = FUTURES_TO_SPORTS.get(key)
-            if sports_key and sports_key in games_available:
-                continue
+        # Count how many sports fall into each category
+        buckets: dict[str, int] = {slug: 0 for slug, _ in CATEGORY_META}
+        for key in games_available:
+            buckets[_classify_sport(key)] += 1
+        for key in futures_available:
+            games_key = FUTURES_TO_SPORTS.get(key)
+            if games_key and games_key in games_available:
+                continue  # already counted via games
             if key in games_available:
                 continue
-            fut = FUTURES.get(key)
-            label = fut["label"] if fut else key
-            market_names = ", ".join(markets.keys())
-            if len(market_names) > 90:
-                market_names = market_names[:87] + "..."
-            fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
-            self.all_options.append(discord.SelectOption(
+            buckets[_classify_sport(key)] += 1
+
+        # Build Select with only populated categories
+        options: list[discord.SelectOption] = []
+        for slug, label in CATEGORY_META:
+            count = buckets.get(slug, 0)
+            if count == 0:
+                continue
+            options.append(discord.SelectOption(
                 label=label,
-                value=f"futures:{key}",
-                description=market_names[:100] if market_names else "Futures",
-                emoji=_sport_emoji(fut_sport_key),
+                value=slug,
+                description=f"{count} sport{'s' if count != 1 else ''} available",
+                emoji=_CATEGORY_EMOJI[slug],
             ))
 
-        # Paginate dropdown: 25 options per page
-        self.total_pages = max(1, (len(self.all_options) + 24) // 25)
-        page_start = self.page * 25
-        page_options = self.all_options[page_start:page_start + 25]
-
-        if page_options:
-            self.add_item(CategorySelect(page_options))
-
-        # Add page buttons if more than one page
-        if self.total_pages > 1:
-            row = 1
-            if self.page > 0:
-                prev_btn = discord.ui.Button(label="Prev", style=discord.ButtonStyle.secondary, row=row)
-                prev_btn.callback = self._prev_page
-                self.add_item(prev_btn)
-            page_label = discord.ui.Button(
-                label=f"Page {self.page + 1}/{self.total_pages}",
-                style=discord.ButtonStyle.secondary, disabled=True, row=row,
-            )
-            self.add_item(page_label)
-            if self.page < self.total_pages - 1:
-                next_btn = discord.ui.Button(label="Next", style=discord.ButtonStyle.secondary, row=row)
-                next_btn.callback = self._next_page
-                self.add_item(next_btn)
-
-    async def _prev_page(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        view = BrowseView(self.games_available, self.futures_available, page=self.page - 1)
-        embed = view.build_embed()
-        view.message = self.message
-        await interaction.edit_original_response(embed=embed, view=view)
-
-    async def _next_page(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        view = BrowseView(self.games_available, self.futures_available, page=self.page + 1)
-        embed = view.build_embed()
-        view.message = self.message
-        await interaction.edit_original_response(embed=embed, view=view)
+        if options:
+            self.add_item(CategorySelectDropdown(options))
 
     def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="Kalshi Markets",
-            color=discord.Color.blue(),
-        )
-
-        if not self.all_options:
+        embed = discord.Embed(title="Kalshi Markets", color=discord.Color.blue())
+        if not self.children:
             embed.description = "No open markets right now."
-            return embed
-
-        # Show only the options on the current page (matches the dropdown)
-        page_start = self.page * 25
-        page_options = self.all_options[page_start:page_start + 25]
-
-        game_lines = []
-        futures_lines = []
-
-        for opt in page_options:
-            val = opt.value
-            cat_type, key = val.split(":", 1)
-            emoji = opt.emoji or ""
-
-            if cat_type == "games":
-                info = self.games_available.get(key, {})
-                sport = SPORTS.get(key)
-                name = sport["label"] if sport else key
-                next_time = info.get("next_time")
-                line = f"{emoji} **{name}**"
-                if next_time:
-                    line += f" — Next: {format_game_time(next_time)}"
-                game_lines.append(line)
-            elif cat_type == "futures":
-                fut = FUTURES.get(key)
-                name = fut["label"] if fut else key
-                markets = self.futures_available.get(key, {})
-                market_names = ", ".join(markets.keys())
-                futures_lines.append(f"{emoji} **{name}** — {market_names}")
-
-        if game_lines:
-            games_text = "\n".join(game_lines)
-            if len(games_text) > 1000:
-                games_text = games_text[:997] + "..."
-            embed.add_field(
-                name=f"Games ({len(game_lines)})",
-                value=games_text,
-                inline=False,
-            )
-
-        if futures_lines:
-            futures_text = "\n".join(futures_lines)
-            if len(futures_text) > 1000:
-                futures_text = futures_text[:997] + "..."
-            embed.add_field(
-                name="Futures & Props",
-                value=futures_text,
-                inline=False,
-            )
-
-        total = len(self.all_options)
-        footer = f"Page {self.page + 1}/{self.total_pages} · {total} markets total · Select a category below"
-        embed.set_footer(text=footer)
+        else:
+            embed.description = "Pick a category to browse available markets."
+        embed.set_footer(text="Select a category below")
         return embed
 
     async def on_timeout(self) -> None:
@@ -264,24 +193,148 @@ class BrowseView(discord.ui.View):
                 pass
 
 
-class CategorySelect(discord.ui.Select["BrowseView"]):
-    """Dropdown to pick a category from the browse view."""
+class CategorySelectDropdown(discord.ui.Select["CategoryView"]):
+    """Dropdown to pick a sport category."""
 
     def __init__(self, options: list[discord.SelectOption]) -> None:
         super().__init__(placeholder="Select a category...", options=options, row=0)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        slug = self.values[0]
+        view = self.view
+        await interaction.response.defer()
+        sport_view = SportPickView(slug, view.games_available, view.futures_available)
+        embed = sport_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=sport_view)
+
+
+# ── Sport Pick View (second level: sports within a category) ─────────────
+
+
+class SportPickView(discord.ui.View):
+    """Shows the list of sports within a chosen category."""
+
+    def __init__(
+        self,
+        category_slug: str,
+        games_available: dict[str, dict],
+        futures_available: dict[str, dict[str, bool]],
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.category_slug = category_slug
+        self.games_available = games_available
+        self.futures_available = futures_available
+        self.message: discord.Message | None = None
+        self.category_label = next(
+            (label for slug, label in CATEGORY_META if slug == category_slug),
+            category_slug,
+        )
+
+        # Build sport options for this category
+        options: list[discord.SelectOption] = []
+
+        # Game sports — sorted by next game time
+        game_items = []
+        for key, info in games_available.items():
+            if _classify_sport(key) != category_slug:
+                continue
+            sport = SPORTS.get(key)
+            if not sport:
+                continue
+            next_time = info.get("next_time") or ""
+            game_items.append((next_time or "9999", key, info, sport))
+        game_items.sort(key=lambda x: x[0])
+
+        for _, key, info, sport in game_items:
+            next_time = info.get("next_time")
+            desc = f"Next: {format_game_time(next_time)}" if next_time else "Games available"
+            if len(desc) > 100:
+                desc = desc[:100]
+            label = sport["label"]
+            if len(label) > 100:
+                label = label[:97] + "..."
+            options.append(discord.SelectOption(
+                label=label,
+                value=f"games:{key}",
+                description=desc,
+                emoji=_sport_emoji(key),
+            ))
+
+        # Futures not already surfaced via their games sport
+        for key, markets in futures_available.items():
+            if _classify_sport(key) != category_slug:
+                continue
+            games_key = FUTURES_TO_SPORTS.get(key)
+            if games_key and games_key in games_available:
+                continue
+            if key in games_available:
+                continue
+            fut = FUTURES.get(key)
+            label = fut["label"] if fut else key
+            market_names = ", ".join(markets.keys())
+            if len(market_names) > 90:
+                market_names = market_names[:87] + "..."
+            fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
+            options.append(discord.SelectOption(
+                label=label,
+                value=f"futures:{key}",
+                description=market_names[:100] if market_names else "Futures",
+                emoji=_sport_emoji(fut_sport_key),
+            ))
+
+        if options:
+            self.add_item(SportPickSelect(options[:25], category_slug))
+        self.add_item(CategoryBackButton(row=1))
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title=self.category_label, color=discord.Color.blue())
+        has_select = any(isinstance(c, SportPickSelect) for c in self.children)
+        if has_select:
+            embed.description = "Select a sport to view games and place bets."
+        else:
+            embed.description = "No open markets in this category right now."
+        embed.set_footer(text="Select a sport below · Back to return to categories")
+        return embed
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
+class SportPickSelect(discord.ui.Select["SportPickView"]):
+    """Dropdown to pick a specific sport within a category."""
+
+    def __init__(self, options: list[discord.SelectOption], category_slug: str) -> None:
+        super().__init__(placeholder="Select a sport...", options=options, row=0)
+        self.category_slug = category_slug
+
+    async def callback(self, interaction: discord.Interaction) -> None:
         val = self.values[0]
         cat_type, key = val.split(":", 1)
-
         await interaction.response.defer()
+        await _show_sport_hub(interaction, key, category_slug=self.category_slug)
 
-        if cat_type == "games":
-            # Go to sport hub (games + futures for this sport)
-            await _show_sport_hub(interaction, key)
-        elif cat_type == "futures":
-            # Go to futures-only hub
-            await _show_sport_hub(interaction, key)
+
+class CategoryBackButton(discord.ui.Button["SportPickView"]):
+    """Returns to the top-level category picker."""
+
+    def __init__(self, row: int = 1) -> None:
+        super().__init__(
+            label="Back", style=discord.ButtonStyle.secondary,
+            emoji="\u25c0\ufe0f", row=row,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        await interaction.response.defer()
+        cat_view = CategoryView(view.games_available, view.futures_available)
+        embed = cat_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=cat_view)
 
 
 # ── Sport Hub View (games + futures for one sport) ─────────────────────
@@ -296,7 +349,7 @@ class SportHubView(discord.ui.View):
         sport_label: str,
         games: list[dict] | None = None,
         futures_markets: dict[str, str] | None = None,
-        browse_data: tuple | None = None,
+        category_slug: str | None = None,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
@@ -304,7 +357,7 @@ class SportHubView(discord.ui.View):
         self.sport_label = sport_label
         self.games = games or []
         self.futures_markets = futures_markets or {}
-        self.browse_data = browse_data
+        self.category_slug = category_slug
         self.message: discord.Message | None = None
 
         row = 0
@@ -322,10 +375,10 @@ class SportHubView(discord.ui.View):
             if btn_count % 4 == 0:
                 row += 1
 
-        # Back to browse button (last row)
-        if self.browse_data:
+        # Back button returns to sport list for this category
+        if category_slug:
             back_row = min(row + 1, 4)
-            self.add_item(BrowseBackButton(self.browse_data, row=back_row))
+            self.add_item(BrowseBackButton(category_slug, row=back_row))
 
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(
@@ -394,21 +447,24 @@ class FuturesButton(discord.ui.Button["SportHubView"]):
         await interaction.edit_original_response(embed=embed, view=futures_view)
 
 
-class BrowseBackButton(discord.ui.Button):
-    """Returns to the browse view."""
+class BrowseBackButton(discord.ui.Button["SportHubView"]):
+    """Returns to the sport list for the originating category."""
 
-    def __init__(self, browse_data: tuple, row: int) -> None:
-        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
-        self.browse_data = browse_data
+    def __init__(self, category_slug: str, row: int) -> None:
+        super().__init__(
+            label="Back", style=discord.ButtonStyle.secondary,
+            emoji="\u25c0\ufe0f", row=row,
+        )
+        self.category_slug = category_slug
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        games_available, futures_available = self.browse_data
-        view = BrowseView(games_available, futures_available)
-        embed = view.build_embed()
-        try:
-            await interaction.response.edit_message(embed=embed, view=view)
-        except discord.NotFound:
-            pass
+        await interaction.response.defer()
+        discovery = await kalshi_api.discover_available()
+        sport_view = SportPickView(
+            self.category_slug, discovery["games"], discovery["futures"]
+        )
+        embed = sport_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=sport_view)
 
 
 # ── Futures Options View (paginated list of options) ────────────────────
@@ -582,7 +638,7 @@ class FuturesBackButton(discord.ui.Button["FuturesOptionsView"]):
                 sport_label=hub.sport_label,
                 games=hub.games,
                 futures_markets=hub.futures_markets,
-                browse_data=hub.browse_data,
+                category_slug=hub.category_slug,
             )
             embed = new_hub.build_embed()
             try:
@@ -815,7 +871,7 @@ class GameBackButton(discord.ui.Button["GameBetTypeView"]):
                 sport_label=hub.sport_label,
                 games=hub.games,
                 futures_markets=hub.futures_markets,
-                browse_data=hub.browse_data,
+                category_slug=hub.category_slug,
             )
             embed = new_hub.build_embed()
             try:
@@ -971,7 +1027,11 @@ def _build_pick_display(pick_key: str, home: str, away: str, odds_entry: dict) -
     return pick_key.capitalize()
 
 
-async def _show_sport_hub(interaction: discord.Interaction, sport_key: str) -> None:
+async def _show_sport_hub(
+    interaction: discord.Interaction,
+    sport_key: str,
+    category_slug: str | None = None,
+) -> None:
     """Navigate to a sport hub view showing games + futures."""
     sport_label = sport_key
     games = []
@@ -995,6 +1055,7 @@ async def _show_sport_hub(interaction: discord.Interaction, sport_key: str) -> N
         sport_label=sport_label,
         games=games,
         futures_markets=futures_markets,
+        category_slug=category_slug,
     )
     embed = view.build_embed()
     await interaction.edit_original_response(embed=embed, view=view)
@@ -1853,9 +1914,9 @@ class KalshiCog(commands.Cog):
         log.info("/kalshi called by %s (sport=%s)", interaction.user, sport)
 
         if sport is None:
-            # Browse mode — discover what's available
+            # Browse mode — show category picker
             discovery = await kalshi_api.discover_available()
-            view = BrowseView(discovery["games"], discovery["futures"])
+            view = CategoryView(discovery["games"], discovery["futures"])
             embed = view.build_embed()
             msg = await interaction.followup.send(embed=embed, view=view)
             view.message = msg
@@ -2849,7 +2910,7 @@ class KalshiCog(commands.Cog):
         """Periodic database cleanup to save disk space."""
         try:
             log.info("Starting database maintenance...")
-            deleted = await cleanup_cache(max_age_days=3) # Keep cache only for 3 days
+            deleted = await cleanup_cache(max_age_days=1)
             log.info(f"Cleaned up {deleted} stale cache entries.")
             await vacuum_db()
             log.info("Database vacuumed successfully.")

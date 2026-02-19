@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CACHE_TTL = 300  # 5 minutes
 DISCOVERY_TTL = 1800  # 30 minutes for availability checks
+AGG_MARKETS_CACHE_KEY = "kalshi:all_open_markets:aggregated"  # single stable cache key
 
 # ── Kalshi → Odds-API sport key mapping (for live scores) ─────────────
 KALSHI_TO_ODDS_API = {
@@ -588,6 +589,7 @@ class KalshiAPI:
     def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+        self._sports_series_cache: set[str] = set()
         # Log auth config at init
         if KALSHI_API_KEY_ID:
             log.info("Kalshi API key configured: %s...", KALSHI_API_KEY_ID[:8])
@@ -827,6 +829,12 @@ class KalshiAPI:
         SPORTS.clear()
         SPORTS.update(new_sports)
 
+        # Update sports series cache for fast filtering
+        self._sports_series_cache = {
+            ticker for info in SPORTS.values()
+            for ticker in info["series"].values()
+        }
+
         # Build FUTURES ↔ SPORTS cross-references
         # Match by checking if the FUTURES key appears in the SPORTS ticker
         # e.g. FUTURES key "NBA" matches SPORTS key "KXNBAGAME"
@@ -889,24 +897,6 @@ class KalshiAPI:
         data["markets"] = [self._prune_market(m) for m in data["markets"]]
         return data
 
-    def _prune_markets_sports_only(self, data: dict) -> dict:
-        """Pruning function that discards non-sports markets entirely."""
-        if not data or "markets" not in data:
-            return data
-        
-        # Build set of all sports series tickers
-        sports_series = set()
-        for info in SPORTS.values():
-            sports_series.update(info["series"].values())
-        
-        # Keep only sports markets and prune them
-        data["markets"] = [
-            self._prune_market(m) for m in data["markets"]
-            if m.get("series_ticker") in sports_series or 
-               (m.get("event_ticker") and m.get("event_ticker").split("-")[0] in sports_series)
-        ]
-        return data
-
     def _prune_series_list(self, data: dict) -> dict:
         """Pruning function for series list responses."""
         if not data or "series" not in data:
@@ -940,53 +930,119 @@ class KalshiAPI:
         """Fetch open markets only for known sports series."""
         if not SPORTS:
             await self.refresh_sports()
-            
-        all_sports_markets = []
-        
-        # To avoid 1000+ individual API calls, we use a hybrid approach.
-        # If we have many sports, it's actually faster to fetch all open markets
-        # but DISCARD non-sports ones immediately during pruning/processing
-        # so they never bloat the cache or memory.
-        
-        all_markets = await self.get_all_open_markets()
-        sports_series = set()
-        for info in SPORTS.values():
-            sports_series.update(info["series"].values())
-        
-        # Filter to only sports
-        sports_markets = [m for m in all_markets if m.get("series_ticker") in sports_series]
-        log.info("Filtered %d total markets down to %d sports markets", len(all_markets), len(sports_markets))
-        return sports_markets
+        return await self.get_all_open_markets()
 
     async def get_all_open_markets(self) -> list[dict]:
-        """Fetch all open markets from Kalshi using pagination."""
-        all_markets = []
-        cursor = None
-        
-        while True:
-            params = {"status": "open", "limit": 1000}
-            if cursor:
-                params["cursor"] = cursor
-            
-            data = await self._cached_request(
-                f"{BASE_URL}/markets",
-                params,
-                ttl=CACHE_TTL,
-                prune_func=self._prune_markets_sports_only
+        """Fetch all open sports markets from Kalshi, cached as a single aggregated entry.
+
+        Aggregates all pagination pages under one stable cache key, eliminating
+        cursor-keyed entry accumulation that caused database bloat.
+        """
+        # Check single stable cache key
+        stale_data = None
+        db = await get_connection()
+        try:
+            cursor = await db.execute(
+                "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
+                (AGG_MARKETS_CACHE_KEY,),
             )
-            
-            if not data or "markets" not in data:
+            row = await cursor.fetchone()
+            if row:
+                try:
+                    fetched_dt = datetime.fromisoformat(row[1])
+                    if fetched_dt.tzinfo is None:
+                        fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
+                    age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
+                    if age < CACHE_TTL:
+                        log.debug("Cache HIT all_open_markets (age %.0fs)", age)
+                        return json.loads(row[0])
+                    log.debug("Cache STALE all_open_markets (age %.0fs)", age)
+                except (ValueError, TypeError):
+                    pass
+                stale_data = row[0]
+        finally:
+            await db.close()
+
+        # Cache miss/stale — fetch all pages without caching each one
+        log.debug("Cache MISS all_open_markets — fetching from API")
+        all_markets: list[dict] = []
+        page_cursor = None
+        session = await self._get_session()
+        sports_series = self._sports_series_cache
+
+        while True:
+            params: dict = {"status": "open", "limit": 1000}
+            if page_cursor:
+                params["cursor"] = page_cursor
+
+            url = f"{BASE_URL}/markets"
+            page_data = None
+            async with self._semaphore:
+                for attempt in range(MAX_RETRIES + 1):
+                    try:
+                        headers = self._auth_headers("GET", url)
+                        async with session.get(url, params=params, headers=headers) as resp:
+                            if resp.status == 429:
+                                if attempt < MAX_RETRIES:
+                                    wait = RETRY_BACKOFF * (2 ** attempt)
+                                    log.info("Kalshi 429 (markets), retrying in %.1fs...", wait)
+                                    await asyncio.sleep(wait)
+                                    continue
+                                log.warning("Kalshi markets 429 after %d retries", MAX_RETRIES)
+                                break
+                            if resp.status != 200:
+                                log.warning("Kalshi markets returned %s", resp.status)
+                                break
+                            page_data = await resp.json()
+                            break
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                        log.warning("Kalshi markets request failed: %s", e)
+                        break
+
+            if not page_data or "markets" not in page_data:
                 break
-                
-            all_markets.extend(data["markets"])
-            cursor = data.get("cursor")
-            
-            if not cursor:
+
+            # Filter to sports markets only and prune fields immediately
+            for m in page_data["markets"]:
+                st = m.get("series_ticker") or (
+                    m.get("event_ticker", "").split("-")[0] if m.get("event_ticker") else ""
+                )
+                if st in sports_series:
+                    all_markets.append(self._prune_market(m))
+
+            page_cursor = page_data.get("cursor")
+            if not page_cursor:
                 break
-                
             await asyncio.sleep(0.2)
-            
-        log.info("Fetched %d total open markets from Kalshi", len(all_markets))
+
+        log.info("Fetched %d open sports markets from Kalshi", len(all_markets))
+
+        if not all_markets:
+            if stale_data:
+                log.warning("Kalshi markets fetch returned nothing, using stale cache")
+                return json.loads(stale_data)
+            return []
+
+        # Store as single aggregated entry (replaces any previous entry)
+        data_str = json.dumps(all_markets)
+        for attempt in range(3):
+            db = await get_connection()
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
+                    " VALUES (?, 'kalshi', ?, datetime('now'))",
+                    (AGG_MARKETS_CACHE_KEY, data_str),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < 2:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                log.warning("Failed to update aggregated markets cache: %s", e)
+            finally:
+                await db.close()
+
         return all_markets
 
     # ── Public API methods ────────────────────────────────────────────
@@ -1310,14 +1366,13 @@ class KalshiAPI:
         # Build reverse mappings for fast lookup
         game_series_to_sport = {}
         for sk, info in SPORTS.items():
-            for series_type, ticker in info["series"].items():
-                if series_type == "Game":
-                    game_series_to_sport[ticker] = sk
+            for ticker in info["series"].values():
+                game_series_to_sport[ticker] = sk
 
         futures_series_to_cat = {}
         for sk, info in FUTURES.items():
-            for name, ticker in info["markets"].items():
-                futures_series_to_cat[ticker] = (sk, name)
+            for ticker in info["markets"].values():
+                futures_series_to_cat[ticker] = sk
 
         games_available = {}
         futures_available = {}
@@ -1326,7 +1381,7 @@ class KalshiAPI:
         for m in all_markets:
             st = m.get("series_ticker", "")
             
-            # Check if it's a game market
+            # Check if it's a game market (could be Game, Spread, or Total)
             if st in game_series_to_sport:
                 sk = game_series_to_sport[st]
                 exp = m.get("expected_expiration_time") or m.get("close_time", "")
@@ -1345,7 +1400,7 @@ class KalshiAPI:
                 
                 if is_fresh:
                     if sk not in games_available:
-                        games_available[sk] = {"next_time": None, "has_live": False}
+                        games_available[sk] = {"next_time": None}
                     
                     if exp:
                         try:
@@ -1359,10 +1414,14 @@ class KalshiAPI:
 
             # Check if it's a futures market
             elif st in futures_series_to_cat:
-                cat_key, market_name = futures_series_to_cat[st]
+                cat_key = futures_series_to_cat[st]
                 if cat_key not in futures_available:
                     futures_available[cat_key] = {}
-                futures_available[cat_key][market_name] = True
+                # Match market name from FUTURES dict
+                for name, ticker in FUTURES[cat_key]["markets"].items():
+                    if ticker == st:
+                        futures_available[cat_key][name] = True
+                        break
 
         result = {"games": games_available, "futures": futures_available}
         game_names = [SPORTS.get(k, {}).get("label", k) for k in games_available]
