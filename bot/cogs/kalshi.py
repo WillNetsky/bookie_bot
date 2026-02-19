@@ -1234,6 +1234,277 @@ class GamesPageButton(discord.ui.Button["GamesListView"]):
             pass
 
 
+# ── Market List View (for /games) ─────────────────────────────────────
+# Shows raw Kalshi markets sorted by closest expiry with YES/NO betting.
+
+MARKETS_PER_PAGE = 10
+
+
+def _market_odds_str(m: dict) -> tuple[str, str]:
+    """Return (yes_american, no_american) strings for display, or ("?", "?")."""
+    yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+    if 0 < yes_ask < 1:
+        yes_am = format_american(decimal_to_american(round(1.0 / yes_ask, 3)))
+        no_am  = format_american(decimal_to_american(round(1.0 / (1.0 - yes_ask), 3)))
+        return yes_am, no_am
+    return "?", "?"
+
+
+def _series_label(series_ticker: str) -> str:
+    """Return a human-readable sport label for a series ticker, or ''."""
+    for info in SPORTS.values():
+        if series_ticker in info["series"].values():
+            return info["label"]
+    return ""
+
+
+class MarketListView(discord.ui.View):
+    """Paginated list of raw Kalshi markets sorted by soonest expiry."""
+
+    def __init__(self, markets: list[dict], page: int = 0, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.markets = markets
+        self.page = page
+        self.message: discord.Message | None = None
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        total_pages = max(1, (len(self.markets) + MARKETS_PER_PAGE - 1) // MARKETS_PER_PAGE)
+        start = self.page * MARKETS_PER_PAGE
+        page_markets = self.markets[start:start + MARKETS_PER_PAGE]
+
+        if page_markets:
+            self.add_item(MarketSelectDropdown(page_markets, self, row=0))
+        if self.page > 0:
+            self.add_item(MarketPageButton("prev", self.page - 1, row=1))
+        if self.page < total_pages - 1:
+            self.add_item(MarketPageButton("next", self.page + 1, row=1))
+
+    def build_embed(self) -> discord.Embed:
+        total = len(self.markets)
+        total_pages = max(1, (total + MARKETS_PER_PAGE - 1) // MARKETS_PER_PAGE)
+        start = self.page * MARKETS_PER_PAGE
+        page_markets = self.markets[start:start + MARKETS_PER_PAGE]
+
+        embed = discord.Embed(title="\U0001f4ca Open Markets", color=discord.Color.blue())
+        if not page_markets:
+            embed.description = "No open markets right now."
+            return embed
+
+        lines = []
+        for m in page_markets:
+            title  = m.get("title") or "?"
+            yes_sub = m.get("yes_sub_title") or ""
+            exp    = m.get("expected_expiration_time") or m.get("close_time") or ""
+            sport  = _series_label(m.get("series_ticker") or "")
+            time_str = _format_game_time(exp) if exp else "TBD"
+            yes_am, no_am = _market_odds_str(m)
+            header = f"**{title}**"
+            if sport:
+                header += f"  _{sport}_"
+            lines.append(f"{header}\n{time_str} · YES {yes_am} / NO {no_am}")
+
+        embed.description = "\n\n".join(lines)
+        embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Select a market below to bet")
+        return embed
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
+class MarketSelectDropdown(discord.ui.Select["MarketListView"]):
+    """Dropdown listing markets on the current page."""
+
+    def __init__(self, markets: list[dict], parent: "MarketListView", row: int = 0) -> None:
+        self._parent = parent
+        self._market_map: dict[str, dict] = {}
+        options: list[discord.SelectOption] = []
+        for m in markets[:25]:
+            ticker  = m.get("ticker") or ""
+            title   = m.get("title") or ticker
+            yes_sub = m.get("yes_sub_title") or ""
+            label   = (yes_sub if yes_sub else title)[:100]
+            yes_am, no_am = _market_odds_str(m)
+            desc = f"YES {yes_am} / NO {no_am}"[:100]
+            self._market_map[ticker] = m
+            options.append(discord.SelectOption(label=label, value=ticker, description=desc))
+        super().__init__(placeholder="Select a market to bet on...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ticker = self.values[0]
+        market = self._market_map.get(ticker)
+        if not market:
+            await interaction.response.send_message("Market not found.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        bet_view = RawMarketBetView(market, self._parent)
+        embed = bet_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=bet_view)
+
+
+class MarketPageButton(discord.ui.Button["MarketListView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev"  if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class RawMarketBetView(discord.ui.View):
+    """YES / NO buttons for a single raw Kalshi market."""
+
+    def __init__(self, market: dict, list_view: MarketListView, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.market   = market
+        self.list_view = list_view
+
+        yes_am, no_am = _market_odds_str(market)
+        self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
+        self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
+        self.add_item(RawMarketBackButton(list_view, row=1))
+
+    def build_embed(self) -> discord.Embed:
+        m       = self.market
+        title   = m.get("title") or "?"
+        yes_sub = m.get("yes_sub_title") or ""
+        exp     = m.get("expected_expiration_time") or m.get("close_time") or ""
+        sport   = _series_label(m.get("series_ticker") or "")
+        time_str = _format_game_time(exp) if exp else "TBD"
+        yes_am, no_am = _market_odds_str(m)
+
+        embed = discord.Embed(title=title, color=discord.Color.blue())
+        if sport:
+            embed.description = f"_{sport}_"
+        if yes_sub:
+            embed.add_field(name="YES resolves if", value=yes_sub, inline=False)
+        embed.add_field(name="Closes",  value=time_str, inline=True)
+        embed.add_field(name="YES",     value=yes_am,   inline=True)
+        embed.add_field(name="NO",      value=no_am,    inline=True)
+        embed.set_footer(text="Pick YES or NO, then enter your wager")
+        return embed
+
+
+class RawMarketPickButton(discord.ui.Button["RawMarketBetView"]):
+    def __init__(self, pick: str, label: str, market: dict, row: int) -> None:
+        style = discord.ButtonStyle.success if pick == "yes" else discord.ButtonStyle.danger
+        super().__init__(label=label, style=style, row=row)
+        self.pick   = pick
+        self.market = market
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(RawMarketBetModal(self.market, self.pick))
+
+
+class RawMarketBackButton(discord.ui.Button["RawMarketBetView"]):
+    def __init__(self, list_view: MarketListView, row: int) -> None:
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary,
+                         emoji="\u25c0\ufe0f", row=row)
+        self._list_view = list_view
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        embed = self._list_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=self._list_view)
+
+
+class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
+    amount_input = discord.ui.TextInput(
+        label="Wager amount ($)",
+        placeholder="e.g. 50",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(self, market: dict, pick: str) -> None:
+        super().__init__()
+        self.market = market
+        self.pick   = pick
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.amount_input.value.strip().lstrip("$")
+        try:
+            amount = int(raw)
+        except ValueError:
+            await interaction.response.send_message("Invalid amount — enter a whole number.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+            return
+
+        await interaction.response.defer()
+
+        m    = self.market
+        pick = self.pick
+        yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+
+        if pick == "yes":
+            decimal_odds = round(1.0 / yes_ask, 3) if yes_ask > 0 else 2.0
+        else:
+            no_ask = 1.0 - yes_ask
+            decimal_odds = round(1.0 / no_ask, 3) if no_ask > 0 else 2.0
+
+        american = decimal_to_american(decimal_odds)
+        close_time = m.get("close_time") or m.get("expected_expiration_time")
+
+        if close_time:
+            try:
+                ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+                if ct <= datetime.now(timezone.utc):
+                    await interaction.followup.send("This market has already closed.", ephemeral=True)
+                    return
+            except (ValueError, TypeError):
+                pass
+
+        title    = m.get("title") or "?"
+        yes_sub  = m.get("yes_sub_title") or ""
+        pick_display = (f"YES — {yes_sub}" if pick == "yes" and yes_sub
+                        else ("YES" if pick == "yes" else "NO"))
+
+        bet_id = await betting_service.place_kalshi_bet(
+            user_id=interaction.user.id,
+            market_ticker=m["ticker"],
+            event_ticker=m.get("event_ticker", ""),
+            pick=pick,
+            amount=amount,
+            odds=decimal_odds,
+            title=title,
+            close_time=close_time,
+            pick_display=pick_display,
+        )
+
+        if bet_id is None:
+            await interaction.followup.send("Insufficient balance!", ephemeral=True)
+            return
+
+        payout = round(amount * decimal_odds, 2)
+        embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
+        embed.add_field(name="Bet ID",           value=f"#K{bet_id}",             inline=True)
+        embed.add_field(name="Pick",             value=pick_display,               inline=True)
+        embed.add_field(name="Wager",            value=f"${amount:.2f}",           inline=True)
+        embed.add_field(name="Odds",             value=format_american(american),  inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}",           inline=True)
+        embed.add_field(name="Market",           value=title[:1024],               inline=False)
+        await interaction.followup.send(embed=embed)
+
+
 # ── Parlay Views ──────────────────────────────────────────────────────
 
 MAX_PARLAY_LEGS = 10
@@ -1966,25 +2237,31 @@ class KalshiCog(commands.Cog):
 
     # ── /games ─────────────────────────────────────────────────────────
 
-    @app_commands.command(name="games", description="Browse games to bet on (includes live)")
-    @app_commands.describe(sport="Filter by sport (leave blank for all)")
-    @app_commands.autocomplete(sport=sport_autocomplete)
-    async def games(self, interaction: discord.Interaction, sport: str | None = None) -> None:
+    @app_commands.command(name="games", description="All open markets sorted by time — pick any to bet YES or NO")
+    async def games(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
-        if sport and sport in SPORTS:
-            all_games = await kalshi_api.get_sport_games(sport)
-        else:
-            all_games = await kalshi_api.get_all_games()
+        all_markets = await kalshi_api.get_all_open_sports_markets()
+        now = datetime.now(timezone.utc)
 
-        if not all_games:
-            await interaction.followup.send("No games right now.")
+        upcoming: list[dict] = []
+        for m in all_markets:
+            exp = m.get("expected_expiration_time") or m.get("close_time") or ""
+            if not exp or not m.get("ticker") or not m.get("title"):
+                continue
+            try:
+                if datetime.fromisoformat(exp.replace("Z", "+00:00")) > now:
+                    upcoming.append(m)
+            except (ValueError, TypeError):
+                pass
+
+        if not upcoming:
+            await interaction.followup.send("No open markets right now.")
             return
 
-        # Sort by commence_time (soonest first)
-        all_games.sort(key=lambda g: g.get("commence_time", "9999"))
+        upcoming.sort(key=lambda m: m.get("expected_expiration_time") or m.get("close_time") or "9999")
 
-        view = GamesListView(all_games=all_games, title="Games")
+        view = MarketListView(upcoming)
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
