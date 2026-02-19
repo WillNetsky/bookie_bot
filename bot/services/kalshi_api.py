@@ -326,8 +326,8 @@ def _parse_game_from_markets(
     first = markets[0]
     title = first.get("title", "")
 
-    if is_soccer and " vs " in title:
-        # "Home vs Away Winner?"
+    if " vs " in title:
+        # "Home vs Away Winner?" — used by soccer and international tournaments (WBC, etc.)
         parts = title.replace(" Winner?", "").replace(" winner?", "").split(" vs ", 1)
         if len(parts) == 2:
             home_team = parts[0].strip()
@@ -1413,31 +1413,22 @@ class KalshiAPI:
                 sk = game_series_to_sport[st]
                 exp = m.get("expected_expiration_time") or m.get("close_time", "")
                 
-                # Freshness check (within 2 days)
-                is_fresh = False
+                # Only count markets whose expiration is still in the future —
+                # mirrors the `if now > exp_dt: continue` check in get_sport_games
+                # so discovery never shows a sport whose games have all ended.
                 if exp:
                     try:
                         exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
-                        if (now - exp_dt).total_seconds() / 86400 <= 2:
-                            is_fresh = True
-                    except (ValueError, TypeError):
-                        is_fresh = True
-                else:
-                    is_fresh = True
-                
-                if is_fresh:
-                    if sk not in games_available:
-                        games_available[sk] = {"next_time": None}
-                    
-                    if exp:
-                        try:
-                            exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                        if exp_dt > now:
+                            if sk not in games_available:
+                                games_available[sk] = {"next_time": None}
                             current_next = games_available[sk]["next_time"]
-                            if exp_dt > now:
-                                if not current_next or exp < current_next:
-                                    games_available[sk]["next_time"] = exp
-                        except (ValueError, TypeError):
-                            pass
+                            if not current_next or exp < current_next:
+                                games_available[sk]["next_time"] = exp
+                    except (ValueError, TypeError):
+                        # Unparseable expiry — include the sport conservatively
+                        if sk not in games_available:
+                            games_available[sk] = {"next_time": None}
 
             # Check if it's a futures market
             elif st in futures_series_to_cat:
