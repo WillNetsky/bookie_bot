@@ -9,12 +9,15 @@ build/
 
 .env
 *.db
+bookie_bot_local.db
+used/
 
 .venv/
 venv/
 env/
 
 *.log
+*.csv
 .idea/
 .vscode/
 *.swp
