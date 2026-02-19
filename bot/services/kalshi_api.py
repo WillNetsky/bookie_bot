@@ -20,7 +20,7 @@ from bot.utils import decimal_to_american
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
-CACHE_TTL = 300  # 5 minutes
+CACHE_TTL = 900  # 15 minutes
 DISCOVERY_TTL = 1800  # 30 minutes for availability checks
 AGG_MARKETS_CACHE_KEY = "kalshi:all_open_markets:aggregated"  # single stable cache key
 
@@ -590,6 +590,7 @@ class KalshiAPI:
         self._session: aiohttp.ClientSession | None = None
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT)
         self._sports_series_cache: set[str] = set()
+        self._prewarm_task: asyncio.Task | None = None
         # Log auth config at init
         if KALSHI_API_KEY_ID:
             log.info("Kalshi API key configured: %s...", KALSHI_API_KEY_ID[:8])
@@ -627,6 +628,29 @@ class KalshiAPI:
     async def close(self) -> None:
         if self._session and not self._session.closed:
             await self._session.close()
+
+    def schedule_markets_prewarm(self) -> None:
+        """Kick off a background refresh of the markets cache if it's stale.
+
+        Called when discover_available() returns a cached result so that by the
+        time the user navigates to a sport, the markets data is already ready.
+        """
+        # Don't stack up duplicate tasks
+        if self._prewarm_task and not self._prewarm_task.done():
+            return
+        try:
+            self._prewarm_task = asyncio.get_running_loop().create_task(
+                self._prewarm_markets()
+            )
+        except RuntimeError:
+            pass  # no running loop (e.g. during testing)
+
+    async def _prewarm_markets(self) -> None:
+        try:
+            await self.get_all_open_sports_markets()
+            log.debug("Background markets pre-warm complete")
+        except Exception as e:
+            log.debug("Background markets pre-warm error: %s", e)
 
     # ── Caching layer (reuses games_cache table) ──────────────────────
 
@@ -1351,6 +1375,9 @@ class KalshiAPI:
                                 "Discovery cache HIT (age %.0fs): %d games, %d futures",
                                 age, len(cached.get("games", {})), len(cached.get("futures", {})),
                             )
+                            # Markets cache has a shorter TTL — pre-warm in background
+                            # so games load instantly when the user picks a sport.
+                            self.schedule_markets_prewarm()
                             return cached
                     except (ValueError, TypeError):
                         pass
