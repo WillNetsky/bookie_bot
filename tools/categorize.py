@@ -31,15 +31,36 @@ load_dotenv()
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 DB_PATH = "bookie_bot.db"
 
+# (key, slug, display_name)
 CATEGORIES = [
-    ("american",      "American Sports"),
-    ("soccer",        "Soccer"),
-    ("combat",        "Combat Sports"),
-    ("esports",       "Esports"),
-    ("international", "International"),
-    ("other",         "Other"),
+    ("p", "politics",    "Politics"),
+    ("s", "sports",      "Sports"),
+    ("u", "culture",     "Culture"),
+    ("c", "crypto",      "Crypto"),
+    ("l", "climate",     "Climate"),
+    ("e", "economics",   "Economics"),
+    ("m", "mentions",    "Mentions"),
+    ("o", "companies",   "Companies"),
+    ("f", "financials",  "Financials"),
+    ("t", "tech_science","Tech & Science"),
 ]
-CAT_KEYS = [c[0] for c in CATEGORIES]
+
+# Suggested subcategories per top-level category
+SUBCATEGORY_SUGGESTIONS: dict[str, list[str]] = {
+    "politics":    ["us", "international"],
+    "sports":      ["american", "soccer", "combat", "esports", "international", "other"],
+    "culture":     ["entertainment", "awards", "gaming", "other"],
+    "crypto":      ["bitcoin", "ethereum", "altcoins", "other"],
+    "climate":     ["weather", "environment", "other"],
+    "economics":   ["us", "international", "other"],
+    "mentions":    ["social_media", "news", "other"],
+    "companies":   ["tech", "finance", "energy", "retail", "other"],
+    "financials":  ["stocks", "indices", "commodities", "rates", "other"],
+    "tech_science":["ai", "space", "tech", "other"],
+}
+
+CAT_BY_KEY  = {k: (slug, name) for k, slug, name in CATEGORIES}
+CAT_BY_SLUG = {slug: (k, name) for k, slug, name in CATEGORIES}
 
 
 # ── Auth ──────────────────────────────────────────────────────────────
@@ -97,6 +118,7 @@ def open_db() -> sqlite3.Connection:
             kalshi_title    TEXT,
             label           TEXT,
             category        TEXT,
+            subcategory     TEXT,
             is_excluded     INTEGER NOT NULL DEFAULT 0,
             is_derivative   INTEGER NOT NULL DEFAULT 0,
             parent_ticker   TEXT,
@@ -104,6 +126,11 @@ def open_db() -> sqlite3.Connection:
             last_seen       TEXT
         )
     """)
+    # migration for existing tables
+    try:
+        con.execute("ALTER TABLE kalshi_series ADD COLUMN subcategory TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     con.commit()
     return con
 
@@ -117,10 +144,10 @@ def upsert(con: sqlite3.Connection, row: dict) -> None:
     con.execute(
         """
         INSERT OR REPLACE INTO kalshi_series
-            (ticker, kalshi_title, label, category,
+            (ticker, kalshi_title, label, category, subcategory,
              is_excluded, is_derivative, parent_ticker, notes, last_seen)
         VALUES
-            (:ticker, :kalshi_title, :label, :category,
+            (:ticker, :kalshi_title, :label, :category, :subcategory,
              :is_excluded, :is_derivative, :parent_ticker, :notes, :last_seen)
         """,
         row,
@@ -142,7 +169,7 @@ async def fetch_series(session: aiohttp.ClientSession) -> list[dict]:
 
 
 async def fetch_samples(session: aiohttp.ClientSession, ticker: str) -> list[str]:
-    """Fetch a few sample market titles for a series (to give context)."""
+    """Fetch a few sample open market titles for context."""
     url = f"{BASE_URL}/markets"
     params = {"series_ticker": ticker, "limit": 4, "status": "open"}
     async with session.get(url, params=params, headers=_auth_headers("GET", url)) as resp:
@@ -155,10 +182,28 @@ async def fetch_samples(session: aiohttp.ClientSession, ticker: str) -> list[str
 # ── Interactive prompt ────────────────────────────────────────────────
 
 def _cat_menu() -> str:
-    parts = []
-    for slug, name in CATEGORIES:
-        parts.append(f"[{slug[0]}]{slug[1:]}")
-    return "  " + "  ".join(parts) + "  [x]=exclude  [d]=derivative  [?]=skip  [q]=quit"
+    parts = [f"[{k}] {name}" for k, slug, name in CATEGORIES]
+    parts += ["[x] Exclude", "[d] Derivative", "[?] Skip", "[q] Quit"]
+    # Wrap to two lines
+    half = len(parts) // 2
+    line1 = "  ".join(parts[:half])
+    line2 = "  ".join(parts[half:])
+    return f"  {line1}\n  {line2}"
+
+
+def _subcat_prompt(category_slug: str, existing_sub: str | None) -> str | None:
+    """Prompt for an optional subcategory, showing suggestions for this category."""
+    suggestions = SUBCATEGORY_SUGGESTIONS.get(category_slug, [])
+    default = existing_sub or ""
+    if suggestions:
+        hint = "/".join(suggestions)
+        display_default = f" [{default}]" if default else f" (suggestions: {hint})"
+    else:
+        display_default = f" [{default}]" if default else " (optional)"
+    val = input(f"  Subcategory{display_default}: ").strip().lower().replace(" ", "_")
+    if not val:
+        return default or None
+    return val
 
 
 def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[str]) -> dict | None:
@@ -167,7 +212,7 @@ def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[
     Returns a row dict, or None to skip.
     Raises SystemExit on quit.
     """
-    sep = "─" * 60
+    sep = "─" * 65
     print(f"\n{sep}")
     print(f"  Ticker : {ticker}")
     print(f"  Title  : {kalshi_title}")
@@ -175,11 +220,13 @@ def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[
         flags = []
         if existing.get("is_excluded"):    flags.append("EXCLUDED")
         if existing.get("is_derivative"): flags.append(f"DERIVATIVE→{existing.get('parent_ticker') or '?'}")
-        cur = existing.get("category") or ""
+        cat  = existing.get("category") or ""
+        sub  = existing.get("subcategory") or ""
+        cur  = f"{cat}/{sub}" if sub else cat
         if flags: cur = ", ".join(flags)
         print(f"  Current: {cur or '(none)'}  label={existing.get('label') or '(none)'}")
     if samples:
-        print(f"  Markets:")
+        print("  Markets:")
         for s in samples:
             print(f"    · {s}")
     print()
@@ -200,19 +247,20 @@ def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[
         if raw == "x":
             label = _ask_label(kalshi_title)
             notes = _ask_notes()
-            return _row(ticker, kalshi_title, label, None, is_excluded=1, notes=notes)
+            return _row(ticker, kalshi_title, label, None, None, is_excluded=1, notes=notes)
 
         if raw == "d":
             parent = input("  Parent ticker: ").strip().upper() or None
             label  = _ask_label(kalshi_title)
             notes  = _ask_notes()
-            return _row(ticker, kalshi_title, label, None, is_derivative=1, parent=parent, notes=notes)
+            return _row(ticker, kalshi_title, label, None, None, is_derivative=1, parent=parent, notes=notes)
 
-        match = next((c for c in CAT_KEYS if c[0] == raw), None)
-        if match:
-            label = _ask_label(kalshi_title)
-            notes = _ask_notes()
-            return _row(ticker, kalshi_title, label, match, notes=notes)
+        if raw in CAT_BY_KEY:
+            slug, _name = CAT_BY_KEY[raw]
+            label  = _ask_label(kalshi_title)
+            subcat = _subcat_prompt(slug, existing.get("subcategory") if existing else None)
+            notes  = _ask_notes()
+            return _row(ticker, kalshi_title, label, slug, subcat, notes=notes)
 
         print("  Unrecognized. Try again.")
 
@@ -228,7 +276,8 @@ def _ask_notes() -> str | None:
 
 
 def _row(
-    ticker: str, kalshi_title: str, label: str, category: str | None,
+    ticker: str, kalshi_title: str, label: str,
+    category: str | None, subcategory: str | None,
     is_excluded: int = 0, is_derivative: int = 0,
     parent: str | None = None, notes: str | None = None,
 ) -> dict:
@@ -237,6 +286,7 @@ def _row(
         "kalshi_title":  kalshi_title,
         "label":         label,
         "category":      category,
+        "subcategory":   subcategory,
         "is_excluded":   is_excluded,
         "is_derivative": is_derivative,
         "parent_ticker": parent,
@@ -249,29 +299,34 @@ def _row(
 
 def cmd_show(con: sqlite3.Connection) -> None:
     rows = con.execute(
-        "SELECT * FROM kalshi_series ORDER BY category NULLS LAST, label COLLATE NOCASE"
+        "SELECT * FROM kalshi_series ORDER BY category NULLS LAST, subcategory NULLS LAST, label COLLATE NOCASE"
     ).fetchall()
     if not rows:
         print("No series categorized yet.")
         return
 
-    print(f"\n{'Ticker':<35} {'Label':<32} {'Category':<15} Flags")
-    print("─" * 100)
+    print(f"\n  {'Ticker':<35} {'Label':<30} {'Category':<15} {'Subcategory':<15} Flags")
+    print("  " + "─" * 105)
     last_cat = object()
     for r in rows:
         cat = r["category"] or ""
+        sub = r["subcategory"] or ""
         if cat != last_cat:
             if last_cat is not object():
                 print()
-            print(f"  {'── ' + (cat.upper() if cat else 'UNCATEGORIZED/EXCLUDED') + ' ──'}")
+            _, cat_name = CAT_BY_SLUG.get(cat, ("?", cat.upper() if cat else "UNCATEGORIZED"))
+            print(f"\n  ── {cat_name} ──")
             last_cat = cat
         flags = []
-        if r["is_excluded"]:    flags.append("EXCLUDED")
+        if r["is_excluded"]:    flags.append("EXCL")
         if r["is_derivative"]: flags.append(f"→{r['parent_ticker'] or '?'}")
         flag_str = "  " + ", ".join(flags) if flags else ""
-        print(f"  {r['ticker']:<33} {(r['label'] or ''):<32} {cat:<15}{flag_str}")
+        print(f"  {r['ticker']:<35} {(r['label'] or ''):<30} {cat:<15} {sub:<15}{flag_str}")
 
-    print(f"\n  Total: {len(rows)} series")
+    total = len(rows)
+    excl  = sum(1 for r in rows if r["is_excluded"])
+    deriv = sum(1 for r in rows if r["is_derivative"])
+    print(f"\n  {total} total  ({excl} excluded, {deriv} derivatives)")
 
 
 # ── Main ──────────────────────────────────────────────────────────────
@@ -296,7 +351,6 @@ async def main(args: argparse.Namespace) -> None:
         known = load_known(con)
 
         if args.ticker:
-            # Single-series mode
             match = next((s for s in all_series if s.get("ticker") == args.ticker.upper()), None)
             if not match:
                 match = {"ticker": args.ticker.upper(), "title": args.ticker.upper()}
@@ -312,14 +366,14 @@ async def main(args: argparse.Namespace) -> None:
             return
 
         print(f"{len(to_review)} series to review.\n")
-        print("Keys: " + "  ".join(f"[{c[0]}]={c[0]}" for c in CATEGORIES))
-        print("      [x]=exclude  [d]=derivative (spread/total/sub-stat)  [?]=skip  [q]=quit\n")
+        print(_cat_menu())
+        print()
 
         saved = skipped = 0
         for i, s in enumerate(to_review, 1):
-            ticker      = s.get("ticker", "")
+            ticker       = s.get("ticker", "")
             kalshi_title = s.get("title", ticker)
-            existing    = known.get(ticker)
+            existing     = known.get(ticker)
 
             print(f"[{i}/{len(to_review)}]", end="", flush=True)
             samples = await fetch_samples(session, ticker)
@@ -330,12 +384,9 @@ async def main(args: argparse.Namespace) -> None:
                 skipped += 1
             else:
                 upsert(con, row)
-                flag = (
-                    "EXCLUDED" if row["is_excluded"]
-                    else f"DERIVATIVE→{row['parent_ticker'] or '?'}" if row["is_derivative"]
-                    else row["category"]
-                )
-                print(f"  Saved: {ticker} → {flag} / \"{row['label']}\"")
+                cat_display = row["category"] or ("EXCLUDED" if row["is_excluded"] else "DERIVATIVE")
+                sub_display = f"/{row['subcategory']}" if row.get("subcategory") else ""
+                print(f"  Saved: {ticker} → {cat_display}{sub_display} / \"{row['label']}\"")
                 saved += 1
 
     print(f"\nDone. {saved} saved, {skipped} skipped.")
@@ -346,6 +397,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kalshi series categorization tool")
     parser.add_argument("--all",    action="store_true", help="Re-review all series, not just uncategorized")
     parser.add_argument("--show",   action="store_true", help="Print current categorizations and exit")
-    parser.add_argument("--ticker", metavar="TICKER",   help="Review a single specific series")
+    parser.add_argument("--ticker", metavar="TICKER",    help="Review a single specific series")
     args = parser.parse_args()
     asyncio.run(main(args))

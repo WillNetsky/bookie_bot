@@ -127,6 +127,7 @@ CREATE TABLE IF NOT EXISTS kalshi_series (
     kalshi_title    TEXT,
     label           TEXT,
     category        TEXT,
+    subcategory     TEXT,
     is_excluded     INTEGER NOT NULL DEFAULT 0,
     is_derivative   INTEGER NOT NULL DEFAULT 0,
     parent_ticker   TEXT,
@@ -154,6 +155,7 @@ MIGRATIONS = [
     "ALTER TABLE bets ADD COLUMN commence_time TEXT",
     "ALTER TABLE parlay_legs ADD COLUMN commence_time TEXT",
     "ALTER TABLE kalshi_bets ADD COLUMN pick_display TEXT",
+    "ALTER TABLE kalshi_series ADD COLUMN subcategory TEXT",
     # kalshi_parlays and kalshi_parlay_legs created in schema above
 ]
 
