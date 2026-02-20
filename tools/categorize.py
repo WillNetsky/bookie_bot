@@ -168,15 +168,18 @@ async def fetch_series(session: aiohttp.ClientSession) -> list[dict]:
     return data.get("series", [])
 
 
-async def fetch_samples(session: aiohttp.ClientSession, ticker: str) -> list[str]:
-    """Fetch a few sample open market titles for context."""
+async def fetch_samples(session: aiohttp.ClientSession, ticker: str) -> tuple[int, list[dict]]:
+    """Fetch sample open markets for context. Returns (total_count, sample_list)."""
     url = f"{BASE_URL}/markets"
-    params = {"series_ticker": ticker, "limit": 4, "status": "open"}
+    params = {"series_ticker": ticker, "limit": 100, "status": "open"}
     async with session.get(url, params=params, headers=_auth_headers("GET", url)) as resp:
         if resp.status != 200:
-            return []
+            return 0, []
         data = await resp.json()
-    return [m.get("title", "") for m in data.get("markets", []) if m.get("title")]
+    markets = data.get("markets", [])
+    total = len(markets)
+    samples = markets[:4]
+    return total, samples
 
 
 # ── Interactive prompt ────────────────────────────────────────────────
@@ -206,7 +209,38 @@ def _subcat_prompt(category_slug: str, existing_sub: str | None) -> str | None:
     return val
 
 
-def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[str]) -> dict | None:
+def _fmt_prob(market: dict) -> str:
+    """Format YES probability as a percentage."""
+    p = market.get("yes_ask_dollars") or market.get("last_price_dollars")
+    if p is None:
+        return "  ?%"
+    return f"{round(p * 100):>3}%"
+
+
+def _fmt_close(market: dict) -> str:
+    """Format close time as a short human-readable string."""
+    raw = market.get("close_time") or market.get("expected_expiration_time") or ""
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        delta = dt - now
+        days = delta.days
+        if days < 0:
+            return "CLOSED"
+        if days == 0:
+            hrs = delta.seconds // 3600
+            return f"closes in {hrs}h"
+        return f"closes {dt.strftime('%b %d')}"
+    except (ValueError, TypeError):
+        return ""
+
+
+def prompt(
+    ticker: str, kalshi_title: str, kalshi_category: str,
+    existing: dict | None, market_count: int, samples: list[dict],
+) -> dict | None:
     """
     Prompt the user to categorize a series.
     Returns a row dict, or None to skip.
@@ -214,8 +248,9 @@ def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[
     """
     sep = "─" * 65
     print(f"\n{sep}")
-    print(f"  Ticker : {ticker}")
-    print(f"  Title  : {kalshi_title}")
+    print(f"  Ticker   : {ticker}")
+    print(f"  Title    : {kalshi_title}")
+    print(f"  Kalshi   : {kalshi_category or '(none)'}  |  {market_count} open market{'s' if market_count != 1 else ''}")
     if existing:
         flags = []
         if existing.get("is_excluded"):    flags.append("EXCLUDED")
@@ -224,11 +259,18 @@ def prompt(ticker: str, kalshi_title: str, existing: dict | None, samples: list[
         sub  = existing.get("subcategory") or ""
         cur  = f"{cat}/{sub}" if sub else cat
         if flags: cur = ", ".join(flags)
-        print(f"  Current: {cur or '(none)'}  label={existing.get('label') or '(none)'}")
+        print(f"  Current  : {cur or '(none)'}  label={existing.get('label') or '(none)'}")
     if samples:
-        print("  Markets:")
-        for s in samples:
-            print(f"    · {s}")
+        print("  Markets  :")
+        for m in samples:
+            title   = m.get("title") or "?"
+            sub_t   = m.get("yes_sub_title") or ""
+            prob    = _fmt_prob(m)
+            close   = _fmt_close(m)
+            detail  = f"  [{prob} YES]" + (f"  {close}" if close else "")
+            print(f"    · {title}{detail}")
+            if sub_t and sub_t.lower() not in title.lower():
+                print(f"        YES = {sub_t}")
     print()
     print(_cat_menu())
 
@@ -376,9 +418,10 @@ async def main(args: argparse.Namespace) -> None:
             existing     = known.get(ticker)
 
             print(f"[{i}/{len(to_review)}]", end="", flush=True)
-            samples = await fetch_samples(session, ticker)
+            kalshi_category  = s.get("category", "")
+            market_count, samples = await fetch_samples(session, ticker)
 
-            row = prompt(ticker, kalshi_title, existing, samples)
+            row = prompt(ticker, kalshi_title, kalshi_category, existing, market_count, samples)
             if row is None:
                 print("  Skipped.")
                 skipped += 1
