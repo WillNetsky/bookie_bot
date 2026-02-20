@@ -302,7 +302,7 @@ class KalshiMarketsView(discord.ui.View):
         options: list[discord.SelectOption] = []
         for m in page_markets:
             ticker = m.get("ticker", "")
-            title = m.get("title") or m.get("yes_sub_title") or ticker
+            title = m.get("yes_sub_title") or m.get("title") or ticker
             label = title[:100]
             yes_am, no_am = _market_odds_str(m)
             desc = f"YES {yes_am} / NO {no_am}"[:100]
@@ -334,7 +334,7 @@ class KalshiMarketsView(discord.ui.View):
 
         lines = []
         for m in page_markets:
-            title = m.get("title") or "?"
+            title = m.get("yes_sub_title") or m.get("title") or "?"
             exp = m.get("close_time") or m.get("expected_expiration_time") or ""
             time_str = _format_game_time(exp) if exp else "TBD"
             yes_am, no_am = _market_odds_str(m)
