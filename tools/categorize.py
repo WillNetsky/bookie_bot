@@ -189,6 +189,10 @@ async def fetch_all_open_markets(session: aiohttp.ClientSession) -> dict[str, li
         markets = data.get("markets", [])
         for m in markets:
             st = m.get("series_ticker") or ""
+            if not st:
+                # Kalshi v2 API often omits series_ticker — derive it from event_ticker
+                et = m.get("event_ticker") or ""
+                st = et.split("-")[0] if "-" in et else et
             if st:
                 by_series.setdefault(st, []).append(m)
         page += 1
