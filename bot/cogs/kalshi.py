@@ -1420,9 +1420,11 @@ class RawMarketBackButton(discord.ui.Button["RawMarketBetView"]):
         self._list_view = list_view
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
         embed = self._list_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=self._list_view)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self._list_view)
+        except discord.NotFound:
+            pass
 
 
 class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
