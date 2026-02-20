@@ -234,8 +234,11 @@ async def vacuum_db() -> None:
         try:
             await db.execute("VACUUM")
         except sqlite3.OperationalError as e:
-            if "statements in progress" in str(e):
-                log.warning("VACUUM skipped: Database is currently busy with other queries.")
+            msg = str(e)
+            if "statements in progress" in msg:
+                log.warning("VACUUM skipped: database busy with other queries.")
+            elif "disk is full" in msg or "database is full" in msg:
+                log.warning("VACUUM skipped: insufficient temp disk space (DB needs ~1x its size). Error: %s", e)
             else:
                 raise
 
