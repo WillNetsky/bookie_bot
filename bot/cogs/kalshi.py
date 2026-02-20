@@ -1374,12 +1374,11 @@ class RawMarketBetView(discord.ui.View):
     def __init__(self, market: dict, list_view: MarketListView, timeout: float = 180.0) -> None:
         super().__init__(timeout=timeout)
         self.market   = market
-        self.list_view = list_view
 
         yes_am, no_am = _market_odds_str(market)
         self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
         self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
-        self.add_item(RawMarketBackButton(list_view, row=1))
+        self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1))
 
     def build_embed(self) -> discord.Embed:
         m       = self.market
@@ -1414,15 +1413,17 @@ class RawMarketPickButton(discord.ui.Button["RawMarketBetView"]):
 
 
 class RawMarketBackButton(discord.ui.Button["RawMarketBetView"]):
-    def __init__(self, list_view: MarketListView, row: int) -> None:
+    def __init__(self, markets: list[dict], page: int, row: int) -> None:
         super().__init__(label="Back", style=discord.ButtonStyle.secondary,
                          emoji="\u25c0\ufe0f", row=row)
-        self._list_view = list_view
+        self._markets = markets
+        self._page = page
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        embed = self._list_view.build_embed()
+        list_view = MarketListView(self._markets, self._page)
+        embed = list_view.build_embed()
         try:
-            await interaction.response.edit_message(embed=embed, view=self._list_view)
+            await interaction.response.edit_message(embed=embed, view=list_view)
         except discord.NotFound:
             pass
 
