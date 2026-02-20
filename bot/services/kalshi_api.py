@@ -1188,7 +1188,7 @@ class KalshiAPI:
         """All open markets grouped by Kalshi category → series. Cached 15 min.
 
         Returns: {category_name: [{ticker, label, market_count, markets: [...]}, ...]}
-        Series within each category are sorted alphabetically by label.
+        Series within each category are sorted by soonest closing market.
         Markets within each series are sorted by close_time ascending.
         """
         if not self._series_info:
@@ -1229,9 +1229,15 @@ class KalshiAPI:
                 "markets": markets_sorted,
             })
 
-        # Sort series within each category alphabetically by label
+        # Sort series within each category by soonest closing market
         for cat in category_data:
-            category_data[cat].sort(key=lambda s: s["label"].lower())
+            def _series_sort_key(s: dict) -> str:
+                markets = s.get("markets", [])
+                if not markets:
+                    return "9999"
+                m = markets[0]
+                return m.get("close_time") or m.get("expected_expiration_time") or "9999"
+            category_data[cat].sort(key=_series_sort_key)
 
         return category_data
 
