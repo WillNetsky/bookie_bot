@@ -9,7 +9,6 @@ from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service
 from bot.services.kalshi_api import (
     kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API,
-    FUTURES_TO_SPORTS, SPORTS_TO_FUTURES,
     _parse_event_ticker_date
 )
 from bot.services.sports_api import SportsAPI
@@ -21,8 +20,6 @@ from bot.utils import (
 from bot.db.database import cleanup_cache, vacuum_db
 
 log = logging.getLogger(__name__)
-
-OPTIONS_PER_PAGE = 25
 
 
 def _sport_emoji(sport_key: str) -> str:
@@ -84,103 +81,44 @@ def _format_game_time(commence_time: str) -> str:
     return format_game_time(commence_time)
 
 
-# ── Sport category classification ─────────────────────────────────────
+# ── /kalshi Browse Views (category → series → markets → bet) ──────────
 
-CATEGORY_META: list[tuple[str, str]] = [
-    # (slug, display_label)
-    ("american",      "\U0001f3c8 American Sports"),
-    ("soccer",        "\u26bd Soccer"),
-    ("combat",        "\U0001f94a Combat Sports"),
-    ("esports",       "\U0001f3ae Esports"),
-    ("international", "\U0001f30d International"),
-    ("other",         "\U0001f3b2 Other"),
-]
-
-_CATEGORY_EMOJI: dict[str, str] = {
-    "american":      "\U0001f3c8",
-    "soccer":        "\u26bd",
-    "combat":        "\U0001f94a",
-    "esports":       "\U0001f3ae",
-    "international": "\U0001f30d",
-    "other":         "\U0001f3b2",
-}
+SERIES_PER_PAGE = 25
+BROWSE_MARKETS_PER_PAGE = 20
 
 
-def _classify_sport(sport_key: str) -> str:
-    """Assign a sport/futures key to a browse category slug."""
-    sk = sport_key.upper().replace("KX", "")
-    if any(p in sk for p in ("NBA", "WNBA", "NFL", "MLB", "NHL", "NCAA", "AHL",
-                              "UNRIVALED", "EUROLEAGUE", "EUROCUP", "ACB", "BSL",
-                              "KBL", "BBL", "FIBA", "ABA", "GBL", "VTB", "CBA", "NBL")):
-        return "american"
-    if any(p in sk for p in ("EPL", "LALIGA", "BUNDESLIGA", "SERIEA", "LIGUE1", "UCL",
-                              "UEL", "UECL", "MLS", "FACUP", "EREDIVISIE", "LIGAMX",
-                              "SAUDIPL", "FIFAUS", "SOCCER")):
-        return "soccer"
-    if any(p in sk for p in ("UFC", "BOXING", "FIGHT", "MCGREGOR", "CRYPTOFIGHT", "MMA")):
-        return "combat"
-    if any(p in sk for p in ("CS2", "CSGO", "LOL", "VALORANT", "DOTA", "OW", "R6", "COD", "EWC")):
-        return "esports"
-    if any(p in sk for p in ("TENNIS", "ATP", "WTA", "CRICKET", "IPL", "WPL", "RUGBY",
-                              "DARTS", "GOLF", "TGL", "PICKLE", "CURL", "CHESS",
-                              "SIXNATIONS", "NRL", "T20", "SSHIELD", "SIXKINGS",
-                              "DAVISCUP", "UNITEDCUP", "CHALLENGER", "PGARYDER",
-                              "LACROSSE", "LAX")):
-        return "international"
-    return "other"
+class KalshiTopView(discord.ui.View):
+    """Landing page: category dropdown using Kalshi's own category taxonomy."""
 
-
-# ── Category Browse View (landing page) ──────────────────────────────────
-
-
-class CategoryView(discord.ui.View):
-    """Landing page: shows sport categories as a single dropdown."""
-
-    def __init__(
-        self,
-        games_available: dict[str, dict],
-        futures_available: dict[str, dict[str, bool]],
-        timeout: float = 180.0,
-    ) -> None:
+    def __init__(self, browse_data: dict[str, list[dict]], timeout: float = 180.0) -> None:
         super().__init__(timeout=timeout)
-        self.games_available = games_available
-        self.futures_available = futures_available
+        self.browse_data = browse_data
         self.message: discord.Message | None = None
 
-        # Count how many sports fall into each category
-        buckets: dict[str, int] = {slug: 0 for slug, _ in CATEGORY_META}
-        for key in games_available:
-            buckets[_classify_sport(key)] += 1
-        for key in futures_available:
-            games_key = FUTURES_TO_SPORTS.get(key)
-            if games_key and games_key in games_available:
-                continue  # already counted via games
-            if key in games_available:
-                continue
-            buckets[_classify_sport(key)] += 1
-
-        # Build Select with only populated categories
         options: list[discord.SelectOption] = []
-        for slug, label in CATEGORY_META:
-            count = buckets.get(slug, 0)
-            if count == 0:
-                continue
-            options.append(discord.SelectOption(
-                label=label,
-                value=slug,
-                description=f"{count} sport{'s' if count != 1 else ''} available",
-                emoji=_CATEGORY_EMOJI[slug],
-            ))
+        for category in sorted(browse_data.keys()):
+            series_list = browse_data[category]
+            series_count = len(series_list)
+            market_count = sum(s["market_count"] for s in series_list)
+            label = category[:100]
+            desc = f"{series_count} series · {market_count} markets"[:100]
+            options.append(discord.SelectOption(label=label, value=category, description=desc))
 
         if options:
-            self.add_item(CategorySelectDropdown(options))
+            self.add_item(KalshiCategorySelect(options[:25]))
 
     def build_embed(self) -> discord.Embed:
         embed = discord.Embed(title="Kalshi Markets", color=discord.Color.blue())
-        if not self.children:
+        if not self.browse_data:
             embed.description = "No open markets right now."
-        else:
-            embed.description = "Pick a category to browse available markets."
+            return embed
+        lines = []
+        for category in sorted(self.browse_data.keys()):
+            series_list = self.browse_data[category]
+            series_count = len(series_list)
+            market_count = sum(s["market_count"] for s in series_list)
+            lines.append(f"**{category}** — {series_count} series, {market_count} markets")
+        embed.description = "\n".join(lines)
         embed.set_footer(text="Select a category below")
         return embed
 
@@ -193,366 +131,83 @@ class CategoryView(discord.ui.View):
                 pass
 
 
-class CategorySelectDropdown(discord.ui.Select["CategoryView"]):
-    """Dropdown to pick a sport category."""
-
+class KalshiCategorySelect(discord.ui.Select["KalshiTopView"]):
     def __init__(self, options: list[discord.SelectOption]) -> None:
         super().__init__(placeholder="Select a category...", options=options, row=0)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        slug = self.values[0]
+        category = self.values[0]
         view = self.view
+        series_list = view.browse_data.get(category, [])
         await interaction.response.defer()
-        sport_view = SportPickView(slug, view.games_available, view.futures_available)
-        embed = sport_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=sport_view)
+        series_view = KalshiSeriesView(category, series_list, view.browse_data)
+        embed = series_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=series_view)
 
 
-# ── Sport Pick View (second level: sports within a category) ─────────────
-
-
-class SportPickView(discord.ui.View):
-    """Shows the list of sports within a chosen category."""
+class KalshiSeriesView(discord.ui.View):
+    """Shows series within a chosen category."""
 
     def __init__(
         self,
-        category_slug: str,
-        games_available: dict[str, dict],
-        futures_available: dict[str, dict[str, bool]],
-        timeout: float = 180.0,
-    ) -> None:
-        super().__init__(timeout=timeout)
-        self.category_slug = category_slug
-        self.games_available = games_available
-        self.futures_available = futures_available
-        self.message: discord.Message | None = None
-        self.category_label = next(
-            (label for slug, label in CATEGORY_META if slug == category_slug),
-            category_slug,
-        )
-
-        # Build sport options for this category
-        options: list[discord.SelectOption] = []
-
-        # Game sports — sorted by next game time
-        game_items = []
-        for key, info in games_available.items():
-            if _classify_sport(key) != category_slug:
-                continue
-            sport = SPORTS.get(key)
-            if not sport:
-                continue
-            next_time = info.get("next_time") or ""
-            game_items.append((next_time or "9999", key, info, sport))
-        game_items.sort(key=lambda x: x[0])
-
-        for _, key, info, sport in game_items:
-            next_time = info.get("next_time")
-            desc = f"Next: {format_game_time(next_time)}" if next_time else "Games available"
-            if len(desc) > 100:
-                desc = desc[:100]
-            label = sport["label"]
-            if len(label) > 100:
-                label = label[:97] + "..."
-            options.append(discord.SelectOption(
-                label=label,
-                value=f"games:{key}",
-                description=desc,
-                emoji=_sport_emoji(key),
-            ))
-
-        # Futures not already surfaced via their games sport
-        for key, markets in futures_available.items():
-            if _classify_sport(key) != category_slug:
-                continue
-            games_key = FUTURES_TO_SPORTS.get(key)
-            if games_key and games_key in games_available:
-                continue
-            if key in games_available:
-                continue
-            fut = FUTURES.get(key)
-            label = fut["label"] if fut else key
-            market_names = ", ".join(markets.keys())
-            if len(market_names) > 90:
-                market_names = market_names[:87] + "..."
-            fut_sport_key = FUTURES_TO_SPORTS.get(key, key)
-            options.append(discord.SelectOption(
-                label=label,
-                value=f"futures:{key}",
-                description=market_names[:100] if market_names else "Futures",
-                emoji=_sport_emoji(fut_sport_key),
-            ))
-
-        if options:
-            self.add_item(SportPickSelect(options[:25], category_slug))
-        self.add_item(CategoryBackButton(row=1))
-
-    def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(title=self.category_label, color=discord.Color.blue())
-        has_select = any(isinstance(c, SportPickSelect) for c in self.children)
-        if has_select:
-            embed.description = "Select a sport to view games and place bets."
-        else:
-            embed.description = "No open markets in this category right now."
-        embed.set_footer(text="Select a sport below · Back to return to categories")
-        return embed
-
-    async def on_timeout(self) -> None:
-        self.clear_items()
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except discord.NotFound:
-                pass
-
-
-class SportPickSelect(discord.ui.Select["SportPickView"]):
-    """Dropdown to pick a specific sport within a category."""
-
-    def __init__(self, options: list[discord.SelectOption], category_slug: str) -> None:
-        super().__init__(placeholder="Select a sport...", options=options, row=0)
-        self.category_slug = category_slug
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        val = self.values[0]
-        cat_type, key = val.split(":", 1)
-        await interaction.response.defer()
-        await _show_sport_hub(interaction, key, category_slug=self.category_slug)
-
-
-class CategoryBackButton(discord.ui.Button["SportPickView"]):
-    """Returns to the top-level category picker."""
-
-    def __init__(self, row: int = 1) -> None:
-        super().__init__(
-            label="Back", style=discord.ButtonStyle.secondary,
-            emoji="\u25c0\ufe0f", row=row,
-        )
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view = self.view
-        await interaction.response.defer()
-        cat_view = CategoryView(view.games_available, view.futures_available)
-        embed = cat_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=cat_view)
-
-
-# ── Sport Hub View (games + futures for one sport) ─────────────────────
-
-
-class SportHubView(discord.ui.View):
-    """Sport-specific view showing games dropdown + futures buttons."""
-
-    def __init__(
-        self,
-        sport_key: str,
-        sport_label: str,
-        games: list[dict] | None = None,
-        futures_markets: dict[str, str] | None = None,
-        category_slug: str | None = None,
-        timeout: float = 180.0,
-    ) -> None:
-        super().__init__(timeout=timeout)
-        self.sport_key = sport_key
-        self.sport_label = sport_label
-        self.games = games or []
-        self.futures_markets = futures_markets or {}
-        self.category_slug = category_slug
-        self.message: discord.Message | None = None
-
-        row = 0
-        if self.games:
-            self.add_item(KalshiGameSelect(self.games, row=row))
-            row += 1
-
-        # Futures buttons (up to 4 per row, max 2 rows)
-        btn_count = 0
-        for name, series_ticker in self.futures_markets.items():
-            if btn_count >= 8:
-                break
-            self.add_item(FuturesButton(name, series_ticker, sport_label, row=row))
-            btn_count += 1
-            if btn_count % 4 == 0:
-                row += 1
-
-        # Back button returns to sport list for this category
-        if category_slug:
-            back_row = min(row + 1, 4)
-            self.add_item(BrowseBackButton(category_slug, row=back_row))
-
-    def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title=f"{self.sport_label} — Kalshi",
-            color=discord.Color.blue(),
-        )
-        if self.games:
-            for g in self.games[:15]:
-                home = g.get("home_team", "?")
-                away = g.get("away_team", "?")
-                time_str = _format_game_time(g.get("commence_time", ""))
-                embed.add_field(
-                    name=f"{away} @ {home}",
-                    value=time_str,
-                    inline=False,
-                )
-        if self.futures_markets:
-            futures_text = " | ".join(f"**{n}**" for n in self.futures_markets)
-            embed.add_field(
-                name="Futures & Props",
-                value=futures_text,
-                inline=False,
-            )
-        if not self.games and not self.futures_markets:
-            embed.description = "No open markets for this sport."
-        embed.set_footer(text="Select a game or futures market")
-        return embed
-
-    async def on_timeout(self) -> None:
-        self.clear_items()
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except discord.NotFound:
-                pass
-
-
-class FuturesButton(discord.ui.Button["SportHubView"]):
-    """Button that opens a futures market options list."""
-
-    def __init__(self, name: str, series_ticker: str, sport_label: str, row: int) -> None:
-        label = name if len(name) <= 80 else name[:77] + "..."
-        super().__init__(label=label, style=discord.ButtonStyle.success, emoji="\U0001f3c6", row=row)
-        self.market_name = name
-        self.series_ticker = series_ticker
-        self.sport_label = sport_label
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        options = await kalshi_api.get_futures_markets(self.series_ticker)
-        if not options:
-            await interaction.followup.send(
-                f"No open options for {self.market_name}.", ephemeral=True
-            )
-            return
-
-        view = self.view
-        title = f"{self.sport_label} — {self.market_name}"
-        futures_view = FuturesOptionsView(
-            options=options,
-            title=title,
-            series_ticker=self.series_ticker,
-            hub_view=view,
-        )
-        embed = futures_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=futures_view)
-
-
-class BrowseBackButton(discord.ui.Button["SportHubView"]):
-    """Returns to the sport list for the originating category."""
-
-    def __init__(self, category_slug: str, row: int) -> None:
-        super().__init__(
-            label="Back", style=discord.ButtonStyle.secondary,
-            emoji="\u25c0\ufe0f", row=row,
-        )
-        self.category_slug = category_slug
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        discovery = await kalshi_api.discover_available()
-        sport_view = SportPickView(
-            self.category_slug, discovery["games"], discovery["futures"]
-        )
-        embed = sport_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=sport_view)
-
-
-# ── Futures Options View (paginated list of options) ────────────────────
-
-
-class FuturesOptionsView(discord.ui.View):
-    """Paginated dropdown of multi-outcome options (teams/players) for a futures market."""
-
-    def __init__(
-        self,
-        options: list[dict],
-        title: str,
-        series_ticker: str,
-        hub_view: discord.ui.View | None = None,
+        category: str,
+        series_list: list[dict],
+        browse_data: dict[str, list[dict]],
         page: int = 0,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
-        self.all_options = options
-        self.title = title
-        self.series_ticker = series_ticker
-        self.hub_view = hub_view
+        self.category = category
+        self.series_list = series_list
+        self.browse_data = browse_data
         self.page = page
         self.message: discord.Message | None = None
+        self._rebuild()
 
-        self._build_page()
+    def _rebuild(self) -> None:
+        self.clear_items()
+        total_pages = max(1, (len(self.series_list) + SERIES_PER_PAGE - 1) // SERIES_PER_PAGE)
+        start = self.page * SERIES_PER_PAGE
+        page_series = self.series_list[start:start + SERIES_PER_PAGE]
 
-    def _build_page(self) -> None:
-        start = self.page * OPTIONS_PER_PAGE
-        end = start + OPTIONS_PER_PAGE
-        page_options = self.all_options[start:end]
-        total_pages = max(1, (len(self.all_options) + OPTIONS_PER_PAGE - 1) // OPTIONS_PER_PAGE)
+        options: list[discord.SelectOption] = []
+        for s in page_series:
+            label = s["label"][:100]
+            count = s["market_count"]
+            desc = f"{count} market{'s' if count != 1 else ''}"[:100]
+            options.append(discord.SelectOption(label=label, value=s["ticker"], description=desc))
 
-        # Row 0: Options dropdown
-        select_options = []
-        for i, opt in enumerate(page_options):
-            odds_str = format_american(opt["american_odds"])
-            prob_pct = f"{opt['yes_price'] * 100:.0f}%"
-            label = opt["title"]
-            if len(label) > 90:
-                label = label[:87] + "..."
-            desc = f"{odds_str} ({prob_pct})"
-            select_options.append(discord.SelectOption(
-                label=label,
-                value=str(start + i),
-                description=desc,
-            ))
+        if options:
+            self.add_item(KalshiSeriesSelect(options, self.series_list))
 
-        if select_options:
-            self.add_item(OptionsSelect(select_options, self.all_options))
-
-        # Row 1: Pagination buttons
         if total_pages > 1:
             if self.page > 0:
-                self.add_item(PrevPageButton(row=1))
+                self.add_item(KalshiSeriesPageButton("prev", self.page - 1, row=1))
             if self.page < total_pages - 1:
-                self.add_item(NextPageButton(row=1))
+                self.add_item(KalshiSeriesPageButton("next", self.page + 1, row=1))
 
-        # Back button
-        self.add_item(FuturesBackButton(self.hub_view, row=2))
+        self.add_item(KalshiBackToCategoriesButton(self.browse_data, row=2))
 
     def build_embed(self) -> discord.Embed:
-        total = len(self.all_options)
-        total_pages = max(1, (total + OPTIONS_PER_PAGE - 1) // OPTIONS_PER_PAGE)
-        start = self.page * OPTIONS_PER_PAGE
+        total_pages = max(1, (len(self.series_list) + SERIES_PER_PAGE - 1) // SERIES_PER_PAGE)
+        start = self.page * SERIES_PER_PAGE
+        page_series = self.series_list[start:start + SERIES_PER_PAGE]
 
-        embed = discord.Embed(
-            title=self.title,
-            color=discord.Color.gold(),
-        )
+        embed = discord.Embed(title=self.category, color=discord.Color.blue())
+        if not page_series:
+            embed.description = "No series in this category."
+            return embed
 
-        # Show top options as fields
-        page_options = self.all_options[start:start + OPTIONS_PER_PAGE]
         lines = []
-        for i, opt in enumerate(page_options, start=start + 1):
-            odds_str = format_american(opt["american_odds"])
-            prob_pct = f"{opt['yes_price'] * 100:.0f}%"
-            lines.append(f"**{i}.** {opt['title']} — {odds_str} ({prob_pct})")
+        for s in page_series:
+            count = s["market_count"]
+            lines.append(f"**{s['label']}** — {count} market{'s' if count != 1 else ''}")
+        embed.description = "\n".join(lines)
 
-        if lines:
-            # Split into chunks of ~10 to avoid field length limits
-            for chunk_start in range(0, len(lines), 10):
-                chunk = lines[chunk_start:chunk_start + 10]
-                name = "Options" if chunk_start == 0 else "\u200b"
-                embed.add_field(name=name, value="\n".join(chunk), inline=False)
-
-        footer = f"Page {self.page + 1}/{total_pages} — {total} options"
-        embed.set_footer(text=footer)
+        if total_pages > 1:
+            embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Select a series below")
+        else:
+            embed.set_footer(text="Select a series below")
         return embed
 
     async def on_timeout(self) -> None:
@@ -564,421 +219,268 @@ class FuturesOptionsView(discord.ui.View):
                 pass
 
 
-class OptionsSelect(discord.ui.Select["FuturesOptionsView"]):
-    """Dropdown of futures options (teams/players)."""
-
-    def __init__(self, options: list[discord.SelectOption], all_options: list[dict]) -> None:
-        super().__init__(placeholder="Pick an option to bet on...", options=options, row=0)
-        self.all_options = all_options
+class KalshiSeriesSelect(discord.ui.Select["KalshiSeriesView"]):
+    def __init__(self, options: list[discord.SelectOption], series_list: list[dict]) -> None:
+        super().__init__(placeholder="Select a series...", options=options, row=0)
+        self._series_map = {s["ticker"]: s for s in series_list}
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        idx = int(self.values[0])
-        if idx < 0 or idx >= len(self.all_options):
-            await interaction.response.send_message("Invalid option.", ephemeral=True)
+        ticker = self.values[0]
+        series = self._series_map.get(ticker)
+        if not series:
+            await interaction.response.send_message("Series not found.", ephemeral=True)
             return
-
-        option = self.all_options[idx]
         view = self.view
-        title = view.title if view else "Futures"
-        modal = FuturesBetModal(option, title)
-        await interaction.response.send_modal(modal)
+        await interaction.response.defer()
+        markets_view = KalshiMarketsView(series, view.category, view.browse_data, series_page=view.page)
+        embed = markets_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=markets_view)
 
 
-class PrevPageButton(discord.ui.Button["FuturesOptionsView"]):
-    def __init__(self, row: int) -> None:
-        super().__init__(label="Prev", style=discord.ButtonStyle.secondary, emoji="\u25c0", row=row)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view = self.view
-        if view is None:
-            return
-        new_view = FuturesOptionsView(
-            options=view.all_options,
-            title=view.title,
-            series_ticker=view.series_ticker,
-            hub_view=view.hub_view,
-            page=view.page - 1,
-        )
-        embed = new_view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=new_view)
-
-
-class NextPageButton(discord.ui.Button["FuturesOptionsView"]):
-    def __init__(self, row: int) -> None:
-        super().__init__(label="Next", style=discord.ButtonStyle.secondary, emoji="\u25b6", row=row)
+class KalshiSeriesPageButton(discord.ui.Button["KalshiSeriesView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
 
     async def callback(self, interaction: discord.Interaction) -> None:
         view = self.view
         if view is None:
             return
-        new_view = FuturesOptionsView(
-            options=view.all_options,
-            title=view.title,
-            series_ticker=view.series_ticker,
-            hub_view=view.hub_view,
-            page=view.page + 1,
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class KalshiBackToCategoriesButton(discord.ui.Button["KalshiSeriesView"]):
+    def __init__(self, browse_data: dict, row: int) -> None:
+        super().__init__(
+            label="Back", style=discord.ButtonStyle.secondary,
+            emoji="\u25c0\ufe0f", row=row,
         )
-        embed = new_view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=new_view)
-
-
-class FuturesBackButton(discord.ui.Button["FuturesOptionsView"]):
-    """Returns to the sport hub view."""
-
-    def __init__(self, hub_view: discord.ui.View | None, row: int) -> None:
-        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
-        self.hub_view = hub_view
+        self._browse_data = browse_data
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        if self.hub_view and isinstance(self.hub_view, SportHubView):
-            hub = self.hub_view
-            # Rebuild the hub view
-            new_hub = SportHubView(
-                sport_key=hub.sport_key,
-                sport_label=hub.sport_label,
-                games=hub.games,
-                futures_markets=hub.futures_markets,
-                category_slug=hub.category_slug,
-            )
-            embed = new_hub.build_embed()
+        top_view = KalshiTopView(self._browse_data)
+        embed = top_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=top_view)
+
+
+class KalshiMarketsView(discord.ui.View):
+    """Shows markets within a chosen series."""
+
+    def __init__(
+        self,
+        series: dict,
+        category: str,
+        browse_data: dict[str, list[dict]],
+        series_page: int = 0,
+        page: int = 0,
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.series = series
+        self.category = category
+        self.browse_data = browse_data
+        self.series_page = series_page
+        self.page = page
+        self.message: discord.Message | None = None
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        markets = self.series.get("markets", [])
+        total_pages = max(1, (len(markets) + BROWSE_MARKETS_PER_PAGE - 1) // BROWSE_MARKETS_PER_PAGE)
+        start = self.page * BROWSE_MARKETS_PER_PAGE
+        page_markets = markets[start:start + BROWSE_MARKETS_PER_PAGE]
+
+        options: list[discord.SelectOption] = []
+        for m in page_markets:
+            ticker = m.get("ticker", "")
+            title = m.get("title") or m.get("yes_sub_title") or ticker
+            label = title[:100]
+            yes_am, no_am = _market_odds_str(m)
+            desc = f"YES {yes_am} / NO {no_am}"[:100]
+            options.append(discord.SelectOption(label=label, value=ticker, description=desc))
+
+        if options:
+            self.add_item(KalshiMarketsSelect(options, markets))
+
+        if total_pages > 1:
+            if self.page > 0:
+                self.add_item(KalshiMarketsPageButton("prev", self.page - 1, row=1))
+            if self.page < total_pages - 1:
+                self.add_item(KalshiMarketsPageButton("next", self.page + 1, row=1))
+
+        self.add_item(KalshiBackToSeriesButton(
+            self.category, self.browse_data, self.series_page, row=2
+        ))
+
+    def build_embed(self) -> discord.Embed:
+        markets = self.series.get("markets", [])
+        total_pages = max(1, (len(markets) + BROWSE_MARKETS_PER_PAGE - 1) // BROWSE_MARKETS_PER_PAGE)
+        start = self.page * BROWSE_MARKETS_PER_PAGE
+        page_markets = markets[start:start + BROWSE_MARKETS_PER_PAGE]
+
+        embed = discord.Embed(title=self.series["label"], color=discord.Color.blue())
+        if not page_markets:
+            embed.description = "No markets in this series."
+            return embed
+
+        lines = []
+        for m in page_markets:
+            title = m.get("title") or "?"
+            exp = m.get("close_time") or m.get("expected_expiration_time") or ""
+            time_str = _format_game_time(exp) if exp else "TBD"
+            yes_am, no_am = _market_odds_str(m)
+            lines.append(f"**{title}**\n{time_str} · YES {yes_am} / NO {no_am}")
+        embed.description = "\n\n".join(lines)
+
+        footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
+        embed.set_footer(text=f"{footer}Select a market to bet")
+        return embed
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
             try:
-                await interaction.response.edit_message(embed=embed, view=new_hub)
+                await self.message.edit(view=self)
             except discord.NotFound:
                 pass
-        else:
-            await interaction.response.defer()
 
 
-# ── Futures Bet Modal ──────────────────────────────────────────────────
-
-
-class FuturesBetModal(discord.ui.Modal, title="Place Futures Bet"):
-    amount_input = discord.ui.TextInput(
-        label="Wager amount ($)",
-        placeholder="e.g. 50",
-        min_length=1,
-        max_length=10,
-    )
-
-    def __init__(self, option: dict, market_title: str) -> None:
-        super().__init__()
-        self.option = option
-        self.market_title = market_title
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        raw = self.amount_input.value.strip().lstrip("$")
-        try:
-            amount = int(raw)
-        except ValueError:
-            await interaction.response.send_message(
-                "Invalid amount — enter a whole number.", ephemeral=True
-            )
-            return
-        if amount <= 0:
-            await interaction.response.send_message(
-                "Bet amount must be positive.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-
-        option = self.option
-        market_ticker = option["ticker"]
-        decimal_odds = option["decimal_odds"]
-        american_odds = option["american_odds"]
-        pick_display = option["title"]
-        close_time = option.get("close_time")
-        event_ticker = option.get("event_ticker", "")
-
-        if close_time:
-            try:
-                ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                if ct <= datetime.now(timezone.utc):
-                    await interaction.followup.send("This market has already closed.", ephemeral=True)
-                    return
-            except (ValueError, TypeError):
-                pass
-
-        bet_id = await betting_service.place_kalshi_bet(
-            user_id=interaction.user.id,
-            market_ticker=market_ticker,
-            event_ticker=event_ticker,
-            pick="yes",
-            amount=amount,
-            odds=decimal_odds,
-            title=self.market_title,
-            close_time=close_time,
-            pick_display=pick_display,
-        )
-
-        if bet_id is None:
-            await interaction.followup.send("Insufficient balance!", ephemeral=True)
-            return
-
-        payout = round(amount * decimal_odds, 2)
-
-        embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
-        embed.add_field(name="Bet ID", value=f"#K{bet_id}", inline=True)
-        embed.add_field(name="Market", value=self.market_title, inline=True)
-        embed.add_field(name="Pick", value=pick_display, inline=True)
-        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="Odds", value=format_american(american_odds), inline=True)
-        embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
-
-        await interaction.followup.send(embed=embed)
-
-
-# ── Game-level UI components (existing) ───────────────────────────────
-
-
-class KalshiGameSelect(discord.ui.Select):
-    """Dropdown listing games — shows bet type buttons when selected."""
-
-    def __init__(self, games: list[dict], row: int = 0) -> None:
-        self.games_map: dict[str, dict] = {}
-        options = []
-        for g in games[:25]:
-            game_id = g["id"]
-            home = g.get("home_team", "?")
-            away = g.get("away_team", "?")
-            label = format_matchup(home, away)
-            if len(label) > 100:
-                label = label[:97] + "..."
-            desc = _format_game_time(g.get("commence_time", ""))
-            if len(desc) > 100:
-                desc = desc[:100]
-            self.games_map[game_id] = g
-            options.append(discord.SelectOption(label=label, value=game_id, description=desc))
-        super().__init__(placeholder="Select a game to bet on...", options=options, row=row)
+class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
+    def __init__(self, options: list[discord.SelectOption], markets: list[dict]) -> None:
+        super().__init__(placeholder="Select a market to bet on...", options=options, row=0)
+        self._market_map = {m.get("ticker", ""): m for m in markets}
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        game_id = self.values[0]
-        game = self.games_map.get(game_id)
-        if not game:
-            await interaction.response.send_message("Game not found.", ephemeral=True)
+        ticker = self.values[0]
+        market = self._market_map.get(ticker)
+        if not market:
+            await interaction.response.send_message("Market not found.", ephemeral=True)
             return
-
         view = self.view
-        if view is None:
-            return
-
         await interaction.response.defer()
-
-        sport_key = game.get("sport_key") or (view.sport_key if hasattr(view, "sport_key") else "NBA")
-        parsed = await kalshi_api.get_game_odds(sport_key, game)
-
-        home = game.get("home_team", "?")
-        away = game.get("away_team", "?")
-        fmt = format_american
-
-        # Build a new view for bet type selection
-        bet_view = GameBetTypeView(game, parsed, view)
-        time_str = _format_game_time(game.get("commence_time", ""))
-        embed = discord.Embed(
-            title=game.get("sport_title", ""),
-            description=f"**{format_matchup(home, away)}**\n{time_str}",
-            color=discord.Color.blue(),
+        bet_view = KalshiMarketBetView(
+            market, view.series, view.category, view.browse_data,
+            series_page=view.series_page, markets_page=view.page,
         )
+        embed = bet_view.build_embed()
         await interaction.edit_original_response(embed=embed, view=bet_view)
 
 
-class GameBetTypeView(discord.ui.View):
-    """View showing bet type buttons for a specific game."""
+class KalshiMarketsPageButton(discord.ui.Button["KalshiMarketsView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
 
-    def __init__(self, game: dict, parsed: dict, hub_view: discord.ui.View, timeout: float = 180.0) -> None:
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class KalshiBackToSeriesButton(discord.ui.Button["KalshiMarketsView"]):
+    def __init__(self, category: str, browse_data: dict, series_page: int, row: int) -> None:
+        super().__init__(
+            label="Back", style=discord.ButtonStyle.secondary,
+            emoji="\u25c0\ufe0f", row=row,
+        )
+        self._category = category
+        self._browse_data = browse_data
+        self._series_page = series_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        series_list = self._browse_data.get(self._category, [])
+        series_view = KalshiSeriesView(
+            self._category, series_list, self._browse_data, page=self._series_page
+        )
+        embed = series_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=series_view)
+
+
+class KalshiMarketBetView(discord.ui.View):
+    """YES / NO buttons for a single Kalshi market in the /kalshi browse flow."""
+
+    def __init__(
+        self,
+        market: dict,
+        series: dict,
+        category: str,
+        browse_data: dict[str, list[dict]],
+        series_page: int = 0,
+        markets_page: int = 0,
+        timeout: float = 180.0,
+    ) -> None:
         super().__init__(timeout=timeout)
-        self.game = game
-        self.hub_view = hub_view
+        self.market = market
+        yes_am, no_am = _market_odds_str(market)
+        self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
+        self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
+        self.add_item(KalshiMarketBackButton(series, category, browse_data, series_page, markets_page, row=1))
 
-        home = game.get("home_team", "?")
-        away = game.get("away_team", "?")
-        fmt = format_american
+    def build_embed(self) -> discord.Embed:
+        m = self.market
+        title = m.get("title") or "?"
+        yes_sub = m.get("yes_sub_title") or ""
+        exp = m.get("expected_expiration_time") or m.get("close_time") or ""
+        time_str = _format_game_time(exp) if exp else "TBD"
+        yes_am, no_am = _market_odds_str(m)
+        embed = discord.Embed(title=title, color=discord.Color.blue())
+        if yes_sub:
+            embed.add_field(name="YES resolves if", value=yes_sub, inline=False)
+        embed.add_field(name="Closes", value=time_str, inline=True)
+        embed.add_field(name="YES",    value=yes_am,   inline=True)
+        embed.add_field(name="NO",     value=no_am,    inline=True)
+        embed.set_footer(text="Pick YES or NO, then enter your wager")
+        return embed
 
-        # Row 0: Moneyline
-        row = 0
-        if "home" in parsed:
-            self.add_item(KalshiBetTypeButton(
-                "home", f"Home {fmt(parsed['home']['american'])}",
-                game, parsed["home"], row=row,
-            ))
-        if "away" in parsed:
-            self.add_item(KalshiBetTypeButton(
-                "away", f"Away {fmt(parsed['away']['american'])}",
-                game, parsed["away"], row=row,
-            ))
-
-        # Row 1: Spreads
-        row = 1
-        if "spread_home" in parsed:
-            sh = parsed["spread_home"]
-            self.add_item(KalshiBetTypeButton(
-                "spread_home", f"{home} {sh['point']:+g} ({fmt(sh['american'])})",
-                game, sh, row=row,
-            ))
-        if "spread_away" in parsed:
-            sa = parsed["spread_away"]
-            self.add_item(KalshiBetTypeButton(
-                "spread_away", f"{away} {sa['point']:+g} ({fmt(sa['american'])})",
-                game, sa, row=row,
-            ))
-
-        # Row 2: Totals
-        row = 2
-        if "over" in parsed:
-            ov = parsed["over"]
-            self.add_item(KalshiBetTypeButton(
-                "over", f"Over {ov['point']:g} ({fmt(ov['american'])})",
-                game, ov, row=row,
-            ))
-        if "under" in parsed:
-            un = parsed["under"]
-            self.add_item(KalshiBetTypeButton(
-                "under", f"Under {un['point']:g} ({fmt(un['american'])})",
-                game, un, row=row,
-            ))
-
-        # Row 3: Back button
-        self.add_item(GameBackButton(hub_view, row=3))
-
-
-class KalshiBetTypeButton(discord.ui.Button["GameBetTypeView"]):
-    """A button representing one bet type (home, away, spread, etc.)."""
-
-    def __init__(self, pick_key: str, label: str, game: dict, odds_entry: dict, row: int) -> None:
-        emoji = PICK_EMOJI.get(pick_key)
-        super().__init__(label=label, style=discord.ButtonStyle.primary, emoji=emoji, row=row)
-        self.pick_key = pick_key
-        self.game = game
-        self.odds_entry = odds_entry
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        modal = KalshiBetAmountModal(self.game, self.pick_key, self.odds_entry)
-        await interaction.response.send_modal(modal)
-
-
-class GameBackButton(discord.ui.Button["GameBetTypeView"]):
-    """Returns to the sport hub view."""
-
-    def __init__(self, hub_view: discord.ui.View, row: int) -> None:
-        super().__init__(label="Back", style=discord.ButtonStyle.secondary, row=row)
-        self._hub_view = hub_view
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if isinstance(self._hub_view, SportHubView):
-            hub = self._hub_view
-            new_hub = SportHubView(
-                sport_key=hub.sport_key,
-                sport_label=hub.sport_label,
-                games=hub.games,
-                futures_markets=hub.futures_markets,
-                category_slug=hub.category_slug,
-            )
-            embed = new_hub.build_embed()
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if hasattr(self, "message") and self.message:
             try:
-                await interaction.response.edit_message(embed=embed, view=new_hub)
+                await self.message.edit(view=self)
             except discord.NotFound:
                 pass
-        else:
-            await interaction.response.defer()
 
 
-class KalshiBetAmountModal(discord.ui.Modal, title="Place Bet"):
-    amount_input = discord.ui.TextInput(
-        label="Wager amount ($)",
-        placeholder="e.g. 50",
-        min_length=1,
-        max_length=10,
-    )
-
-    def __init__(self, game: dict, pick_key: str, odds_entry: dict) -> None:
-        super().__init__()
-        self.game = game
-        self.pick_key = pick_key
-        self.odds_entry = odds_entry
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        raw = self.amount_input.value.strip().lstrip("$")
-        try:
-            amount = int(raw)
-        except ValueError:
-            await interaction.response.send_message(
-                "Invalid amount — enter a whole number.", ephemeral=True
-            )
-            return
-        if amount <= 0:
-            await interaction.response.send_message(
-                "Bet amount must be positive.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-
-        game = self.game
-        pick_key = self.pick_key
-        odds_entry = self.odds_entry
-        decimal_odds = odds_entry["decimal"]
-        american_odds = odds_entry["american"]
-
-        home = game.get("home_team", "?")
-        away = game.get("away_team", "?")
-
-        kalshi_markets = game.get("_kalshi_markets", {})
-        market_ticker, kalshi_pick = _resolve_kalshi_bet(
-            pick_key, kalshi_markets, odds_entry
+class KalshiMarketBackButton(discord.ui.Button["KalshiMarketBetView"]):
+    def __init__(
+        self, series: dict, category: str, browse_data: dict,
+        series_page: int, markets_page: int, row: int,
+    ) -> None:
+        super().__init__(
+            label="Back", style=discord.ButtonStyle.secondary,
+            emoji="\u25c0\ufe0f", row=row,
         )
+        self._series = series
+        self._category = category
+        self._browse_data = browse_data
+        self._series_page = series_page
+        self._markets_page = markets_page
 
-        if not market_ticker:
-            await interaction.followup.send(
-                "Could not find the Kalshi market for this bet.", ephemeral=True
-            )
-            return
-
-        pick_display = _build_pick_display(pick_key, home, away, odds_entry)
-
-        market = kalshi_markets.get("home") or kalshi_markets.get("away") or {}
-        close_time = market.get("close_time") or market.get("expected_expiration_time")
-
-        if close_time:
-            try:
-                ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                if ct <= datetime.now(timezone.utc):
-                    await interaction.followup.send("This market has already closed.", ephemeral=True)
-                    return
-            except (ValueError, TypeError):
-                pass
-
-        bet_title = f"{format_matchup(home, away)} ({game.get('sport_title', '')})"
-
-        bet_id = await betting_service.place_kalshi_bet(
-            user_id=interaction.user.id,
-            market_ticker=market_ticker,
-            event_ticker=game.get("id", ""),
-            pick=kalshi_pick,
-            amount=amount,
-            odds=decimal_odds,
-            title=bet_title,
-            close_time=close_time,
-            pick_display=pick_display,
+    async def callback(self, interaction: discord.Interaction) -> None:
+        markets_view = KalshiMarketsView(
+            self._series, self._category, self._browse_data,
+            series_page=self._series_page, page=self._markets_page,
         )
-
-        if bet_id is None:
-            await interaction.followup.send("Insufficient balance!", ephemeral=True)
-            return
-
-        payout = round(amount * decimal_odds, 2)
-
-        time_str = _format_game_time(game.get("commence_time", ""))
-
-        embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
-        embed.add_field(name="Bet ID", value=f"#K{bet_id}", inline=True)
-        embed.add_field(name="Game", value=format_matchup(home, away), inline=True)
-        embed.add_field(name="Time", value=time_str, inline=True)
-        embed.add_field(name="Pick", value=pick_display, inline=True)
-        embed.add_field(name="Wager", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="Odds", value=format_american(american_odds), inline=True)
-        embed.add_field(name="Potential Payout", value=f"${payout:.2f}", inline=True)
-
-        await interaction.followup.send(embed=embed)
+        embed = markets_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=markets_view)
 
 
 # ── Helper functions ───────────────────────────────────────────────────
@@ -1027,47 +529,14 @@ def _build_pick_display(pick_key: str, home: str, away: str, odds_entry: dict) -
     return pick_key.capitalize()
 
 
-async def _show_sport_hub(
-    interaction: discord.Interaction,
-    sport_key: str,
-    category_slug: str | None = None,
-) -> None:
-    """Navigate to a sport hub view showing games + futures."""
-    sport_label = sport_key
-    games = []
-    futures_markets = {}
-
-    # Resolve cross-references: sport_key could be a SPORTS ticker or FUTURES key
-    games_key = sport_key if sport_key in SPORTS else FUTURES_TO_SPORTS.get(sport_key)
-    futures_key = sport_key if sport_key in FUTURES else SPORTS_TO_FUTURES.get(sport_key)
-
-    if games_key and games_key in SPORTS:
-        sport_label = SPORTS[games_key]["label"]
-        games = await kalshi_api.get_sport_games(games_key)
-    elif futures_key and futures_key in FUTURES:
-        sport_label = FUTURES[futures_key]["label"]
-
-    if futures_key and futures_key in FUTURES:
-        futures_markets = FUTURES[futures_key]["markets"]
-
-    view = SportHubView(
-        sport_key=sport_key,
-        sport_label=sport_label,
-        games=games,
-        futures_markets=futures_markets,
-        category_slug=category_slug,
-    )
-    embed = view.build_embed()
-    await interaction.edit_original_response(embed=embed, view=view)
-
-
-# ── Games List View (for /games and /livescores) ──────────────────────
+# ── Games List View (for /live) ───────────────────────────────────────
+# Display-only view showing live game scores with pagination.
 
 GAMES_PER_PAGE = 10
 
 
 class GamesListView(discord.ui.View):
-    """Compact chronological game list with game select for quick betting."""
+    """Paginated live game scores display."""
 
     def __init__(
         self,
@@ -1087,34 +556,20 @@ class GamesListView(discord.ui.View):
         self.message: discord.Message | None = None
 
         total_pages = max(1, (len(all_games) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE)
-        start = page * GAMES_PER_PAGE
-        page_games = all_games[start:start + GAMES_PER_PAGE]
-
-        # Row 0: Game select
-        if page_games:
-            self.add_item(KalshiGameSelect(page_games, row=0))
-
-        # Row 1: Pagination
         if total_pages > 1:
             if page > 0:
-                self.add_item(GamesPageButton("prev", page - 1, row=1))
+                self.add_item(GamesPageButton("prev", page - 1, row=0))
             if page < total_pages - 1:
-                self.add_item(GamesPageButton("next", page + 1, row=1))
+                self.add_item(GamesPageButton("next", page + 1, row=0))
 
     def _find_score(self, game: dict) -> dict | None:
-        """Match a Kalshi game to odds-api scores by team name."""
         if not self.scores:
             return None
         home = game.get("home_team", "").lower()
         away = game.get("away_team", "").lower()
-        if not home or not away:
-            return None
         for score_data in self.scores.values():
             s_home = (score_data.get("home_team") or "").lower()
             s_away = (score_data.get("away_team") or "").lower()
-            if not s_home or not s_away:
-                continue
-            # Match if team names overlap (handles "Celtics" vs "Boston Celtics")
             if (home in s_home or s_home in home) and (away in s_away or s_away in away):
                 return score_data
         return None
@@ -1129,7 +584,7 @@ class GamesListView(discord.ui.View):
         embed = discord.Embed(title=self.title, color=color)
 
         if not page_games:
-            embed.description = "No live games right now." if self.is_live_mode else "No upcoming games right now."
+            embed.description = "No live games right now." if self.is_live_mode else "No upcoming games."
             return embed
 
         lines = []
@@ -1137,35 +592,6 @@ class GamesListView(discord.ui.View):
             home = g.get("home_team", "?")
             away = g.get("away_team", "?")
             sport = g.get("sport_title", "")
-
-            # Extract moneyline odds from _kalshi_markets
-            odds_str = ""
-            kalshi_m = g.get("_kalshi_markets", {})
-            home_m = kalshi_m.get("home")
-            away_m = kalshi_m.get("away")
-            if home_m and away_m:
-                home_price = float(home_m.get("yes_ask_dollars") or home_m.get("last_price_dollars") or "0")
-                away_price = float(away_m.get("yes_ask_dollars") or away_m.get("last_price_dollars") or "0")
-                if home_price > 0 and away_price > 0:
-                    home_am = format_american(decimal_to_american(round(1.0 / home_price, 3)))
-                    away_am = format_american(decimal_to_american(round(1.0 / away_price, 3)))
-                    odds_str = f"  ({away_am} / {home_am})"
-            
-            if not odds_str and "all" in kalshi_m:
-                # Try to show something from other markets if ML is missing
-                for m in kalshi_m["all"]:
-                    price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0")
-                    if 0 < price < 1:
-                        am = format_american(decimal_to_american(round(1.0 / price, 3)))
-                        sub = m.get("yes_sub_title") or ""
-                        if sub:
-                            if len(sub) > 20:
-                                sub = sub[:17] + "..."
-                            odds_str = f"  ({sub}: {am})"
-                        else:
-                            odds_str = f"  ({am})"
-                        break
-
             score = self._find_score(g) if self.is_live_mode else None
             if score and score.get("started") and score.get("home_score") is not None:
                 score_str = f"**{away}** {score['away_score']} - {score['home_score']} **{home}**"
@@ -1173,30 +599,24 @@ class GamesListView(discord.ui.View):
                     score_str += "  (Final)"
                 else:
                     score_str = f"\U0001f534 {score_str}"
-                # Time info for live games
                 time_parts = []
-                commence = g.get("commence_time", "")
-                if commence:
-                    time_parts.append(f"Started {format_game_time(commence)}")
-                exp = g.get("expiration_time", "")
-                if exp:
-                    time_parts.append(f"Ends ~{format_game_time(exp)}")
-                time_line = " · ".join(time_parts) if time_parts else ""
-                detail = f"{sport}{odds_str}"
-                if time_line:
-                    detail += f"\n{time_line}"
+                if g.get("commence_time"):
+                    time_parts.append(f"Started {format_game_time(g['commence_time'])}")
+                if g.get("expiration_time"):
+                    time_parts.append(f"Ends ~{format_game_time(g['expiration_time'])}")
+                detail = sport
+                if time_parts:
+                    detail += f"\n{' · '.join(time_parts)}"
                 lines.append(f"{score_str}\n{detail}")
             else:
                 time_str = _format_game_time(g.get("commence_time", ""))
-                lines.append(f"**{away}** @ **{home}**{odds_str}\n{sport} · {time_str}")
+                lines.append(f"**{away}** @ **{home}**\n{sport} · {time_str}")
 
         embed.description = "\n\n".join(lines)
-
         parts = []
         if total_pages > 1:
             parts.append(f"Page {self.page + 1}/{total_pages}")
         parts.append(f"{total} game{'s' if total != 1 else ''}")
-        parts.append("Select a game to bet")
         embed.set_footer(text=" · ".join(parts))
         return embed
 
@@ -2176,64 +1596,17 @@ class KalshiCog(commands.Cog):
 
     # ── /kalshi ───────────────────────────────────────────────────────
 
-    @app_commands.command(name="kalshi", description="Browse sports odds and bet via Kalshi")
-    @app_commands.describe(sport="Sport to view (leave blank to browse all)")
-    @app_commands.autocomplete(sport=sport_autocomplete)
-    async def kalshi(
-        self,
-        interaction: discord.Interaction,
-        sport: str | None = None,
-    ) -> None:
+    @app_commands.command(name="kalshi", description="Browse all Kalshi markets and bet YES or NO")
+    async def kalshi(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
-        log.info("/kalshi called by %s (sport=%s)", interaction.user, sport)
+        log.info("/kalshi called by %s", interaction.user)
 
-        if sport is None:
-            # Browse mode — show category picker
-            discovery = await kalshi_api.discover_available()
-            view = CategoryView(discovery["games"], discovery["futures"])
-            embed = view.build_embed()
-            msg = await interaction.followup.send(embed=embed, view=view)
-            view.message = msg
+        browse_data = await kalshi_api.get_browse_data()
+        if not browse_data:
+            await interaction.followup.send("No open markets on Kalshi right now.")
             return
 
-        sport_key = sport
-        valid_sport = sport_key in SPORTS or sport_key in FUTURES
-        if not valid_sport:
-            await interaction.followup.send(
-                "Unknown sport. Use the autocomplete to pick one.", ephemeral=True
-            )
-            return
-
-        # Sport-specific hub — resolve cross-references
-        games_key = sport_key if sport_key in SPORTS else FUTURES_TO_SPORTS.get(sport_key)
-        futures_key = sport_key if sport_key in FUTURES else SPORTS_TO_FUTURES.get(sport_key)
-
-        sport_label = sport_key
-        if games_key and games_key in SPORTS:
-            sport_label = SPORTS[games_key]["label"]
-        elif futures_key and futures_key in FUTURES:
-            sport_label = FUTURES[futures_key]["label"]
-
-        games = []
-        if games_key and games_key in SPORTS:
-            games = await kalshi_api.get_sport_games(games_key)
-
-        futures_markets = {}
-        if futures_key and futures_key in FUTURES:
-            futures_markets = FUTURES[futures_key]["markets"]
-
-        if not games and not futures_markets:
-            await interaction.followup.send(
-                f"No open {sport_label} markets on Kalshi right now."
-            )
-            return
-
-        view = SportHubView(
-            sport_key=sport_key,
-            sport_label=sport_label,
-            games=games,
-            futures_markets=futures_markets,
-        )
+        view = KalshiTopView(browse_data)
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
