@@ -62,6 +62,22 @@ SUBCATEGORY_SUGGESTIONS: dict[str, list[str]] = {
 CAT_BY_KEY  = {k: (slug, name) for k, slug, name in CATEGORIES}
 CAT_BY_SLUG = {slug: (k, name) for k, slug, name in CATEGORIES}
 
+# Map Kalshi's category strings → our slugs
+KALSHI_CATEGORY_MAP: dict[str, str] = {
+    "Sports":                "sports",
+    "Politics":              "politics",
+    "Culture":               "culture",
+    "Crypto":                "crypto",
+    "Climate and Weather":   "climate",
+    "Economics":             "economics",
+    "Mentions":              "mentions",
+    "Companies":             "companies",
+    "Financials":            "financials",
+    "Tech and Science":      "tech_science",
+    "Technology":            "tech_science",
+    "Tech & Science":        "tech_science",
+}
+
 
 # ── Auth ──────────────────────────────────────────────────────────────
 
@@ -268,68 +284,81 @@ def prompt(
 ) -> dict | None:
     """
     Prompt the user to categorize a series.
-    Returns a row dict, or None to skip.
-    Raises SystemExit on quit.
+    Category is auto-assigned from Kalshi's own category field.
+    User only needs to confirm/override label and pick a subcategory.
+    Returns a row dict, or None to skip. Raises SystemExit on quit.
     """
+    auto_slug = KALSHI_CATEGORY_MAP.get(kalshi_category, "")
+    _, auto_name = CAT_BY_SLUG.get(auto_slug, ("?", kalshi_category or "unknown"))
+
     sep = "─" * 65
     print(f"\n{sep}")
     print(f"  Ticker   : {ticker}")
     print(f"  Title    : {kalshi_title}")
-    print(f"  Kalshi   : {kalshi_category or '(none)'}  |  {market_count} open market{'s' if market_count != 1 else ''}")
+    print(f"  Kalshi   : {kalshi_category or '(none)'}  →  {auto_slug or '(unmapped)'}  |  {market_count} open market{'s' if market_count != 1 else ''}")
     if existing:
         flags = []
         if existing.get("is_excluded"):    flags.append("EXCLUDED")
         if existing.get("is_derivative"): flags.append(f"DERIVATIVE→{existing.get('parent_ticker') or '?'}")
-        cat  = existing.get("category") or ""
-        sub  = existing.get("subcategory") or ""
-        cur  = f"{cat}/{sub}" if sub else cat
+        cat = existing.get("category") or ""
+        sub = existing.get("subcategory") or ""
+        cur = f"{cat}/{sub}" if sub else cat
         if flags: cur = ", ".join(flags)
         print(f"  Current  : {cur or '(none)'}  label={existing.get('label') or '(none)'}")
     if samples:
         print("  Markets  :")
         for m in samples:
-            title   = m.get("title") or "?"
-            sub_t   = m.get("yes_sub_title") or ""
-            prob    = _fmt_prob(m)
-            close   = _fmt_close(m)
-            detail  = f"  [{prob} YES]" + (f"  {close}" if close else "")
+            title  = m.get("title") or "?"
+            sub_t  = m.get("yes_sub_title") or ""
+            prob   = _fmt_prob(m)
+            close  = _fmt_close(m)
+            detail = f"  [{prob} YES]" + (f"  {close}" if close else "")
             print(f"    · {title}{detail}")
             if sub_t and sub_t.lower() not in title.lower():
                 print(f"        YES = {sub_t}")
     print()
-    print(_cat_menu())
 
-    while True:
-        try:
-            raw = input("  > ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            raise SystemExit(0)
+    if not auto_slug:
+        # Kalshi category not in our map — fall back to manual pick
+        print(f"  ⚠  Unmapped Kalshi category: '{kalshi_category}'")
+        print(_cat_menu())
+        while True:
+            try:
+                raw = input("  category > ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print(); raise SystemExit(0)
+            if raw == "q": raise SystemExit(0)
+            if raw == "?": return None
+            if raw == "x":
+                return _row(ticker, kalshi_title, _ask_label(kalshi_title), None, None, is_excluded=1, notes=_ask_notes())
+            if raw == "d":
+                parent = input("  Parent ticker: ").strip().upper() or None
+                return _row(ticker, kalshi_title, _ask_label(kalshi_title), None, None, is_derivative=1, parent=parent, notes=_ask_notes())
+            if raw in CAT_BY_KEY:
+                auto_slug = CAT_BY_KEY[raw][0]
+                break
+            print("  Unrecognized. Try again.")
 
-        if raw == "q":
-            raise SystemExit(0)
-        if raw == "?":
-            return None
+    # Category is known — just ask for label, subcategory, and optional flags
+    print(f"  [Enter]=accept  [x]=exclude  [d]=derivative  [?]=skip  [q]=quit")
+    try:
+        raw = input("  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(); raise SystemExit(0)
 
-        if raw == "x":
-            label = _ask_label(kalshi_title)
-            notes = _ask_notes()
-            return _row(ticker, kalshi_title, label, None, None, is_excluded=1, notes=notes)
+    if raw == "q": raise SystemExit(0)
+    if raw == "?": return None
+    if raw == "x":
+        return _row(ticker, kalshi_title, _ask_label(kalshi_title), None, None, is_excluded=1, notes=_ask_notes())
+    if raw == "d":
+        parent = input("  Parent ticker: ").strip().upper() or None
+        return _row(ticker, kalshi_title, _ask_label(kalshi_title), None, None, is_derivative=1, parent=parent, notes=_ask_notes())
 
-        if raw == "d":
-            parent = input("  Parent ticker: ").strip().upper() or None
-            label  = _ask_label(kalshi_title)
-            notes  = _ask_notes()
-            return _row(ticker, kalshi_title, label, None, None, is_derivative=1, parent=parent, notes=notes)
-
-        if raw in CAT_BY_KEY:
-            slug, _name = CAT_BY_KEY[raw]
-            label  = _ask_label(kalshi_title)
-            subcat = _subcat_prompt(slug, existing.get("subcategory") if existing else None)
-            notes  = _ask_notes()
-            return _row(ticker, kalshi_title, label, slug, subcat, notes=notes)
-
-        print("  Unrecognized. Try again.")
+    # Accept (any other input including empty string)
+    label  = _ask_label(kalshi_title)
+    subcat = _subcat_prompt(auto_slug, existing.get("subcategory") if existing else None)
+    notes  = _ask_notes()
+    return _row(ticker, kalshi_title, label, auto_slug, subcat, notes=notes)
 
 
 def _ask_label(default: str) -> str:
