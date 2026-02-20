@@ -168,18 +168,36 @@ async def fetch_series(session: aiohttp.ClientSession) -> list[dict]:
     return data.get("series", [])
 
 
-async def fetch_samples(session: aiohttp.ClientSession, ticker: str) -> tuple[int, list[dict]]:
-    """Fetch sample open markets for context. Returns (total_count, sample_list)."""
+async def fetch_all_open_markets(session: aiohttp.ClientSession) -> dict[str, list[dict]]:
+    """
+    Fetch ALL open markets in paginated calls and return them grouped by series_ticker.
+    One bulk fetch instead of one call per series.
+    """
     url = f"{BASE_URL}/markets"
-    params = {"series_ticker": ticker, "limit": 100, "status": "open"}
-    async with session.get(url, params=params, headers=_auth_headers("GET", url)) as resp:
-        if resp.status != 200:
-            return 0, []
-        data = await resp.json()
-    markets = data.get("markets", [])
-    total = len(markets)
-    samples = markets[:4]
-    return total, samples
+    by_series: dict[str, list[dict]] = {}
+    cursor = None
+    page = 0
+    while True:
+        params: dict = {"limit": 1000, "status": "open"}
+        if cursor:
+            params["cursor"] = cursor
+        async with session.get(url, params=params, headers=_auth_headers("GET", url)) as resp:
+            if resp.status != 200:
+                print(f"  Warning: markets fetch returned HTTP {resp.status}, stopping pagination")
+                break
+            data = await resp.json()
+        markets = data.get("markets", [])
+        for m in markets:
+            st = m.get("series_ticker") or ""
+            if st:
+                by_series.setdefault(st, []).append(m)
+        page += 1
+        cursor = data.get("cursor")
+        if not cursor or not markets:
+            break
+        if page % 5 == 0:
+            print(f"  Fetched {sum(len(v) for v in by_series.values())} markets so far...")
+    return by_series
 
 
 # ── Interactive prompt ────────────────────────────────────────────────
@@ -214,7 +232,10 @@ def _fmt_prob(market: dict) -> str:
     p = market.get("yes_ask_dollars") or market.get("last_price_dollars")
     if p is None:
         return "  ?%"
-    return f"{round(p * 100):>3}%"
+    try:
+        return f"{round(float(p) * 100):>3}%"
+    except (ValueError, TypeError):
+        return "  ?%"
 
 
 def _fmt_close(market: dict) -> str:
@@ -390,6 +411,10 @@ async def main(args: argparse.Namespace) -> None:
             return
 
         print(f"Got {len(all_series)} series from Kalshi.")
+        print("Fetching all open markets (one bulk call)...")
+        markets_by_series = await fetch_all_open_markets(session)
+        total_markets = sum(len(v) for v in markets_by_series.values())
+        print(f"Got {total_markets} open markets across {len(markets_by_series)} active series.")
         known = load_known(con)
 
         if args.ticker:
@@ -398,16 +423,22 @@ async def main(args: argparse.Namespace) -> None:
                 match = {"ticker": args.ticker.upper(), "title": args.ticker.upper()}
             to_review = [match]
         elif args.all:
-            to_review = all_series
+            # Re-review all series that have open markets
+            active = {s.get("ticker") for s in all_series if s.get("ticker") in markets_by_series}
+            to_review = [s for s in all_series if s.get("ticker") in active]
         else:
-            to_review = [s for s in all_series if s.get("ticker") not in known]
+            # Only uncategorized series that have open markets
+            to_review = [
+                s for s in all_series
+                if s.get("ticker") not in known and s.get("ticker") in markets_by_series
+            ]
 
         if not to_review:
-            print("All series are already categorized. Use --all to re-review.")
+            print("Nothing to review. Use --all to re-review categorized series.")
             con.close()
             return
 
-        print(f"{len(to_review)} series to review.\n")
+        print(f"\n{len(to_review)} series to review.\n")
         print(_cat_menu())
         print()
 
@@ -416,10 +447,10 @@ async def main(args: argparse.Namespace) -> None:
             ticker       = s.get("ticker", "")
             kalshi_title = s.get("title", ticker)
             existing     = known.get(ticker)
-
-            print(f"[{i}/{len(to_review)}]", end="", flush=True)
-            kalshi_category  = s.get("category", "")
-            market_count, samples = await fetch_samples(session, ticker)
+            kalshi_category = s.get("category", "")
+            series_markets  = markets_by_series.get(ticker, [])
+            market_count    = len(series_markets)
+            samples         = series_markets[:4]
 
             row = prompt(ticker, kalshi_title, kalshi_category, existing, market_count, samples)
             if row is None:
