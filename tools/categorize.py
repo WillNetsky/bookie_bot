@@ -184,40 +184,49 @@ async def fetch_series(session: aiohttp.ClientSession) -> list[dict]:
     return data.get("series", [])
 
 
-async def fetch_all_open_markets(session: aiohttp.ClientSession) -> dict[str, list[dict]]:
+async def fetch_markets_by_series(
+    session: aiohttp.ClientSession,
+    series_list: list[dict],
+) -> dict[str, list[dict]]:
     """
-    Fetch ALL open markets in paginated calls and return them grouped by series_ticker.
-    One bulk fetch instead of one call per series.
+    Fetch open markets for every series concurrently (20 in flight at once).
+    Returns dict of series_ticker → list of markets.
+    Much faster than sequential cursor-based bulk pagination.
     """
-    url = f"{BASE_URL}/markets"
-    by_series: dict[str, list[dict]] = {}
-    cursor = None
-    page = 0
-    while True:
-        params: dict = {"limit": 1000, "status": "open"}
-        if cursor:
-            params["cursor"] = cursor
-        async with session.get(url, params=params, headers=_auth_headers("GET", url)) as resp:
-            if resp.status != 200:
-                print(f"  Warning: markets fetch returned HTTP {resp.status}, stopping pagination")
-                break
-            data = await resp.json()
-        markets = data.get("markets", [])
-        for m in markets:
-            st = m.get("series_ticker") or ""
-            if not st:
-                # Kalshi v2 API often omits series_ticker — derive it from event_ticker
-                et = m.get("event_ticker") or ""
-                st = et.split("-")[0] if "-" in et else et
-            if st:
-                by_series.setdefault(st, []).append(m)
-        page += 1
-        cursor = data.get("cursor")
-        if not cursor or not markets:
-            break
-        if page % 5 == 0:
-            print(f"  Fetched {sum(len(v) for v in by_series.values())} markets so far...")
-    return by_series
+    sem = asyncio.Semaphore(20)
+
+    async def fetch_one(ticker: str) -> tuple[str, list[dict]]:
+        async with sem:
+            url = f"{BASE_URL}/markets"
+            params = {"series_ticker": ticker, "limit": 100, "status": "open"}
+            try:
+                async with session.get(url, params=params, headers=_auth_headers("GET", url)) as resp:
+                    if resp.status == 429:
+                        await asyncio.sleep(1.0)
+                        return ticker, []
+                    if resp.status != 200:
+                        return ticker, []
+                    data = await resp.json()
+                return ticker, data.get("markets", [])
+            except Exception:
+                return ticker, []
+
+    tickers = [s["ticker"] for s in series_list if s.get("ticker")]
+    total   = len(tickers)
+    results: dict[str, list[dict]] = {}
+    done = 0
+
+    tasks = [asyncio.ensure_future(fetch_one(t)) for t in tickers]
+    for coro in asyncio.as_completed(tasks):
+        ticker, markets = await coro
+        if markets:
+            results[ticker] = markets
+        done += 1
+        if done % 200 == 0 or done == total:
+            print(f"  {done}/{total} series checked, {len(results)} active...", end="\r", flush=True)
+
+    print()  # clear the progress line
+    return results
 
 
 # ── Interactive prompt ────────────────────────────────────────────────
@@ -444,10 +453,10 @@ async def main(args: argparse.Namespace) -> None:
             return
 
         print(f"Got {len(all_series)} series from Kalshi.")
-        print("Fetching all open markets (one bulk call)...")
-        markets_by_series = await fetch_all_open_markets(session)
+        print(f"Fetching open markets for all series (20 concurrent)...")
+        markets_by_series = await fetch_markets_by_series(session, all_series)
         total_markets = sum(len(v) for v in markets_by_series.values())
-        print(f"Got {total_markets} open markets across {len(markets_by_series)} active series.")
+        print(f"{len(markets_by_series)} active series, {total_markets} open markets.")
         known = load_known(con)
 
         if args.ticker:
