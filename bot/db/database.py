@@ -121,6 +121,18 @@ CREATE TABLE IF NOT EXISTS kalshi_parlay_legs (
     pick_display    TEXT,
     close_time      TEXT
 );
+
+CREATE TABLE IF NOT EXISTS kalshi_series (
+    ticker          TEXT PRIMARY KEY,
+    kalshi_title    TEXT,
+    label           TEXT,
+    category        TEXT,
+    is_excluded     INTEGER NOT NULL DEFAULT 0,
+    is_derivative   INTEGER NOT NULL DEFAULT 0,
+    parent_ticker   TEXT,
+    notes           TEXT,
+    last_seen       TEXT
+);
 """
 
 
