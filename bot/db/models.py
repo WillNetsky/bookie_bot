@@ -902,3 +902,61 @@ async def get_user_kalshi_bet_stats(user_id: int) -> dict:
         }
     finally:
         await db.close()
+
+
+# ── Twitch watches ────────────────────────────────────────────────────
+
+
+@db_retry()
+async def add_twitch_watch(stream_name: str, guild_id: int, channel_id: int) -> None:
+    db = await get_connection()
+    try:
+        await db.execute(
+            "INSERT OR REPLACE INTO twitch_watches (stream_name, guild_id, channel_id)"
+            " VALUES (?, ?, ?)",
+            (stream_name.lower(), guild_id, channel_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def remove_twitch_watch(stream_name: str, guild_id: int) -> bool:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM twitch_watches WHERE stream_name = ? AND guild_id = ?",
+            (stream_name.lower(), guild_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_twitch_watches(guild_id: int) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT stream_name, channel_id FROM twitch_watches WHERE guild_id = ?",
+            (guild_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_all_twitch_watches() -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT stream_name, guild_id, channel_id FROM twitch_watches"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()

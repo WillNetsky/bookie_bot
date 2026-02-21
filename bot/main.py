@@ -15,6 +15,8 @@ COGS = [
     "bot.cogs.voice_rewards",
     "bot.cogs.kalshi",
     "bot.cogs.craps",
+    "bot.cogs.blackjack",
+    "bot.cogs.twitch",
 ]
 
 

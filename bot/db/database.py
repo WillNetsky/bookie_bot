@@ -134,6 +134,13 @@ CREATE TABLE IF NOT EXISTS kalshi_series (
     notes           TEXT,
     last_seen       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS twitch_watches (
+    stream_name TEXT    NOT NULL,
+    guild_id    INTEGER NOT NULL,
+    channel_id  INTEGER NOT NULL,
+    PRIMARY KEY (stream_name, guild_id)
+);
 """
 
 

@@ -22,3 +22,7 @@ GUILD_ID = int(os.environ.get("GUILD_ID", "0")) or None
 
 # Channel ID for posting bet resolution announcements
 BET_RESULTS_CHANNEL_ID = 1315299663464890449
+
+# Twitch stream notification credentials
+TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID", "")
+TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET", "")
