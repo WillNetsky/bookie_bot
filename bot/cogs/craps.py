@@ -66,14 +66,17 @@ def _dice_str(d1: int, d2: int) -> str:
     return f"{DICE_FACES[d1]}  {DICE_FACES[d2]}"
 
 
+def _log_entry(d1: int, d2: int, total: int, label: str = "") -> str:
+    suffix = f"  — {label}" if label else ""
+    return f"{DICE_FACES[d1]} {DICE_FACES[d2]}  **{total}**{suffix}"
+
+
 def _build_embed(
     *,
     user: discord.User | discord.Member,
-    d1: int,
-    d2: int,
-    total: int,
     wager: int,
     state: str,
+    roll_log: list[str],
     point: int | None = None,
     new_balance: int | None = None,
 ) -> discord.Embed:
@@ -106,7 +109,7 @@ def _build_embed(
 
     embed = discord.Embed(title=f"🎲 Craps — {title}", color=color)
     embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
-    embed.add_field(name="Roll", value=f"{_dice_str(d1, d2)}\n**{total}**", inline=True)
+    embed.add_field(name="Rolls", value="\n".join(roll_log), inline=False)
     embed.add_field(name="Wager", value=f"${wager:,}", inline=True)
 
     if state in ("natural", "point_hit"):
@@ -124,12 +127,12 @@ def _build_embed(
 
 
 class _CrapsView(discord.ui.View):
-    def __init__(self, user_id: int, wager: int, point: int) -> None:
+    def __init__(self, user_id: int, wager: int, point: int, roll_log: list[str]) -> None:
         super().__init__(timeout=120)
         self.user_id = user_id
         self.wager = wager
         self.point = point
-        self.roll_num = 1
+        self.roll_log = roll_log
         self.message: discord.Message | None = None
 
     @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.primary, emoji="🎲")
@@ -142,36 +145,39 @@ class _CrapsView(discord.ui.View):
             )
             return
 
-        self.roll_num += 1
         d1, d2 = _roll()
         total = d1 + d2
 
         if total == self.point:
+            self.roll_log.append(_log_entry(d1, d2, total, "hit!"))
             new_bal = await wallet_service.deposit(self.user_id, self.wager * 2)
             embed = _build_embed(
-                user=interaction.user, d1=d1, d2=d2, total=total,
+                user=interaction.user,
                 wager=self.wager, state="point_hit", point=self.point,
-                new_balance=new_bal,
+                roll_log=self.roll_log, new_balance=new_bal,
             )
             self.clear_items()
             self.stop()
             await interaction.response.edit_message(embed=embed, view=self)
 
         elif total == 7:
+            self.roll_log.append(_log_entry(d1, d2, total, "seven out"))
             bal = await wallet_service.get_balance(self.user_id)
             embed = _build_embed(
-                user=interaction.user, d1=d1, d2=d2, total=total,
+                user=interaction.user,
                 wager=self.wager, state="seven_out", point=self.point,
-                new_balance=bal,
+                roll_log=self.roll_log, new_balance=bal,
             )
             self.clear_items()
             self.stop()
             await interaction.response.edit_message(embed=embed, view=self)
 
         else:
+            self.roll_log.append(_log_entry(d1, d2, total))
             embed = _build_embed(
-                user=interaction.user, d1=d1, d2=d2, total=total,
+                user=interaction.user,
                 wager=self.wager, state="ongoing", point=self.point,
+                roll_log=self.roll_log,
             )
             await interaction.response.edit_message(embed=embed, view=self)
 
@@ -216,24 +222,27 @@ class Craps(commands.Cog):
 
         if total in (7, 11):
             new_bal = await wallet_service.deposit(interaction.user.id, amount * 2)
+            roll_log = [_log_entry(d1, d2, total, "natural")]
             embed = _build_embed(
-                user=interaction.user, d1=d1, d2=d2, total=total,
-                wager=amount, state="natural", new_balance=new_bal,
+                user=interaction.user,
+                wager=amount, state="natural", roll_log=roll_log, new_balance=new_bal,
             )
             await interaction.followup.send(embed=embed)
 
         elif total in (2, 3, 12):
+            roll_log = [_log_entry(d1, d2, total, "craps")]
             embed = _build_embed(
-                user=interaction.user, d1=d1, d2=d2, total=total,
-                wager=amount, state="craps", new_balance=new_bal,
+                user=interaction.user,
+                wager=amount, state="craps", roll_log=roll_log, new_balance=new_bal,
             )
             await interaction.followup.send(embed=embed)
 
         else:
-            view = _CrapsView(user_id=interaction.user.id, wager=amount, point=total)
+            roll_log = [_log_entry(d1, d2, total, "point")]
+            view = _CrapsView(user_id=interaction.user.id, wager=amount, point=total, roll_log=roll_log)
             embed = _build_embed(
-                user=interaction.user, d1=d1, d2=d2, total=total,
-                wager=amount, state="point", point=total,
+                user=interaction.user,
+                wager=amount, state="point", point=total, roll_log=roll_log,
             )
             msg = await interaction.followup.send(embed=embed, view=view)
             view.message = msg
