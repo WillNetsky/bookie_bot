@@ -194,7 +194,7 @@ class _StreetCrapsView(discord.ui.View):
             "betting":   discord.Color.yellow(),
             "point":     discord.Color.blurple(),
             "ongoing":   discord.Color.blurple(),
-            "natural":   discord.Color.gold(),
+            "natural":   discord.Color.green(),
             "craps":     discord.Color.red(),
             "point_hit": discord.Color.green(),
             "seven_out": discord.Color.dark_red(),
