@@ -201,10 +201,12 @@ class Craps(commands.Cog):
             )
             return
 
+        await interaction.response.defer()
+
         new_bal = await wallet_service.withdraw(interaction.user.id, amount)
         if new_bal is None:
             bal = await wallet_service.get_balance(interaction.user.id)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Not enough gold! Balance: **${bal:,}**", ephemeral=True
             )
             return
@@ -218,14 +220,14 @@ class Craps(commands.Cog):
                 user=interaction.user, d1=d1, d2=d2, total=total,
                 wager=amount, state="natural", new_balance=new_bal,
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         elif total in (2, 3, 12):
             embed = _build_embed(
                 user=interaction.user, d1=d1, d2=d2, total=total,
                 wager=amount, state="craps", new_balance=new_bal,
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
         else:
             view = _CrapsView(user_id=interaction.user.id, wager=amount, point=total)
@@ -233,8 +235,8 @@ class Craps(commands.Cog):
                 user=interaction.user, d1=d1, d2=d2, total=total,
                 wager=amount, state="point", point=total,
             )
-            await interaction.response.send_message(embed=embed, view=view)
-            view.message = await interaction.original_response()
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
 
 
 async def setup(bot: commands.Bot) -> None:
