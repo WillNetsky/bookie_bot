@@ -12,49 +12,42 @@ log = logging.getLogger(__name__)
 DICE_FACES = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
 
 _NATURAL_FLAVOR = [
-    "A natural! The dice gods favor you today.",
-    "Seven! Eleven! The crowd erupts!",
-    "Lucky shooter. Cash it in.",
-    "First roll, first blood. Well played.",
-    "Fortune smiles on the bold.",
+    "Natural. Pay the man.",
+    "Seven out of the gate. Shooter's hot.",
+    "First roll, first blood.",
+    "Yo-leven. Collect your bread.",
+    "Natural. Easy money.",
 ]
-
 _CRAPS_FLAVOR = [
-    "The house always wins, friend.",
-    "Snake eyes. Fortune is a fickle mistress.",
-    "Boxcars. The house collects.",
-    "Ace-deuce. Walk away and regroup.",
-    "The dice have spoken. Poorly.",
+    "Craps. Step back.",
+    "Snake eyes. That's it.",
+    "Boxcars. House wins.",
+    "Ace-deuce. Shooter's done.",
+    "Craps. Next shooter.",
 ]
-
 _POINT_FLAVOR = [
-    "Your mark is **{n}**. Roll it again to collect.",
-    "Point established: **{n}**. Don't seven out!",
-    "**{n}** is on the table. Prove it wasn't a fluke.",
-    "**{n}** is the number. The table holds its breath.",
+    "Point's on {n}. Roll again.",
+    "{n} is the mark. Don't seven out.",
+    "Shooter's going for {n}.",
+    "Mark it {n}.",
 ]
-
 _POINT_HIT_FLAVOR = [
-    "Point made! The table pays out.",
-    "You hit your point. Money on the table.",
-    "The dice remember, and so does your wallet.",
-    "Well rolled. The house isn't happy.",
-    "Point made. Collect your winnings.",
+    "Hit that {n}. Pay up.",
+    "Shooter made it. Collect.",
+    "That's the number. Money moves.",
+    "{n} again. Get paid.",
 ]
-
 _SEVEN_OUT_FLAVOR = [
-    "Seven out. The house collects.",
-    "A seven... and just like that, it's over.",
-    "Seven out. Fortune favors the bold — next time.",
-    "Seven. The stickman sweeps your chips.",
-    "Seven. Just like that. Rough.",
+    "Seven. That's it.",
+    "Sevened out. Pass the bones.",
+    "Seven out. Next shooter.",
+    "Seven. Step aside.",
 ]
-
 _ONGOING_FLAVOR = [
-    "Not yet. Roll again.",
-    "Keep going. The point awaits.",
-    "Still in it. Don't choke.",
-    "Dice are hot. Roll again.",
+    "Keep rolling.",
+    "Not yet.",
+    "Again.",
+    "Still shooting.",
 ]
 
 
@@ -62,126 +55,340 @@ def _roll() -> tuple[int, int]:
     return random.randint(1, 6), random.randint(1, 6)
 
 
-def _dice_str(d1: int, d2: int) -> str:
-    return f"{DICE_FACES[d1]}  {DICE_FACES[d2]}"
-
-
 def _log_entry(d1: int, d2: int, total: int, label: str = "") -> str:
     suffix = f"  — {label}" if label else ""
     return f"{DICE_FACES[d1]} {DICE_FACES[d2]}  **{total}**{suffix}"
 
 
-def _build_embed(
-    *,
-    user: discord.User | discord.Member,
-    wager: int,
-    state: str,
-    roll_log: list[str],
-    point: int | None = None,
-    new_balance: int | None = None,
-) -> discord.Embed:
-    flavor = {
-        "natural":   random.choice(_NATURAL_FLAVOR),
-        "craps":     random.choice(_CRAPS_FLAVOR),
-        "point":     random.choice(_POINT_FLAVOR).format(n=point),
-        "ongoing":   random.choice(_ONGOING_FLAVOR),
-        "point_hit": random.choice(_POINT_HIT_FLAVOR),
-        "seven_out": random.choice(_SEVEN_OUT_FLAVOR),
-    }[state]
-
-    color = {
-        "natural":   discord.Color.gold(),
-        "craps":     discord.Color.red(),
-        "point":     discord.Color.blurple(),
-        "ongoing":   discord.Color.blurple(),
-        "point_hit": discord.Color.green(),
-        "seven_out": discord.Color.dark_red(),
-    }[state]
-
-    title = {
-        "natural":   "Natural!",
-        "craps":     "Craps!",
-        "point":     f"Point: {point}",
-        "ongoing":   f"Point: {point} — Roll Again",
-        "point_hit": "Point Made!",
-        "seven_out": "Seven Out!",
-    }[state]
-
-    embed = discord.Embed(title=f"🎲 Craps — {title}", color=color)
-    embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
-    embed.add_field(name="Rolls", value="\n".join(roll_log), inline=False)
-    embed.add_field(name="Wager", value=f"${wager:,}", inline=True)
-
-    if state in ("natural", "point_hit"):
-        embed.add_field(name="Result", value=f"+${wager:,}", inline=True)
-    elif state in ("craps", "seven_out"):
-        embed.add_field(name="Result", value=f"-${wager:,}", inline=True)
-    elif point is not None:
-        embed.add_field(name="Point", value=str(point), inline=True)
-
-    if new_balance is not None:
-        embed.add_field(name="Balance", value=f"${new_balance:,}", inline=False)
-
-    embed.set_footer(text=flavor)
-    return embed
+def _pick(choices: list[str], **kwargs: object) -> str:
+    return random.choice(choices).format(**kwargs)
 
 
-class _CrapsView(discord.ui.View):
-    def __init__(self, user_id: int, wager: int, point: int, roll_log: list[str]) -> None:
-        super().__init__(timeout=120)
-        self.user_id = user_id
-        self.wager = wager
-        self.point = point
-        self.roll_log = roll_log
-        self.message: discord.Message | None = None
+# ── Modals ────────────────────────────────────────────────────────────
 
-    @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.primary, emoji="🎲")
-    async def roll_again(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ) -> None:
-        if interaction.user.id != self.user_id:
+class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
+    amount_input = discord.ui.TextInput(
+        label="How much to fade?",
+        placeholder="100",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(self, view: "_StreetCrapsView") -> None:
+        super().__init__()
+        self._view = view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            amount = int(self.amount_input.value)
+        except ValueError:
+            await interaction.response.send_message("Enter a valid number.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+            return
+
+        uid = interaction.user.id
+        view = self._view
+
+        if uid in view.backs:
             await interaction.response.send_message(
-                "These aren't your dice!", ephemeral=True
+                "You're already backing the shooter.", ephemeral=True
             )
             return
 
+        # Refund previous fade if updating
+        if uid in view.fades:
+            await wallet_service.deposit(uid, view.fades[uid])
+
+        new_bal = await wallet_service.withdraw(uid, amount)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(uid)
+            await interaction.response.send_message(
+                f"Not enough. Balance: **${bal:,}**", ephemeral=True
+            )
+            return
+
+        view.fades[uid] = amount
+        view.fade_names[uid] = interaction.user.display_name
+
+        await interaction.response.send_message(
+            f"You're fading **${amount:,}**.", ephemeral=True
+        )
+        if view.message:
+            await view.message.edit(embed=view._build_embed("betting"), view=view)
+
+
+class _BackModal(discord.ui.Modal, title="Back the Shooter"):
+    amount_input = discord.ui.TextInput(
+        label="How much to back?",
+        placeholder="100",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(self, view: "_StreetCrapsView") -> None:
+        super().__init__()
+        self._view = view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            amount = int(self.amount_input.value)
+        except ValueError:
+            await interaction.response.send_message("Enter a valid number.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+            return
+
+        uid = interaction.user.id
+        view = self._view
+
+        if uid in view.fades:
+            await interaction.response.send_message(
+                "You're already fading the shooter.", ephemeral=True
+            )
+            return
+
+        if uid in view.backs:
+            await wallet_service.deposit(uid, view.backs[uid])
+
+        new_bal = await wallet_service.withdraw(uid, amount)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(uid)
+            await interaction.response.send_message(
+                f"Not enough. Balance: **${bal:,}**", ephemeral=True
+            )
+            return
+
+        view.backs[uid] = amount
+        view.back_names[uid] = interaction.user.display_name
+
+        await interaction.response.send_message(
+            f"You're backing the shooter for **${amount:,}**.", ephemeral=True
+        )
+        if view.message:
+            await view.message.edit(embed=view._build_embed("betting"), view=view)
+
+
+# ── View ─────────────────────────────────────────────────────────────
+
+class _StreetCrapsView(discord.ui.View):
+    def __init__(self, shooter: discord.User | discord.Member, wager: int) -> None:
+        super().__init__(timeout=300)
+        self.shooter = shooter
+        self.wager = wager
+        self.fades: dict[int, int] = {}
+        self.backs: dict[int, int] = {}
+        self.fade_names: dict[int, str] = {}
+        self.back_names: dict[int, str] = {}
+        self.roll_log: list[str] = []
+        self.point: int | None = None
+        self.phase = "betting"
+        self.message: discord.Message | None = None
+
+    # ── embed builder ─────────────────────────────────────────────────
+
+    def _build_embed(self, state: str) -> discord.Embed:
+        colors = {
+            "betting":   discord.Color.yellow(),
+            "point":     discord.Color.blurple(),
+            "ongoing":   discord.Color.blurple(),
+            "natural":   discord.Color.gold(),
+            "craps":     discord.Color.red(),
+            "point_hit": discord.Color.green(),
+            "seven_out": discord.Color.dark_red(),
+        }
+        titles = {
+            "betting":   "Looking for action...",
+            "point":     f"Point: {self.point}",
+            "ongoing":   f"Point: {self.point}",
+            "natural":   "Natural!",
+            "craps":     "Craps!",
+            "point_hit": "Point Made!",
+            "seven_out": "Seven Out!",
+        }
+        embed = discord.Embed(
+            title=f"🎲 Street Craps — {titles[state]}",
+            color=colors[state],
+        )
+        embed.set_author(
+            name=self.shooter.display_name,
+            icon_url=self.shooter.display_avatar.url,
+        )
+
+        if state == "betting":
+            fading_str = (
+                "\n".join(
+                    f"{self.fade_names[uid]}  ${self.fades[uid]:,}"
+                    for uid in self.fades
+                ) or "open"
+            )
+            backing_str = (
+                "\n".join(
+                    f"{self.back_names[uid]}  ${self.backs[uid]:,}"
+                    for uid in self.backs
+                ) or "open"
+            )
+            embed.description = (
+                f"**{self.shooter.display_name}** is shooting for **${self.wager:,}**"
+            )
+            embed.add_field(name="Fading", value=fading_str, inline=True)
+            embed.add_field(name="Backing", value=backing_str, inline=True)
+            embed.set_footer(text="Fade to bet against the shooter. Back to bet with them.")
+
+        else:
+            # Show roll log
+            if self.roll_log:
+                embed.add_field(name="Rolls", value="\n".join(self.roll_log), inline=False)
+
+            # Wager summary
+            total_fade = sum(self.fades.values())
+            total_back = sum(self.backs.values())
+            embed.add_field(name="Shooter", value=f"${self.wager:,}", inline=True)
+            if total_fade:
+                embed.add_field(name="Fading", value=f"${total_fade:,}", inline=True)
+            if total_back:
+                embed.add_field(name="Backing", value=f"${total_back:,}", inline=True)
+
+            # Payout summary on resolution
+            if state in ("natural", "craps", "point_hit", "seven_out"):
+                shooter_won = state in ("natural", "point_hit")
+                lines = []
+                sign = "+" if shooter_won else "-"
+                lines.append(f"{self.shooter.display_name}  {sign}${self.wager:,}")
+                for uid in self.fades:
+                    sign = "+" if not shooter_won else "-"
+                    lines.append(f"{self.fade_names[uid]}  {sign}${self.fades[uid]:,}")
+                for uid in self.backs:
+                    sign = "+" if shooter_won else "-"
+                    lines.append(f"{self.back_names[uid]}  {sign}${self.backs[uid]:,}")
+                embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
+
+            # Footer flavor
+            n = self.point
+            footer = {
+                "point":     _pick(_POINT_FLAVOR, n=n),
+                "ongoing":   _pick(_ONGOING_FLAVOR),
+                "natural":   _pick(_NATURAL_FLAVOR),
+                "craps":     _pick(_CRAPS_FLAVOR),
+                "point_hit": _pick(_POINT_HIT_FLAVOR, n=n),
+                "seven_out": _pick(_SEVEN_OUT_FLAVOR),
+            }.get(state, "")
+            if footer:
+                embed.set_footer(text=footer)
+
+        return embed
+
+    # ── buttons ───────────────────────────────────────────────────────
+
+    @discord.ui.button(label="Fade", style=discord.ButtonStyle.danger)
+    async def fade_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if self.phase != "betting":
+            await interaction.response.send_message("Bets are locked.", ephemeral=True)
+            return
+        if interaction.user.id == self.shooter.id:
+            await interaction.response.send_message("Can't fade yourself.", ephemeral=True)
+            return
+        await interaction.response.send_modal(_FadeModal(self))
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.success)
+    async def back_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if self.phase != "betting":
+            await interaction.response.send_message("Bets are locked.", ephemeral=True)
+            return
+        if interaction.user.id == self.shooter.id:
+            await interaction.response.send_message("Can't back yourself.", ephemeral=True)
+            return
+        await interaction.response.send_modal(_BackModal(self))
+
+    @discord.ui.button(label="🎲 Roll", style=discord.ButtonStyle.primary)
+    async def roll_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if interaction.user.id != self.shooter.id:
+            await interaction.response.send_message("Not your dice.", ephemeral=True)
+            return
+        if self.phase == "betting":
+            await self._do_comeout(interaction)
+        elif self.phase == "rolling":
+            await self._do_point_roll(interaction)
+
+    # ── game logic ────────────────────────────────────────────────────
+
+    async def _do_comeout(self, interaction: discord.Interaction) -> None:
+        self.phase = "rolling"
+        self.fade_btn.disabled = True
+        self.back_btn.disabled = True
+        self.roll_btn.label = "🎲 Roll Again"
+
+        d1, d2 = _roll()
+        total = d1 + d2
+
+        if total in (7, 11):
+            self.roll_log.append(_log_entry(d1, d2, total, "natural"))
+            await self._resolve(interaction, shooter_won=True, state="natural")
+        elif total in (2, 3, 12):
+            self.roll_log.append(_log_entry(d1, d2, total, "craps"))
+            await self._resolve(interaction, shooter_won=False, state="craps")
+        else:
+            self.point = total
+            self.roll_log.append(_log_entry(d1, d2, total, "point"))
+            await interaction.response.edit_message(
+                embed=self._build_embed("point"), view=self
+            )
+
+    async def _do_point_roll(self, interaction: discord.Interaction) -> None:
         d1, d2 = _roll()
         total = d1 + d2
 
         if total == self.point:
             self.roll_log.append(_log_entry(d1, d2, total, "hit!"))
-            new_bal = await wallet_service.deposit(self.user_id, self.wager * 2)
-            embed = _build_embed(
-                user=interaction.user,
-                wager=self.wager, state="point_hit", point=self.point,
-                roll_log=self.roll_log, new_balance=new_bal,
-            )
-            self.clear_items()
-            self.stop()
-            await interaction.response.edit_message(embed=embed, view=self)
-
+            await self._resolve(interaction, shooter_won=True, state="point_hit")
         elif total == 7:
             self.roll_log.append(_log_entry(d1, d2, total, "seven out"))
-            bal = await wallet_service.get_balance(self.user_id)
-            embed = _build_embed(
-                user=interaction.user,
-                wager=self.wager, state="seven_out", point=self.point,
-                roll_log=self.roll_log, new_balance=bal,
-            )
-            self.clear_items()
-            self.stop()
-            await interaction.response.edit_message(embed=embed, view=self)
-
+            await self._resolve(interaction, shooter_won=False, state="seven_out")
         else:
             self.roll_log.append(_log_entry(d1, d2, total))
-            embed = _build_embed(
-                user=interaction.user,
-                wager=self.wager, state="ongoing", point=self.point,
-                roll_log=self.roll_log,
+            await interaction.response.edit_message(
+                embed=self._build_embed("ongoing"), view=self
             )
-            await interaction.response.edit_message(embed=embed, view=self)
+
+    async def _resolve(
+        self,
+        interaction: discord.Interaction,
+        *,
+        shooter_won: bool,
+        state: str,
+    ) -> None:
+        self.phase = "done"
+        self.clear_items()
+        self.stop()
+
+        if shooter_won:
+            await wallet_service.deposit(self.shooter.id, self.wager * 2)
+        for uid, amt in self.fades.items():
+            if not shooter_won:
+                await wallet_service.deposit(uid, amt * 2)
+        for uid, amt in self.backs.items():
+            if shooter_won:
+                await wallet_service.deposit(uid, amt * 2)
+
+        await interaction.response.edit_message(
+            embed=self._build_embed(state), view=self
+        )
 
     async def on_timeout(self) -> None:
+        if self.phase != "done":
+            await wallet_service.deposit(self.shooter.id, self.wager)
+            for uid, amt in self.fades.items():
+                await wallet_service.deposit(uid, amt)
+            for uid, amt in self.backs.items():
+                await wallet_service.deposit(uid, amt)
         for item in self.children:
             item.disabled = True  # type: ignore[union-attr]
         if self.message:
@@ -191,15 +398,17 @@ class _CrapsView(discord.ui.View):
                 pass
 
 
+# ── Cog ──────────────────────────────────────────────────────────────
+
 class Craps(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
     @app_commands.command(
         name="craps",
-        description="Roll the bones at the craps table",
+        description="Start a street craps game — others can fade or back you",
     )
-    @app_commands.describe(amount="Amount of gold to wager")
+    @app_commands.describe(amount="Amount to shoot for")
     async def craps(self, interaction: discord.Interaction, amount: int) -> None:
         if amount <= 0:
             await interaction.response.send_message(
@@ -213,39 +422,13 @@ class Craps(commands.Cog):
         if new_bal is None:
             bal = await wallet_service.get_balance(interaction.user.id)
             await interaction.followup.send(
-                f"Not enough gold! Balance: **${bal:,}**", ephemeral=True
+                f"Not enough. Balance: **${bal:,}**", ephemeral=True
             )
             return
 
-        d1, d2 = _roll()
-        total = d1 + d2
-
-        if total in (7, 11):
-            new_bal = await wallet_service.deposit(interaction.user.id, amount * 2)
-            roll_log = [_log_entry(d1, d2, total, "natural")]
-            embed = _build_embed(
-                user=interaction.user,
-                wager=amount, state="natural", roll_log=roll_log, new_balance=new_bal,
-            )
-            await interaction.followup.send(embed=embed)
-
-        elif total in (2, 3, 12):
-            roll_log = [_log_entry(d1, d2, total, "craps")]
-            embed = _build_embed(
-                user=interaction.user,
-                wager=amount, state="craps", roll_log=roll_log, new_balance=new_bal,
-            )
-            await interaction.followup.send(embed=embed)
-
-        else:
-            roll_log = [_log_entry(d1, d2, total, "point")]
-            view = _CrapsView(user_id=interaction.user.id, wager=amount, point=total, roll_log=roll_log)
-            embed = _build_embed(
-                user=interaction.user,
-                wager=amount, state="point", point=total, roll_log=roll_log,
-            )
-            msg = await interaction.followup.send(embed=embed, view=view)
-            view.message = msg
+        view = _StreetCrapsView(shooter=interaction.user, wager=amount)
+        msg = await interaction.followup.send(embed=view._build_embed("betting"), view=view)
+        view.message = msg
 
 
 async def setup(bot: commands.Bot) -> None:
