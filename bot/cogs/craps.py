@@ -14,15 +14,15 @@ DICE_FACES = {1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅"}
 _NATURAL_FLAVOR = [
     "A natural! The dice gods favor you today.",
     "Seven! Eleven! The crowd erupts!",
-    "The Light shines upon your roll!",
-    "Roll for initiative — critical success!",
-    "Lok'tar! Fortune smiles on the bold.",
+    "Lucky shooter. Cash it in.",
+    "First roll, first blood. Well played.",
+    "Fortune smiles on the bold.",
 ]
 
 _CRAPS_FLAVOR = [
-    "Craps! The house always wins, friend.",
+    "The house always wins, friend.",
     "Snake eyes. Fortune is a fickle mistress.",
-    "Twelve. Boxcars. The Darkmoon goblin grins.",
+    "Boxcars. The house collects.",
     "Ace-deuce. Walk away and regroup.",
     "The dice have spoken. Poorly.",
 ]
@@ -30,23 +30,23 @@ _CRAPS_FLAVOR = [
 _POINT_FLAVOR = [
     "Your mark is **{n}**. Roll it again to collect.",
     "Point established: **{n}**. Don't seven out!",
-    "The dice remember **{n}**. Prove your worth.",
-    "**{n}** is the number. The crowd holds its breath.",
+    "**{n}** is on the table. Prove it wasn't a fluke.",
+    "**{n}** is the number. The table holds its breath.",
 ]
 
 _POINT_HIT_FLAVOR = [
-    "Point made! Coins rain from the heavens!",
-    "You hit your point! Loot secured.",
+    "Point made! The table pays out.",
+    "You hit your point. Money on the table.",
     "The dice remember, and so does your wallet.",
-    "Well rolled! The goblin curses under his breath.",
-    "Point made. The Darkmoon Faire pays its debts.",
+    "Well rolled. The house isn't happy.",
+    "Point made. Collect your winnings.",
 ]
 
 _SEVEN_OUT_FLAVOR = [
-    "Seven out! The house collects your gold.",
-    "A seven... and your coins vanish. Classic.",
+    "Seven out. The house collects.",
+    "A seven... and just like that, it's over.",
     "Seven out. Fortune favors the bold — next time.",
-    "The Darkmoon goblin tips his hat. Your gold is his now.",
+    "Seven. The stickman sweeps your chips.",
     "Seven. Just like that. Rough.",
 ]
 
@@ -54,7 +54,7 @@ _ONGOING_FLAVOR = [
     "Not yet. Roll again.",
     "Keep going. The point awaits.",
     "Still in it. Don't choke.",
-    "Dice are warming up. Roll again.",
+    "Dice are hot. Roll again.",
 ]
 
 
@@ -104,7 +104,7 @@ def _build_embed(
         "seven_out": "Seven Out!",
     }[state]
 
-    embed = discord.Embed(title=f"🎲 Darkmoon Craps — {title}", color=color)
+    embed = discord.Embed(title=f"🎲 Craps — {title}", color=color)
     embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
     embed.add_field(name="Roll", value=f"{_dice_str(d1, d2)}\n**{total}**", inline=True)
     embed.add_field(name="Wager", value=f"${wager:,}", inline=True)
@@ -191,7 +191,7 @@ class Craps(commands.Cog):
 
     @app_commands.command(
         name="craps",
-        description="Roll the bones at the Darkmoon Faire craps table",
+        description="Roll the bones at the craps table",
     )
     @app_commands.describe(amount="Amount of gold to wager")
     async def craps(self, interaction: discord.Interaction, amount: int) -> None:
