@@ -109,6 +109,7 @@ class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
             )
             return
 
+        first_fade = uid not in view.fades
         view.fades[uid] = amount
         view.fade_names[uid] = interaction.user.display_name
 
@@ -117,6 +118,11 @@ class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
         )
         if view.message:
             await view.message.edit(embed=view._build_embed("betting"), view=view)
+            if first_fade and len(view.fades) == 1:
+                try:
+                    await view.message.add_reaction("🔴")
+                except discord.HTTPException:
+                    pass
 
 
 class _BackModal(discord.ui.Modal, title="Back the Shooter"):
@@ -161,6 +167,7 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
             )
             return
 
+        first_back = uid not in view.backs
         view.backs[uid] = amount
         view.back_names[uid] = interaction.user.display_name
 
@@ -169,6 +176,11 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
         )
         if view.message:
             await view.message.edit(embed=view._build_embed("betting"), view=view)
+            if first_back and len(view.backs) == 1:
+                try:
+                    await view.message.add_reaction("🟢")
+                except discord.HTTPException:
+                    pass
 
 
 # ── View ─────────────────────────────────────────────────────────────
@@ -429,6 +441,10 @@ class Craps(commands.Cog):
         view = _StreetCrapsView(shooter=interaction.user, wager=amount)
         msg = await interaction.followup.send(embed=view._build_embed("betting"), view=view)
         view.message = msg
+        try:
+            await msg.add_reaction("🎲")
+        except discord.HTTPException:
+            pass
 
 
 async def setup(bot: commands.Bot) -> None:
