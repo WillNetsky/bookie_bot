@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -271,8 +272,55 @@ class KalshiBackToCategoriesButton(discord.ui.Button["KalshiSeriesView"]):
         await interaction.response.edit_message(embed=embed, view=top_view)
 
 
+_NUMBER_RE = re.compile(r'\b\d+\.?\d*\b')
+
+
+def _prop_stem(title: str) -> str:
+    return _NUMBER_RE.sub("#", title).strip()
+
+
+def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
+    """Group markets differing only by numeric threshold.
+
+    Returns a list of items, each either:
+      {"type": "single", "market": {...}}
+      {"type": "group", "label": str, "markets": [...], "count": int}
+    """
+    from collections import OrderedDict
+    stem_map: dict[str, list[dict]] = OrderedDict()
+    for m in markets:
+        title = m.get("yes_sub_title") or m.get("title") or m.get("ticker", "")
+        stem = _prop_stem(title)
+        stem_map.setdefault(stem, []).append(m)
+
+    result: list[dict] = []
+    for stem, group in stem_map.items():
+        if len(group) == 1:
+            result.append({"type": "single", "market": group[0]})
+        else:
+            # Sort group by first numeric value in the title (threshold ascending)
+            def _threshold(m: dict) -> float:
+                t = m.get("yes_sub_title") or m.get("title") or ""
+                nums = _NUMBER_RE.findall(t)
+                return float(nums[0]) if nums else 0.0
+            group_sorted = sorted(group, key=_threshold)
+            # Build range label
+            first_t = group_sorted[0].get("yes_sub_title") or group_sorted[0].get("title") or stem
+            last_t  = group_sorted[-1].get("yes_sub_title") or group_sorted[-1].get("title") or stem
+            first_nums = _NUMBER_RE.findall(first_t)
+            last_nums  = _NUMBER_RE.findall(last_t)
+            if first_nums and last_nums:
+                lo = first_nums[0]
+                hi = last_nums[0]
+                label = _NUMBER_RE.sub("#", first_t, count=1).replace("#", f"{lo}–{hi}", 1)
+            else:
+                label = stem
+            result.append({"type": "group", "label": label, "markets": group_sorted, "count": len(group_sorted)})
+    return result
+
+
 class KalshiMarketsView(discord.ui.View):
-    """Shows markets within a chosen series."""
+    """Shows markets within a chosen series, with prop grouping."""
 
     def __init__(
         self,
@@ -290,26 +338,39 @@ class KalshiMarketsView(discord.ui.View):
         self.series_page = series_page
         self.page = page
         self.message: discord.Message | None = None
+        self._grouped = _group_markets_by_prop(series.get("markets", []))
         self._rebuild()
 
     def _rebuild(self) -> None:
         self.clear_items()
-        markets = self.series.get("markets", [])
-        total_pages = max(1, (len(markets) + BROWSE_MARKETS_PER_PAGE - 1) // BROWSE_MARKETS_PER_PAGE)
+        grouped = self._grouped
+        total_pages = max(1, (len(grouped) + BROWSE_MARKETS_PER_PAGE - 1) // BROWSE_MARKETS_PER_PAGE)
         start = self.page * BROWSE_MARKETS_PER_PAGE
-        page_markets = markets[start:start + BROWSE_MARKETS_PER_PAGE]
+        page_items = grouped[start:start + BROWSE_MARKETS_PER_PAGE]
 
         options: list[discord.SelectOption] = []
-        for m in page_markets:
-            ticker = m.get("ticker", "")
-            title = m.get("yes_sub_title") or m.get("title") or ticker
-            label = title[:100]
-            yes_am, no_am = _market_odds_str(m)
-            desc = f"YES {yes_am} / NO {no_am}"[:100]
-            options.append(discord.SelectOption(label=label, value=ticker, description=desc))
+        for global_idx, item in enumerate(grouped[start:start + BROWSE_MARKETS_PER_PAGE], start=start):
+            if item["type"] == "single":
+                m = item["market"]
+                ticker = m.get("ticker", "")
+                title = m.get("yes_sub_title") or m.get("title") or ticker
+                label = title[:100]
+                yes_am, no_am = _market_odds_str(m)
+                desc = f"YES {yes_am} / NO {no_am}"[:100]
+                options.append(discord.SelectOption(label=label, value=f"m:{ticker}", description=desc))
+            else:
+                label = item["label"][:100]
+                desc = f"📊 {item['count']} threshold options"[:100]
+                options.append(discord.SelectOption(
+                    label=label, value=f"g:{global_idx}",
+                    description=desc, emoji="📊",
+                ))
 
         if options:
-            self.add_item(KalshiMarketsSelect(options, markets))
+            self.add_item(KalshiMarketsSelect(
+                options, self._grouped, self.series, self.category,
+                self.browse_data, self.series_page, self.page,
+            ))
 
         if total_pages > 1:
             if self.page > 0:
@@ -322,25 +383,31 @@ class KalshiMarketsView(discord.ui.View):
         ))
 
     def build_embed(self) -> discord.Embed:
-        markets = self.series.get("markets", [])
-        total_pages = max(1, (len(markets) + BROWSE_MARKETS_PER_PAGE - 1) // BROWSE_MARKETS_PER_PAGE)
+        grouped = self._grouped
+        total_pages = max(1, (len(grouped) + BROWSE_MARKETS_PER_PAGE - 1) // BROWSE_MARKETS_PER_PAGE)
         start = self.page * BROWSE_MARKETS_PER_PAGE
-        page_markets = markets[start:start + BROWSE_MARKETS_PER_PAGE]
+        page_items = grouped[start:start + BROWSE_MARKETS_PER_PAGE]
 
         embed = discord.Embed(title=self.series["label"], color=discord.Color.blue())
-        if not page_markets:
+        if not page_items:
             embed.description = "No markets in this series."
             return embed
 
         lines = []
-        for m in page_markets:
-            title = m.get("yes_sub_title") or m.get("title") or "?"
-            exp = m.get("close_time") or m.get("expected_expiration_time") or ""
-            time_str = _format_game_time(exp) if exp else "TBD"
-            yes_am, no_am = _market_odds_str(m)
-            lines.append(f"**{title}**\n{time_str} · YES {yes_am} / NO {no_am}")
-        embed.description = "\n\n".join(lines)
+        for item in page_items:
+            if item["type"] == "single":
+                m = item["market"]
+                title = m.get("yes_sub_title") or m.get("title") or "?"
+                exp = m.get("close_time") or m.get("expected_expiration_time") or ""
+                time_str = _format_game_time(exp) if exp else "TBD"
+                yes_am, no_am = _market_odds_str(m)
+                lines.append(f"**{title}**\n{time_str} · YES {yes_am} / NO {no_am}")
+            else:
+                label = item["label"]
+                count = item["count"]
+                lines.append(f"📊 **{label}** · {count} threshold options")
 
+        embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
         embed.set_footer(text=f"{footer}Select a market to bet")
         return embed
@@ -355,24 +422,56 @@ class KalshiMarketsView(discord.ui.View):
 
 
 class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
-    def __init__(self, options: list[discord.SelectOption], markets: list[dict]) -> None:
+    def __init__(
+        self,
+        options: list[discord.SelectOption],
+        grouped: list[dict],
+        series: dict,
+        category: str,
+        browse_data: dict,
+        series_page: int,
+        markets_page: int,
+    ) -> None:
         super().__init__(placeholder="Select a market to bet on...", options=options, row=0)
-        self._market_map = {m.get("ticker", ""): m for m in markets}
+        self._grouped = grouped
+        self._series = series
+        self._category = category
+        self._browse_data = browse_data
+        self._series_page = series_page
+        self._markets_page = markets_page
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        ticker = self.values[0]
-        market = self._market_map.get(ticker)
-        if not market:
-            await interaction.response.send_message("Market not found.", ephemeral=True)
-            return
+        value = self.values[0]
         view = self.view
         await interaction.response.defer()
-        bet_view = KalshiMarketBetView(
-            market, view.series, view.category, view.browse_data,
-            series_page=view.series_page, markets_page=view.page,
-        )
-        embed = bet_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=bet_view)
+
+        if value.startswith("m:"):
+            ticker = value[2:]
+            # Find the market in grouped items
+            market = None
+            for item in self._grouped:
+                if item["type"] == "single" and item["market"].get("ticker") == ticker:
+                    market = item["market"]
+                    break
+            if not market:
+                await interaction.followup.send("Market not found.", ephemeral=True)
+                return
+            bet_view = KalshiMarketBetView(
+                market, self._series, self._category, self._browse_data,
+                series_page=self._series_page, markets_page=self._markets_page,
+            )
+            embed = bet_view.build_embed()
+            await interaction.edit_original_response(embed=embed, view=bet_view)
+
+        elif value.startswith("g:"):
+            global_idx = int(value[2:])
+            item = self._grouped[global_idx]
+            threshold_view = KalshiThresholdView(
+                item["markets"], self._series, self._category,
+                self._browse_data, self._series_page, self._markets_page,
+            )
+            embed = threshold_view.build_embed()
+            await interaction.edit_original_response(embed=embed, view=threshold_view)
 
 
 class KalshiMarketsPageButton(discord.ui.Button["KalshiMarketsView"]):
@@ -460,6 +559,180 @@ class KalshiMarketBetView(discord.ui.View):
 
 
 class KalshiMarketBackButton(discord.ui.Button["KalshiMarketBetView"]):
+    def __init__(
+        self, series: dict, category: str, browse_data: dict,
+        series_page: int, markets_page: int, row: int,
+    ) -> None:
+        super().__init__(
+            label="Back", style=discord.ButtonStyle.secondary,
+            emoji="\u25c0\ufe0f", row=row,
+        )
+        self._series = series
+        self._category = category
+        self._browse_data = browse_data
+        self._series_page = series_page
+        self._markets_page = markets_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        markets_view = KalshiMarketsView(
+            self._series, self._category, self._browse_data,
+            series_page=self._series_page, page=self._markets_page,
+        )
+        embed = markets_view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=markets_view)
+
+
+# ── Threshold View (grouped prop markets) ─────────────────────────────
+
+THRESHOLD_PER_PAGE = 20
+
+
+class KalshiThresholdView(discord.ui.View):
+    """Shows individual threshold options within a grouped prop market."""
+
+    def __init__(
+        self,
+        markets: list[dict],
+        series: dict,
+        category: str,
+        browse_data: dict[str, list[dict]],
+        series_page: int = 0,
+        markets_page: int = 0,
+        page: int = 0,
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.markets = markets
+        self.series = series
+        self.category = category
+        self.browse_data = browse_data
+        self.series_page = series_page
+        self.markets_page = markets_page
+        self.page = page
+        self.message: discord.Message | None = None
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        total_pages = max(1, (len(self.markets) + THRESHOLD_PER_PAGE - 1) // THRESHOLD_PER_PAGE)
+        start = self.page * THRESHOLD_PER_PAGE
+        page_markets = self.markets[start:start + THRESHOLD_PER_PAGE]
+
+        options: list[discord.SelectOption] = []
+        for m in page_markets:
+            ticker = m.get("ticker", "")
+            title = m.get("yes_sub_title") or m.get("title") or ticker
+            label = title[:100]
+            yes_am, no_am = _market_odds_str(m)
+            desc = f"YES {yes_am} / NO {no_am}"[:100]
+            options.append(discord.SelectOption(label=label, value=ticker, description=desc))
+
+        if options:
+            self.add_item(KalshiThresholdSelect(
+                options, self.markets, self.series, self.category,
+                self.browse_data, self.series_page, self.markets_page,
+            ))
+
+        if total_pages > 1:
+            if self.page > 0:
+                self.add_item(KalshiThresholdPageButton("prev", self.page - 1, row=1))
+            if self.page < total_pages - 1:
+                self.add_item(KalshiThresholdPageButton("next", self.page + 1, row=1))
+
+        self.add_item(KalshiThresholdBackButton(
+            self.series, self.category, self.browse_data,
+            self.series_page, self.markets_page, row=2,
+        ))
+
+    def build_embed(self) -> discord.Embed:
+        total_pages = max(1, (len(self.markets) + THRESHOLD_PER_PAGE - 1) // THRESHOLD_PER_PAGE)
+        start = self.page * THRESHOLD_PER_PAGE
+        page_markets = self.markets[start:start + THRESHOLD_PER_PAGE]
+
+        # Use the series label + first market title stem as header
+        first_title = self.markets[0].get("yes_sub_title") or self.markets[0].get("title") or "?"
+        header = _prop_stem(first_title).replace("#", "?")
+        embed = discord.Embed(title=header, color=discord.Color.blue())
+
+        if not page_markets:
+            embed.description = "No thresholds found."
+            return embed
+
+        lines = []
+        for m in page_markets:
+            title = m.get("yes_sub_title") or m.get("title") or "?"
+            yes_am, no_am = _market_odds_str(m)
+            lines.append(f"**{title}** · YES {yes_am} / NO {no_am}")
+        embed.description = "\n".join(lines)
+
+        footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
+        embed.set_footer(text=f"{footer}Select a threshold to bet")
+        return embed
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
+class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
+    def __init__(
+        self,
+        options: list[discord.SelectOption],
+        markets: list[dict],
+        series: dict,
+        category: str,
+        browse_data: dict,
+        series_page: int,
+        markets_page: int,
+    ) -> None:
+        super().__init__(placeholder="Select a threshold to bet on...", options=options, row=0)
+        self._market_map = {m.get("ticker", ""): m for m in markets}
+        self._series = series
+        self._category = category
+        self._browse_data = browse_data
+        self._series_page = series_page
+        self._markets_page = markets_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        ticker = self.values[0]
+        market = self._market_map.get(ticker)
+        if not market:
+            await interaction.response.send_message("Market not found.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        bet_view = KalshiMarketBetView(
+            market, self._series, self._category, self._browse_data,
+            series_page=self._series_page, markets_page=self._markets_page,
+        )
+        embed = bet_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=bet_view)
+
+
+class KalshiThresholdPageButton(discord.ui.Button["KalshiThresholdView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class KalshiThresholdBackButton(discord.ui.Button["KalshiThresholdView"]):
     def __init__(
         self, series: dict, category: str, browse_data: dict,
         series_page: int, markets_page: int, row: int,
@@ -1594,12 +1867,32 @@ class KalshiCog(commands.Cog):
 
         return choices
 
-    # ── /kalshi ───────────────────────────────────────────────────────
+    # ── /bet ──────────────────────────────────────────────────────────
 
-    @app_commands.command(name="kalshi", description="Browse all Kalshi markets and bet YES or NO")
-    async def kalshi(self, interaction: discord.Interaction) -> None:
+    @app_commands.command(name="bet", description="Browse Kalshi markets and bet YES or NO")
+    @app_commands.describe(search="Search markets by keyword (leave blank to browse categories)")
+    async def bet(self, interaction: discord.Interaction, search: str | None = None) -> None:
         await interaction.response.defer()
-        log.info("/kalshi called by %s", interaction.user)
+        log.info("/bet called by %s (search=%r)", interaction.user, search)
+
+        if search:
+            all_markets = await kalshi_api.get_all_open_markets()
+            search_lower = search.lower()
+            filtered = [
+                m for m in all_markets
+                if search_lower in (m.get("title") or "").lower()
+                or search_lower in (m.get("yes_sub_title") or "").lower()
+            ]
+            if not filtered:
+                await interaction.followup.send(f"No markets found matching **{search}**.")
+                return
+            filtered.sort(key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999")
+            view = MarketListView(filtered)
+            embed = view.build_embed()
+            embed.title = f"Search: {search}"
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
+            return
 
         browse_data = await kalshi_api.get_browse_data()
         if not browse_data:
@@ -1607,37 +1900,6 @@ class KalshiCog(commands.Cog):
             return
 
         view = KalshiTopView(browse_data)
-        embed = view.build_embed()
-        msg = await interaction.followup.send(embed=embed, view=view)
-        view.message = msg
-
-    # ── /games ─────────────────────────────────────────────────────────
-
-    @app_commands.command(name="games", description="All open markets sorted by time — pick any to bet YES or NO")
-    async def games(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-
-        all_markets = await kalshi_api.get_all_open_sports_markets()
-        now = datetime.now(timezone.utc)
-
-        upcoming: list[dict] = []
-        for m in all_markets:
-            exp = m.get("expected_expiration_time") or m.get("close_time") or ""
-            if not exp or not m.get("ticker") or not m.get("title"):
-                continue
-            try:
-                if datetime.fromisoformat(exp.replace("Z", "+00:00")) > now:
-                    upcoming.append(m)
-            except (ValueError, TypeError):
-                pass
-
-        if not upcoming:
-            await interaction.followup.send("No open markets right now.")
-            return
-
-        upcoming.sort(key=lambda m: m.get("expected_expiration_time") or m.get("close_time") or "9999")
-
-        view = MarketListView(upcoming)
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
@@ -2481,45 +2743,50 @@ class KalshiCog(commands.Cog):
 
     # ── /live ─────────────────────────────────────────────────────────
 
-    @app_commands.command(name="live", description="View live games with scores")
-    @app_commands.describe(sport="Filter by sport (leave blank for all)")
-    @app_commands.autocomplete(sport=sport_autocomplete)
-    async def live(self, interaction: discord.Interaction, sport: str | None = None) -> None:
+    @app_commands.command(name="live", description="Markets closing soon — bet before they settle")
+    async def live(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
-        if sport and sport in SPORTS:
-            all_games = await kalshi_api.get_sport_games(sport)
-        else:
-            all_games = await kalshi_api.get_all_games()
+        all_markets = await kalshi_api.get_all_open_markets()
+        now = datetime.now(timezone.utc)
+        window = timedelta(hours=3)
 
-        # Filter to games that haven't expired yet
-        live_games = [g for g in all_games if not _is_ended(g.get("expiration_time", ""))]
+        closing_soon: list[dict] = []
+        for m in all_markets:
+            close_str = m.get("close_time") or m.get("expected_expiration_time") or ""
+            if not close_str:
+                continue
+            try:
+                close_dt = datetime.fromisoformat(close_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if now < close_dt <= now + window:
+                closing_soon.append(m)
 
-        if not live_games:
-            await interaction.followup.send("No live games right now.")
+        # Expand to 8 hours if fewer than 5 results
+        if len(closing_soon) < 5:
+            window = timedelta(hours=8)
+            closing_soon = []
+            for m in all_markets:
+                close_str = m.get("close_time") or m.get("expected_expiration_time") or ""
+                if not close_str:
+                    continue
+                try:
+                    close_dt = datetime.fromisoformat(close_str.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    continue
+                if now < close_dt <= now + window:
+                    closing_soon.append(m)
+
+        if not closing_soon:
+            await interaction.followup.send("No markets closing soon.")
             return
 
-        # Fetch cached scores (no API calls) for live sports
-        scores: dict[str, dict] = {}
-        sport_keys_needed = set()
-        for g in live_games:
-            odds_key = KALSHI_TO_ODDS_API.get(g.get("sport_key", ""))
-            if odds_key:
-                sport_keys_needed.add(odds_key)
+        closing_soon.sort(key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999")
 
-        for odds_key in sport_keys_needed:
-            cached = await self.sports_api.get_cached_scores(odds_key)
-            for game_data in cached:
-                parsed = self.sports_api._parse_fixture_status(game_data)
-                eid = game_data.get("id", "")
-                if eid:
-                    scores[eid] = parsed
-
-        view = GamesListView(
-            all_games=live_games, title="\U0001f534 Live Games",
-            is_live=True, scores=scores,
-        )
+        view = MarketListView(closing_soon)
         embed = view.build_embed()
+        embed.title = "\U0001f534 Closing Soon"
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
@@ -2535,6 +2802,7 @@ class KalshiCog(commands.Cog):
                 "Periodic discovery: %d game sports, %d futures sports",
                 len(games), len(futures),
             )
+            await kalshi_api.get_browse_data()
         except Exception:
             log.exception("Error in periodic discovery")
 
