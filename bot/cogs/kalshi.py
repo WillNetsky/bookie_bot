@@ -325,7 +325,7 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
         else:
             group_sorted = sorted(
                 group,
-                key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999"
+                key=lambda m: _earliest_market_time(m) or "9999"
             )
             # Game title (shared across the group)
             game_title = group_sorted[0].get("title") or key
@@ -437,13 +437,16 @@ class KalshiMarketsView(discord.ui.View):
             if item["type"] == "single":
                 m = item["market"]
                 title = m.get("yes_sub_title") or m.get("title") or "?"
-                exp = m.get("close_time") or m.get("expected_expiration_time") or ""
+                exp = _earliest_market_time(m)
                 time_str = _format_game_time(exp) if exp else "TBD"
                 yes_am, no_am = _market_odds_str(m)
                 lines.append(f"**{title}**\n{time_str} · YES {yes_am} / NO {no_am}")
             else:
+                first_m = item["markets"][0]
+                exp = _earliest_market_time(first_m)
+                time_str = _format_game_time(exp) if exp else "TBD"
                 subtitle = item.get("subtitle", f"{item['count']} options")
-                lines.append(f"📊 **{item['label']}** · {subtitle}")
+                lines.append(f"📊 **{item['label']}** · {time_str} · {subtitle}")
 
         embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
@@ -575,7 +578,7 @@ class KalshiMarketBetView(discord.ui.View):
         m = self.market
         title = m.get("title") or "?"
         yes_sub = m.get("yes_sub_title") or ""
-        exp = m.get("expected_expiration_time") or m.get("close_time") or ""
+        exp = _earliest_market_time(m)
         time_str = _format_game_time(exp) if exp else "TBD"
         yes_am, no_am = _market_odds_str(m)
         embed = discord.Embed(title=title, color=discord.Color.blue())
@@ -2080,7 +2083,7 @@ class KalshiCog(commands.Cog):
             if not filtered:
                 await interaction.followup.send(f"No markets found matching **{search}**.")
                 return
-            filtered.sort(key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999")
+            filtered.sort(key=lambda m: _earliest_market_time(m) or "9999")
             view = MarketListView(filtered)
             embed = view.build_embed()
             embed.title = f"Search: {search}"

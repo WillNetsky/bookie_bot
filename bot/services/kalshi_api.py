@@ -562,6 +562,22 @@ def _is_market_active(m: dict) -> bool:
         return True
 
 
+def _earliest_market_time(m: dict) -> str:
+    """Return the earlier of close_time / expected_expiration_time as an ISO string."""
+    ct = m.get("close_time") or ""
+    et = m.get("expected_expiration_time") or ""
+    if not ct:
+        return et
+    if not et:
+        return ct
+    try:
+        ct_dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+        et_dt = datetime.fromisoformat(et.replace("Z", "+00:00"))
+        return ct if ct_dt <= et_dt else et
+    except (ValueError, TypeError):
+        return ct or et
+
+
 def _load_private_key():
     """Load the RSA private key from the configured PEM file."""
     global _private_key
@@ -1269,10 +1285,10 @@ class KalshiAPI:
             raw_title = info.get("title") or series_ticker
             label = _LABEL_OVERRIDES.get(series_ticker) or raw_title
 
-            # Sort markets by close_time ascending
+            # Sort markets by soonest actionable deadline
             markets_sorted = sorted(
                 markets,
-                key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999"
+                key=lambda m: _earliest_market_time(m) or "9999"
             )
 
             if category not in category_data:
@@ -1290,8 +1306,7 @@ class KalshiAPI:
                 markets = s.get("markets", [])
                 if not markets:
                     return "9999"
-                m = markets[0]
-                return m.get("close_time") or m.get("expected_expiration_time") or "9999"
+                return _earliest_market_time(markets[0]) or "9999"
             category_data[cat].sort(key=_series_sort_key)
 
         self._mem_browse_data = (category_data, time.monotonic())
