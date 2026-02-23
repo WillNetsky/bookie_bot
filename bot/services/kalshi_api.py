@@ -1693,17 +1693,26 @@ class KalshiAPI:
             len(futures_available),
         )
 
-        # Cache the full discovery result
-        db = await get_connection()
-        try:
-            await db.execute(
-                "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
-                " VALUES (?, 'kalshi', ?, datetime('now'))",
-                (cache_key, json.dumps(result)),
-            )
-            await db.commit()
-        finally:
-            await db.close()
+        # Cache the full discovery result (best-effort — don't crash discovery on lock)
+        data_str = json.dumps(result)
+        for attempt in range(3):
+            db = await get_connection()
+            try:
+                await db.execute(
+                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
+                    " VALUES (?, 'kalshi', ?, datetime('now'))",
+                    (cache_key, data_str),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e) and attempt < 2:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                log.warning("Failed to cache discovery result: %s", e)
+                break
+            finally:
+                await db.close()
 
         return result
 
