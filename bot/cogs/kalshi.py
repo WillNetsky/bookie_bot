@@ -82,6 +82,28 @@ def _format_game_time(commence_time: str) -> str:
     return format_game_time(commence_time)
 
 
+def _earliest_market_time(m: dict) -> str:
+    """Return the earlier of close_time / expected_expiration_time as an ISO string.
+
+    Different market types use these fields differently — some sports set
+    close_time to today (game start) but expected_expiration_time to a
+    tournament end date weeks away, and others do the reverse. The sooner
+    of the two is always the actionable deadline for the user.
+    """
+    ct = m.get("close_time") or ""
+    et = m.get("expected_expiration_time") or ""
+    if not ct:
+        return et
+    if not et:
+        return ct
+    try:
+        ct_dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+        et_dt = datetime.fromisoformat(et.replace("Z", "+00:00"))
+        return ct if ct_dt <= et_dt else et
+    except (ValueError, TypeError):
+        return ct or et
+
+
 # ── /kalshi Browse Views (category → series → markets → bet) ──────────
 
 SERIES_PER_PAGE = 25
@@ -1005,7 +1027,7 @@ class MarketListView(discord.ui.View):
             if item["type"] == "single":
                 m = item["market"]
                 title = m.get("title") or "?"
-                exp = m.get("close_time") or m.get("expected_expiration_time") or ""
+                exp = _earliest_market_time(m)
                 sport = _series_label(m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 yes_am, no_am = _market_odds_str(m)
@@ -1017,7 +1039,7 @@ class MarketListView(discord.ui.View):
                 label = item["label"]
                 count = item["count"]
                 first_m = item["markets"][0]
-                exp = first_m.get("close_time") or first_m.get("expected_expiration_time") or ""
+                exp = _earliest_market_time(first_m)
                 sport = _series_label(first_m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 header = f"\U0001f4ca **{label}**"
@@ -2923,11 +2945,13 @@ class KalshiCog(commands.Cog):
         all_markets = await kalshi_api.get_all_open_markets()
         now = datetime.now(timezone.utc)
 
-        # Keep only markets whose close_time is still in the future, sorted soonest first.
+        # Keep only markets whose actionable deadline is still in the future, sorted soonest first.
+        # Use the earlier of close_time / expected_expiration_time — different market types
+        # place the "game time" in different fields.
         upcoming: list[tuple[datetime, dict]] = []
         no_close: list[dict] = []
         for m in all_markets:
-            close_str = m.get("close_time") or m.get("expected_expiration_time") or ""
+            close_str = _earliest_market_time(m)
             if not close_str:
                 no_close.append(m)
                 continue
