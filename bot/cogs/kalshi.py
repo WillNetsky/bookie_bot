@@ -1029,6 +1029,7 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
 
     def __init__(self, page_items: list[dict], start: int, list_view: "MarketListView", row: int = 0) -> None:
         self._list_view = list_view
+        # Both maps keyed by the short position-based value string (safe <= 6 chars)
         self._market_map: dict[str, dict] = {}
         self._group_map: dict[str, list[dict]] = {}
         options: list[discord.SelectOption] = []
@@ -1040,8 +1041,9 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
                 label = title[:100]
                 yes_am, no_am = _market_odds_str(m)
                 desc = f"YES {yes_am} / NO {no_am}"[:100]
-                self._market_map[ticker] = m
-                options.append(discord.SelectOption(label=label, value=f"m:{ticker}", description=desc))
+                key = f"m:{start + i}"  # position-based; avoids long ticker exceeding 100-char limit
+                self._market_map[key] = m
+                options.append(discord.SelectOption(label=label, value=key, description=desc))
             else:
                 key = f"g:{start + i}"
                 label = item["label"][:100]
@@ -1054,8 +1056,7 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
         value = self.values[0]
         await interaction.response.defer()
         if value.startswith("m:"):
-            ticker = value[2:]
-            market = self._market_map.get(ticker)
+            market = self._market_map.get(value)
             if not market:
                 await interaction.followup.send("Market not found.", ephemeral=True)
                 return
