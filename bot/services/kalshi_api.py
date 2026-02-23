@@ -593,6 +593,10 @@ class KalshiAPI:
         self._sports_series_cache: set[str] = set()
         self._series_info: dict[str, dict] = {}  # {ticker: {"category": ..., "title": ...}}
         self._prewarm_task: asyncio.Task | None = None
+        # In-memory caches — avoid SQLite round-trips + JSON parsing on hot paths
+        self._mem_all_markets: tuple[list[dict], float] | None = None
+        self._mem_browse_markets: tuple[list[dict], float] | None = None
+        self._mem_browse_data: tuple[dict[str, list[dict]], float] | None = None
         # Log auth config at init
         if KALSHI_API_KEY_ID:
             log.info("Kalshi API key configured: %s...", KALSHI_API_KEY_ID[:8])
@@ -974,6 +978,13 @@ class KalshiAPI:
         Aggregates all pagination pages under one stable cache key, eliminating
         cursor-keyed entry accumulation that caused database bloat.
         """
+        # In-memory fast path — skip DB round-trip while data is fresh
+        if self._mem_all_markets is not None:
+            data, ts = self._mem_all_markets
+            if time.monotonic() - ts < CACHE_TTL:
+                log.debug("Cache HIT all_open_markets (in-memory)")
+                return data
+
         # Check single stable cache key
         stale_data = None
         db = await get_connection()
@@ -991,7 +1002,9 @@ class KalshiAPI:
                     age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
                     if age < CACHE_TTL:
                         log.debug("Cache HIT all_open_markets (age %.0fs)", age)
-                        return json.loads(row[0])
+                        result = json.loads(row[0])
+                        self._mem_all_markets = (result, time.monotonic())
+                        return result
                     log.debug("Cache STALE all_open_markets (age %.0fs)", age)
                 except (ValueError, TypeError):
                     pass
@@ -1056,10 +1069,13 @@ class KalshiAPI:
         if not all_markets:
             if stale_data:
                 log.warning("Kalshi markets fetch returned nothing, using stale cache")
-                return json.loads(stale_data)
+                result = json.loads(stale_data)
+                self._mem_all_markets = (result, time.monotonic())
+                return result
             return []
 
         # Store as single aggregated entry (replaces any previous entry)
+        self._mem_all_markets = (all_markets, time.monotonic())
         data_str = json.dumps(all_markets)
         for attempt in range(3):
             db = await get_connection()
@@ -1086,6 +1102,12 @@ class KalshiAPI:
 
         Cached under BROWSE_CACHE_KEY for CACHE_TTL (15 min).
         """
+        if self._mem_browse_markets is not None:
+            data, ts = self._mem_browse_markets
+            if time.monotonic() - ts < CACHE_TTL:
+                log.debug("Cache HIT browse_markets (in-memory)")
+                return data
+
         stale_data = None
         db = await get_connection()
         try:
@@ -1102,7 +1124,9 @@ class KalshiAPI:
                     age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
                     if age < CACHE_TTL:
                         log.debug("Cache HIT browse_markets (age %.0fs)", age)
-                        return json.loads(row[0])
+                        result = json.loads(row[0])
+                        self._mem_browse_markets = (result, time.monotonic())
+                        return result
                     log.debug("Cache STALE browse_markets (age %.0fs)", age)
                 except (ValueError, TypeError):
                     pass
@@ -1160,9 +1184,12 @@ class KalshiAPI:
         if not all_markets:
             if stale_data:
                 log.warning("Browse markets fetch returned nothing, using stale cache")
-                return json.loads(stale_data)
+                result = json.loads(stale_data)
+                self._mem_browse_markets = (result, time.monotonic())
+                return result
             return []
 
+        self._mem_browse_markets = (all_markets, time.monotonic())
         data_str = json.dumps(all_markets)
         for attempt in range(3):
             db = await get_connection()
@@ -1191,6 +1218,12 @@ class KalshiAPI:
         Series within each category are sorted by soonest closing market.
         Markets within each series are sorted by close_time ascending.
         """
+        if self._mem_browse_data is not None:
+            data, ts = self._mem_browse_data
+            if time.monotonic() - ts < CACHE_TTL:
+                log.debug("Cache HIT browse_data (in-memory)")
+                return data
+
         if not self._series_info:
             await self.refresh_sports()
 
@@ -1239,6 +1272,7 @@ class KalshiAPI:
                 return m.get("close_time") or m.get("expected_expiration_time") or "9999"
             category_data[cat].sort(key=_series_sort_key)
 
+        self._mem_browse_data = (category_data, time.monotonic())
         return category_data
 
     # ── Public API methods ────────────────────────────────────────────
