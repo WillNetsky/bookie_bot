@@ -1244,8 +1244,9 @@ class KalshiAPI:
         for series_ticker, markets in series_markets.items():
             info = self._series_info.get(series_ticker, {})
             category = info.get("category", "") or "Other"
-            raw_title = info.get("title", series_ticker)
-            label = _LABEL_OVERRIDES.get(series_ticker, raw_title)
+            # Use `or` (not dict default) so None/empty from API also falls back to ticker
+            raw_title = info.get("title") or series_ticker
+            label = _LABEL_OVERRIDES.get(series_ticker) or raw_title
 
             # Sort markets by close_time ascending
             markets_sorted = sorted(
@@ -1657,13 +1658,16 @@ class KalshiAPI:
         )
 
         # Cache the full discovery result
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await get_connection()
+        try:
             await db.execute(
                 "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
                 " VALUES (?, 'kalshi', ?, datetime('now'))",
                 (cache_key, json.dumps(result)),
             )
             await db.commit()
+        finally:
+            await db.close()
 
         return result
 
