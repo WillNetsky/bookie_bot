@@ -545,6 +545,18 @@ RETRY_BACKOFF = 1.0  # seconds, doubles each retry
 _private_key = None
 
 
+def _is_market_active(m: dict) -> bool:
+    """Return True if the market's expiry is in the future (or unknown)."""
+    exp = m.get("close_time") or m.get("expected_expiration_time") or ""
+    if not exp:
+        return True
+    try:
+        exp_dt = datetime.fromisoformat(exp.replace("Z", "+00:00"))
+        return exp_dt > datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return True
+
+
 def _load_private_key():
     """Load the RSA private key from the configured PEM file."""
     global _private_key
@@ -1065,11 +1077,13 @@ class KalshiAPI:
             await asyncio.sleep(0.2)
 
         log.info("Fetched %d open sports markets from Kalshi", len(all_markets))
+        all_markets = [m for m in all_markets if _is_market_active(m)]
+        log.debug("After expiry filter: %d sports markets", len(all_markets))
 
         if not all_markets:
             if stale_data:
                 log.warning("Kalshi markets fetch returned nothing, using stale cache")
-                result = json.loads(stale_data)
+                result = [m for m in json.loads(stale_data) if _is_market_active(m)]
                 self._mem_all_markets = (result, time.monotonic())
                 return result
             return []
@@ -1180,11 +1194,13 @@ class KalshiAPI:
             await asyncio.sleep(0.2)
 
         log.info("Fetched %d open markets for browse", len(all_markets))
+        all_markets = [m for m in all_markets if _is_market_active(m)]
+        log.debug("After expiry filter: %d browse markets", len(all_markets))
 
         if not all_markets:
             if stale_data:
                 log.warning("Browse markets fetch returned nothing, using stale cache")
-                result = json.loads(stale_data)
+                result = [m for m in json.loads(stale_data) if _is_market_active(m)]
                 self._mem_browse_markets = (result, time.monotonic())
                 return result
             return []
