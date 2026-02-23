@@ -959,44 +959,57 @@ class MarketListView(discord.ui.View):
         self.markets = markets
         self.page = page
         self.message: discord.Message | None = None
+        self._grouped = _group_markets_by_prop(markets)
         self._rebuild()
 
     def _rebuild(self) -> None:
         self.clear_items()
-        total_pages = max(1, (len(self.markets) + MARKETS_PER_PAGE - 1) // MARKETS_PER_PAGE)
+        total_pages = max(1, (len(self._grouped) + MARKETS_PER_PAGE - 1) // MARKETS_PER_PAGE)
         start = self.page * MARKETS_PER_PAGE
-        page_markets = self.markets[start:start + MARKETS_PER_PAGE]
+        page_items = self._grouped[start:start + MARKETS_PER_PAGE]
 
-        if page_markets:
-            self.add_item(MarketSelectDropdown(page_markets, self, row=0))
+        if page_items:
+            self.add_item(MarketGroupedDropdown(page_items, start, self, row=0))
         if self.page > 0:
             self.add_item(MarketPageButton("prev", self.page - 1, row=1))
         if self.page < total_pages - 1:
             self.add_item(MarketPageButton("next", self.page + 1, row=1))
 
     def build_embed(self) -> discord.Embed:
-        total = len(self.markets)
+        total = len(self._grouped)
         total_pages = max(1, (total + MARKETS_PER_PAGE - 1) // MARKETS_PER_PAGE)
         start = self.page * MARKETS_PER_PAGE
-        page_markets = self.markets[start:start + MARKETS_PER_PAGE]
+        page_items = self._grouped[start:start + MARKETS_PER_PAGE]
 
         embed = discord.Embed(title="\U0001f4ca Open Markets", color=discord.Color.blue())
-        if not page_markets:
+        if not page_items:
             embed.description = "No open markets right now."
             return embed
 
         lines = []
-        for m in page_markets:
-            title  = m.get("title") or "?"
-            yes_sub = m.get("yes_sub_title") or ""
-            exp    = m.get("expected_expiration_time") or m.get("close_time") or ""
-            sport  = _series_label(m.get("series_ticker") or "")
-            time_str = _format_game_time(exp) if exp else "TBD"
-            yes_am, no_am = _market_odds_str(m)
-            header = f"**{title}**"
-            if sport:
-                header += f"  _{sport}_"
-            lines.append(f"{header}\n{time_str} · YES {yes_am} / NO {no_am}")
+        for item in page_items:
+            if item["type"] == "single":
+                m = item["market"]
+                title = m.get("title") or "?"
+                exp = m.get("expected_expiration_time") or m.get("close_time") or ""
+                sport = _series_label(m.get("series_ticker") or "")
+                time_str = _format_game_time(exp) if exp else "TBD"
+                yes_am, no_am = _market_odds_str(m)
+                header = f"**{title}**"
+                if sport:
+                    header += f"  _{sport}_"
+                lines.append(f"{header}\n{time_str} · YES {yes_am} / NO {no_am}")
+            else:
+                label = item["label"]
+                count = item["count"]
+                first_m = item["markets"][0]
+                exp = first_m.get("expected_expiration_time") or first_m.get("close_time") or ""
+                sport = _series_label(first_m.get("series_ticker") or "")
+                time_str = _format_game_time(exp) if exp else "TBD"
+                header = f"\U0001f4ca **{label}**"
+                if sport:
+                    header += f"  _{sport}_"
+                lines.append(f"{header}\n{time_str} · {count} threshold options")
 
         embed.description = "\n\n".join(lines)
         embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Select a market below to bet")
@@ -1011,23 +1024,146 @@ class MarketListView(discord.ui.View):
                 pass
 
 
-class MarketSelectDropdown(discord.ui.Select["MarketListView"]):
-    """Dropdown listing markets on the current page."""
+class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
+    """Dropdown for MarketListView supporting both singles and grouped prop markets."""
 
-    def __init__(self, markets: list[dict], parent: "MarketListView", row: int = 0) -> None:
-        self._parent = parent
+    def __init__(self, page_items: list[dict], start: int, list_view: "MarketListView", row: int = 0) -> None:
+        self._list_view = list_view
         self._market_map: dict[str, dict] = {}
+        self._group_map: dict[str, list[dict]] = {}
         options: list[discord.SelectOption] = []
-        for m in markets[:25]:
-            ticker  = m.get("ticker") or ""
-            title   = m.get("title") or ticker
-            yes_sub = m.get("yes_sub_title") or ""
-            label   = (yes_sub if yes_sub else title)[:100]
+        for i, item in enumerate(page_items[:25]):
+            if item["type"] == "single":
+                m = item["market"]
+                ticker = m.get("ticker") or ""
+                title = m.get("yes_sub_title") or m.get("title") or ticker
+                label = title[:100]
+                yes_am, no_am = _market_odds_str(m)
+                desc = f"YES {yes_am} / NO {no_am}"[:100]
+                self._market_map[ticker] = m
+                options.append(discord.SelectOption(label=label, value=f"m:{ticker}", description=desc))
+            else:
+                key = f"g:{start + i}"
+                label = item["label"][:100]
+                desc = f"\U0001f4ca {item['count']} threshold options"[:100]
+                self._group_map[key] = item["markets"]
+                options.append(discord.SelectOption(label=label, value=key, description=desc, emoji="\U0001f4ca"))
+        super().__init__(placeholder="Select a market to bet on...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        value = self.values[0]
+        await interaction.response.defer()
+        if value.startswith("m:"):
+            ticker = value[2:]
+            market = self._market_map.get(ticker)
+            if not market:
+                await interaction.followup.send("Market not found.", ephemeral=True)
+                return
+            bet_view = RawMarketBetView(market, self._list_view)
+            embed = bet_view.build_embed()
+            await interaction.edit_original_response(embed=embed, view=bet_view)
+        elif value.startswith("g:"):
+            group_markets = self._group_map.get(value, [])
+            if not group_markets:
+                await interaction.followup.send("Group not found.", ephemeral=True)
+                return
+            threshold_view = LiveThresholdView(group_markets, self._list_view)
+            embed = threshold_view.build_embed()
+            await interaction.edit_original_response(embed=embed, view=threshold_view)
+
+
+class LiveThresholdView(discord.ui.View):
+    """Shows individual threshold options for a grouped market in the /live flow."""
+
+    def __init__(
+        self,
+        group_markets: list[dict],
+        list_view: "MarketListView",
+        page: int = 0,
+        timeout: float = 180.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.markets = group_markets
+        self._all_markets = list_view.markets
+        self._list_page = list_view.page
+        self.page = page
+        self.message: discord.Message | None = None
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        total_pages = max(1, (len(self.markets) + THRESHOLD_PER_PAGE - 1) // THRESHOLD_PER_PAGE)
+        start = self.page * THRESHOLD_PER_PAGE
+        page_markets = self.markets[start:start + THRESHOLD_PER_PAGE]
+
+        market_map: dict[str, dict] = {}
+        options: list[discord.SelectOption] = []
+        for m in page_markets:
+            ticker = m.get("ticker", "")
+            title = m.get("yes_sub_title") or m.get("title") or ticker
+            label = title[:100]
             yes_am, no_am = _market_odds_str(m)
             desc = f"YES {yes_am} / NO {no_am}"[:100]
-            self._market_map[ticker] = m
+            market_map[ticker] = m
             options.append(discord.SelectOption(label=label, value=ticker, description=desc))
-        super().__init__(placeholder="Select a market to bet on...", options=options, row=row)
+
+        if options:
+            self.add_item(LiveThresholdSelect(options, market_map, self._all_markets, self._list_page, row=0))
+
+        if total_pages > 1:
+            if self.page > 0:
+                self.add_item(LiveThresholdPageButton("prev", self.page - 1, row=1))
+            if self.page < total_pages - 1:
+                self.add_item(LiveThresholdPageButton("next", self.page + 1, row=1))
+
+        self.add_item(RawMarketBackButton(self._all_markets, self._list_page, row=2))
+
+    def build_embed(self) -> discord.Embed:
+        total_pages = max(1, (len(self.markets) + THRESHOLD_PER_PAGE - 1) // THRESHOLD_PER_PAGE)
+        start = self.page * THRESHOLD_PER_PAGE
+        page_markets = self.markets[start:start + THRESHOLD_PER_PAGE]
+
+        first_title = self.markets[0].get("yes_sub_title") or self.markets[0].get("title") or "?"
+        header = _prop_stem(first_title).replace("#", "?")
+        embed = discord.Embed(title=header, color=discord.Color.red())
+
+        if not page_markets:
+            embed.description = "No thresholds found."
+            return embed
+
+        lines = []
+        for m in page_markets:
+            title = m.get("yes_sub_title") or m.get("title") or "?"
+            yes_am, no_am = _market_odds_str(m)
+            lines.append(f"**{title}** · YES {yes_am} / NO {no_am}")
+        embed.description = "\n".join(lines)
+
+        footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
+        embed.set_footer(text=f"{footer}Select a threshold to bet")
+        return embed
+
+    async def on_timeout(self) -> None:
+        self.clear_items()
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except discord.NotFound:
+                pass
+
+
+class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
+    def __init__(
+        self,
+        options: list[discord.SelectOption],
+        market_map: dict[str, dict],
+        all_markets: list[dict],
+        list_page: int,
+        row: int = 0,
+    ) -> None:
+        super().__init__(placeholder="Select a threshold to bet on...", options=options, row=row)
+        self._market_map = market_map
+        self._all_markets = all_markets
+        self._list_page = list_page
 
     async def callback(self, interaction: discord.Interaction) -> None:
         ticker = self.values[0]
@@ -1036,9 +1172,30 @@ class MarketSelectDropdown(discord.ui.Select["MarketListView"]):
             await interaction.response.send_message("Market not found.", ephemeral=True)
             return
         await interaction.response.defer()
-        bet_view = RawMarketBetView(market, self._parent)
+        list_view = MarketListView(self._all_markets, self._list_page)
+        bet_view = RawMarketBetView(market, list_view)
         embed = bet_view.build_embed()
         await interaction.edit_original_response(embed=embed, view=bet_view)
+
+
+class LiveThresholdPageButton(discord.ui.Button["LiveThresholdView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
 
 
 class MarketPageButton(discord.ui.Button["MarketListView"]):
