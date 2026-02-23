@@ -1005,7 +1005,7 @@ class MarketListView(discord.ui.View):
             if item["type"] == "single":
                 m = item["market"]
                 title = m.get("title") or "?"
-                exp = m.get("expected_expiration_time") or m.get("close_time") or ""
+                exp = m.get("close_time") or m.get("expected_expiration_time") or ""
                 sport = _series_label(m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 yes_am, no_am = _market_odds_str(m)
@@ -1017,7 +1017,7 @@ class MarketListView(discord.ui.View):
                 label = item["label"]
                 count = item["count"]
                 first_m = item["markets"][0]
-                exp = first_m.get("expected_expiration_time") or first_m.get("close_time") or ""
+                exp = first_m.get("close_time") or first_m.get("expected_expiration_time") or ""
                 sport = _series_label(first_m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 header = f"\U0001f4ca **{label}**"
