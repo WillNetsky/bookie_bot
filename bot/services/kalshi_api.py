@@ -546,8 +546,13 @@ _private_key = None
 
 
 def _is_market_active(m: dict) -> bool:
-    """Return True if the market's expiry is in the future (or unknown)."""
-    exp = m.get("close_time") or m.get("expected_expiration_time") or ""
+    """Return True if the market hasn't passed its expected expiration time.
+
+    Uses expected_expiration_time (when the market resolves/settles), NOT
+    close_time (when betting closes, which is often at game start and is
+    already past for in-progress games).
+    """
+    exp = m.get("expected_expiration_time") or ""
     if not exp:
         return True
     try:
