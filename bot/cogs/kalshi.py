@@ -280,42 +280,59 @@ def _prop_stem(title: str) -> str:
 
 
 def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
-    """Group markets differing only by numeric threshold.
+    """Group markets that belong to the same game/event into a single entry.
+
+    Primary key is event_ticker — all outcomes for the same game (e.g.
+    home win / away win / tie, or all spread lines) share one event_ticker.
+    Falls back to ticker (always unique) so ungroupable markets stay single.
 
     Returns a list of items, each either:
       {"type": "single", "market": {...}}
-      {"type": "group", "label": str, "markets": [...], "count": int}
+      {"type": "group", "label": str, "subtitle": str, "markets": [...], "count": int}
     """
     from collections import OrderedDict
-    stem_map: dict[str, list[dict]] = OrderedDict()
+    event_map: dict[str, list[dict]] = OrderedDict()
     for m in markets:
-        title = m.get("yes_sub_title") or m.get("title") or m.get("ticker", "")
-        stem = _prop_stem(title)
-        stem_map.setdefault(stem, []).append(m)
+        key = m.get("event_ticker") or m.get("ticker", "")
+        event_map.setdefault(key, []).append(m)
 
     result: list[dict] = []
-    for stem, group in stem_map.items():
+    for key, group in event_map.items():
         if len(group) == 1:
             result.append({"type": "single", "market": group[0]})
         else:
-            # Sort group by first numeric value in the title (threshold ascending)
-            def _threshold(m: dict) -> float:
-                t = m.get("yes_sub_title") or m.get("title") or ""
-                nums = _NUMBER_RE.findall(t)
-                return float(nums[0]) if nums else 0.0
-            group_sorted = sorted(group, key=_threshold)
-            # Build range label
-            first_t = group_sorted[0].get("yes_sub_title") or group_sorted[0].get("title") or stem
-            last_t  = group_sorted[-1].get("yes_sub_title") or group_sorted[-1].get("title") or stem
-            first_nums = _NUMBER_RE.findall(first_t)
-            last_nums  = _NUMBER_RE.findall(last_t)
-            if first_nums and last_nums:
-                lo = first_nums[0]
-                hi = last_nums[0]
-                label = _NUMBER_RE.sub("#", first_t, count=1).replace("#", f"{lo}–{hi}", 1)
+            group_sorted = sorted(
+                group,
+                key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999"
+            )
+            # Game title (shared across the group)
+            game_title = group_sorted[0].get("title") or key
+            # Collect sub-titles to distinguish threshold vs outcome groups
+            sub_titles = [m.get("yes_sub_title") or "" for m in group_sorted]
+            has_numbers = any(_NUMBER_RE.search(s) for s in sub_titles if s)
+            if has_numbers:
+                # Threshold variants — show numeric range (e.g. "Points Over 10.5–15.5")
+                nums_per = [_NUMBER_RE.findall(s) for s in sub_titles if s]
+                all_nums = [float(n[0]) for n in nums_per if n]
+                if all_nums:
+                    lo, hi = min(all_nums), max(all_nums)
+                    first_sub = next((s for s in sub_titles if _NUMBER_RE.search(s)), "")
+                    label = _NUMBER_RE.sub("#", first_sub, count=1).replace("#", f"{lo}–{hi}", 1)
+                else:
+                    label = game_title
+                subtitle = f"{len(group_sorted)} thresholds"
             else:
-                label = stem
-            result.append({"type": "group", "label": label, "markets": group_sorted, "count": len(group_sorted)})
+                # Game outcomes (win/loss/tie, team names, etc.)
+                label = game_title
+                subs = [s for s in sub_titles[:3] if s]
+                subtitle = " · ".join(subs) if subs else f"{len(group_sorted)} options"
+            result.append({
+                "type": "group",
+                "label": label,
+                "subtitle": subtitle,
+                "markets": group_sorted,
+                "count": len(group_sorted),
+            })
     return result
 
 
@@ -360,7 +377,7 @@ class KalshiMarketsView(discord.ui.View):
                 options.append(discord.SelectOption(label=label, value=f"m:{ticker}", description=desc))
             else:
                 label = item["label"][:100]
-                desc = f"📊 {item['count']} threshold options"[:100]
+                desc = item.get("subtitle", f"{item['count']} options")[:100]
                 options.append(discord.SelectOption(
                     label=label, value=f"g:{global_idx}",
                     description=desc, emoji="📊",
@@ -403,9 +420,8 @@ class KalshiMarketsView(discord.ui.View):
                 yes_am, no_am = _market_odds_str(m)
                 lines.append(f"**{title}**\n{time_str} · YES {yes_am} / NO {no_am}")
             else:
-                label = item["label"]
-                count = item["count"]
-                lines.append(f"📊 **{label}** · {count} threshold options")
+                subtitle = item.get("subtitle", f"{item['count']} options")
+                lines.append(f"📊 **{item['label']}** · {subtitle}")
 
         embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
@@ -649,9 +665,7 @@ class KalshiThresholdView(discord.ui.View):
         start = self.page * THRESHOLD_PER_PAGE
         page_markets = self.markets[start:start + THRESHOLD_PER_PAGE]
 
-        # Use the series label + first market title stem as header
-        first_title = self.markets[0].get("yes_sub_title") or self.markets[0].get("title") or "?"
-        header = _prop_stem(first_title).replace("#", "?")
+        header = self.markets[0].get("title") or self.markets[0].get("yes_sub_title") or "?"
         embed = discord.Embed(title=header, color=discord.Color.blue())
 
         if not page_markets:
@@ -1009,7 +1023,8 @@ class MarketListView(discord.ui.View):
                 header = f"\U0001f4ca **{label}**"
                 if sport:
                     header += f"  _{sport}_"
-                lines.append(f"{header}\n{time_str} · {count} threshold options")
+                subtitle = item.get("subtitle", f"{count} options")
+                lines.append(f"{header}\n{time_str} · {subtitle}")
 
         embed.description = "\n\n".join(lines)
         embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Select a market below to bet")
@@ -1047,7 +1062,7 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
             else:
                 key = f"g:{start + i}"
                 label = item["label"][:100]
-                desc = f"\U0001f4ca {item['count']} threshold options"[:100]
+                desc = item.get("subtitle", f"{item['count']} options")[:100]
                 self._group_map[key] = item["markets"]
                 options.append(discord.SelectOption(label=label, value=key, description=desc, emoji="\U0001f4ca"))
         super().__init__(placeholder="Select a market to bet on...", options=options, row=row)
@@ -1124,8 +1139,7 @@ class LiveThresholdView(discord.ui.View):
         start = self.page * THRESHOLD_PER_PAGE
         page_markets = self.markets[start:start + THRESHOLD_PER_PAGE]
 
-        first_title = self.markets[0].get("yes_sub_title") or self.markets[0].get("title") or "?"
-        header = _prop_stem(first_title).replace("#", "?")
+        header = self.markets[0].get("title") or self.markets[0].get("yes_sub_title") or "?"
         embed = discord.Embed(title=header, color=discord.Color.red())
 
         if not page_markets:
