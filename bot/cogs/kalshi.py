@@ -2916,50 +2916,39 @@ class KalshiCog(commands.Cog):
 
     # ── /live ─────────────────────────────────────────────────────────
 
-    @app_commands.command(name="live", description="Markets closing soon — bet before they settle")
+    @app_commands.command(name="live", description="Upcoming sports markets — sorted by soonest close")
     async def live(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
 
         all_markets = await kalshi_api.get_all_open_markets()
         now = datetime.now(timezone.utc)
-        window = timedelta(hours=3)
 
-        closing_soon: list[dict] = []
+        # Keep only markets whose close_time is still in the future, sorted soonest first.
+        upcoming: list[tuple[datetime, dict]] = []
+        no_close: list[dict] = []
         for m in all_markets:
             close_str = m.get("close_time") or m.get("expected_expiration_time") or ""
             if not close_str:
+                no_close.append(m)
                 continue
             try:
                 close_dt = datetime.fromisoformat(close_str.replace("Z", "+00:00"))
             except (ValueError, TypeError):
+                no_close.append(m)
                 continue
-            if now < close_dt <= now + window:
-                closing_soon.append(m)
+            if close_dt > now:
+                upcoming.append((close_dt, m))
 
-        # Expand to 8 hours if fewer than 5 results
-        if len(closing_soon) < 5:
-            window = timedelta(hours=8)
-            closing_soon = []
-            for m in all_markets:
-                close_str = m.get("close_time") or m.get("expected_expiration_time") or ""
-                if not close_str:
-                    continue
-                try:
-                    close_dt = datetime.fromisoformat(close_str.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    continue
-                if now < close_dt <= now + window:
-                    closing_soon.append(m)
+        upcoming.sort(key=lambda t: t[0])
+        closing_soon = [m for _, m in upcoming] + no_close
 
         if not closing_soon:
-            await interaction.followup.send("No markets closing soon.")
+            await interaction.followup.send("No open markets right now.")
             return
-
-        closing_soon.sort(key=lambda m: m.get("close_time") or m.get("expected_expiration_time") or "9999")
 
         view = MarketListView(closing_soon)
         embed = view.build_embed()
-        embed.title = "\U0001f534 Closing Soon"
+        embed.title = "\U0001f534 Open Markets"
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
