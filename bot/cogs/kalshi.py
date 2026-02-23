@@ -2991,8 +2991,11 @@ class KalshiCog(commands.Cog):
             log.info("Starting database maintenance...")
             deleted = await cleanup_cache(max_age_days=1)
             log.info(f"Cleaned up {deleted} stale cache entries.")
-            await vacuum_db()
-            log.info("Database vacuumed successfully.")
+            vacuumed = await vacuum_db()
+            if vacuumed:
+                log.info("Database vacuumed successfully.")
+            else:
+                log.info("VACUUM skipped (see warning above).")
         except Exception:
             log.exception("Error in db_maintenance loop")
 

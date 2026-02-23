@@ -234,20 +234,25 @@ async def _handle_injection(db: aiosqlite.Connection) -> None:
         log.exception("Failed to perform auto-injection")
 
 @db_retry()
-async def vacuum_db() -> None:
-    """Reclaim unused disk space. Requires exclusive access."""
-    # Using isolation_level=None ensures we aren't in a transaction
+async def vacuum_db() -> bool:
+    """Reclaim unused disk space. Returns True if VACUUM ran, False if skipped."""
+    # Using isolation_level=None ensures we aren't in a transaction.
+    # PRAGMA temp_store=MEMORY avoids writing the temp copy to /tmp (which
+    # is often a small tmpfs), using RAM instead — fine for a small database.
     async with aiosqlite.connect(DB_PATH, isolation_level=None) as db:
         try:
+            await db.execute("PRAGMA temp_store = MEMORY")
             await db.execute("VACUUM")
+            return True
         except sqlite3.OperationalError as e:
             msg = str(e)
             if "statements in progress" in msg:
                 log.warning("VACUUM skipped: database busy with other queries.")
             elif "disk is full" in msg or "database is full" in msg:
-                log.warning("VACUUM skipped: insufficient temp disk space (DB needs ~1x its size). Error: %s", e)
+                log.warning("VACUUM skipped: disk or temp space full. Error: %s", e)
             else:
                 raise
+            return False
 
 @db_retry()
 async def cleanup_cache(max_age_days: int = 7) -> int:
