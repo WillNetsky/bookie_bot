@@ -2704,9 +2704,10 @@ class KalshiCog(commands.Cog):
         try:
             log.info(f"Manual vacuum triggered by {interaction.user}")
             deleted = await cleanup_cache(max_age_days=0)  # Clear all cache
-            await vacuum_db()
+            vacuumed = await vacuum_db()
+            vacuum_note = "database vacuumed" if vacuumed else "VACUUM skipped (check logs)"
             await interaction.followup.send(
-                f"Maintenance complete. Cleared {deleted} cache entries and vacuumed database.",
+                f"Maintenance complete. Cleared {deleted} cache entries, {vacuum_note}.",
                 ephemeral=True
             )
         except Exception as e:
