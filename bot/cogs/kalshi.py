@@ -358,6 +358,70 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
     return result
 
 
+def _get_item_time_key(item: dict) -> str:
+    """Get a canonical minute-precision game-time key for a grouped display item."""
+    if item["type"] == "single":
+        t = _earliest_market_time(item["market"])
+    else:
+        t = _earliest_market_time(item["markets"][0])
+    if not t:
+        return "9999"
+    try:
+        dt = datetime.fromisoformat(t.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%dT%H:%M")
+    except (ValueError, TypeError):
+        return t[:16]
+
+
+def _group_for_display(markets: list[dict]) -> list[dict]:
+    """Wrap _group_markets_by_prop with a game-level bucket layer.
+
+    If markets span more than one distinct close_time (i.e. multiple games),
+    returns game_bucket items so the UI can show one entry per game first.
+    Otherwise returns prop-grouped items directly (existing behaviour).
+
+    game_bucket: {"type": "game_bucket", "time_str": str, "markets": [raw...], "count": int}
+    """
+    prop_grouped = _group_markets_by_prop(markets)
+
+    # Collect ordered unique game-time keys
+    time_keys_ordered: list[str] = []
+    seen: set[str] = set()
+    for item in prop_grouped:
+        tk = _get_item_time_key(item)
+        if tk not in seen:
+            seen.add(tk)
+            time_keys_ordered.append(tk)
+
+    if len(time_keys_ordered) <= 1:
+        return prop_grouped  # Single game — no extra bucketing needed
+
+    # Group prop items and raw markets by game time
+    bucket_prop_count: dict[str, int] = {tk: 0 for tk in time_keys_ordered}
+    bucket_raw_markets: dict[str, list[dict]] = {tk: [] for tk in time_keys_ordered}
+
+    for item in prop_grouped:
+        tk = _get_item_time_key(item)
+        bucket_prop_count[tk] += 1
+        if item["type"] == "single":
+            bucket_raw_markets[tk].append(item["market"])
+        else:
+            bucket_raw_markets[tk].extend(item["markets"])
+
+    result = []
+    for tk in time_keys_ordered:
+        raw = bucket_raw_markets[tk]
+        exp = _earliest_market_time(raw[0]) if raw else None
+        time_str = _format_game_time(exp) if exp else tk
+        result.append({
+            "type": "game_bucket",
+            "time_str": time_str,
+            "markets": raw,
+            "count": bucket_prop_count[tk],
+        })
+    return result
+
+
 class KalshiMarketsView(discord.ui.View):
     """Shows markets within a chosen series, with prop grouping."""
 
@@ -368,6 +432,7 @@ class KalshiMarketsView(discord.ui.View):
         browse_data: dict[str, list[dict]],
         series_page: int = 0,
         page: int = 0,
+        parent_series: dict | None = None,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
@@ -376,8 +441,9 @@ class KalshiMarketsView(discord.ui.View):
         self.browse_data = browse_data
         self.series_page = series_page
         self.page = page
+        self.parent_series = parent_series
         self.message: discord.Message | None = None
-        self._grouped = _group_markets_by_prop(series.get("markets", []))
+        self._grouped = _group_for_display(series.get("markets", []))
         self._rebuild()
 
     def _rebuild(self) -> None:
@@ -389,7 +455,15 @@ class KalshiMarketsView(discord.ui.View):
 
         options: list[discord.SelectOption] = []
         for global_idx, item in enumerate(grouped[start:start + BROWSE_MARKETS_PER_PAGE], start=start):
-            if item["type"] == "single":
+            if item["type"] == "game_bucket":
+                label = item["time_str"][:100]
+                n = item["count"]
+                desc = f"{n} market group{'s' if n != 1 else ''}"[:100]
+                options.append(discord.SelectOption(
+                    label=label, value=f"gb:{global_idx}",
+                    description=desc, emoji="🏟️",
+                ))
+            elif item["type"] == "single":
                 m = item["market"]
                 ticker = m.get("ticker", "")
                 title = m.get("yes_sub_title") or m.get("title") or ticker
@@ -418,7 +492,8 @@ class KalshiMarketsView(discord.ui.View):
                 self.add_item(KalshiMarketsPageButton("next", self.page + 1, row=1))
 
         self.add_item(KalshiBackToSeriesButton(
-            self.category, self.browse_data, self.series_page, row=2
+            self.category, self.browse_data, self.series_page, row=2,
+            parent_series=self.parent_series,
         ))
 
     def build_embed(self) -> discord.Embed:
@@ -434,7 +509,10 @@ class KalshiMarketsView(discord.ui.View):
 
         lines = []
         for item in page_items:
-            if item["type"] == "single":
+            if item["type"] == "game_bucket":
+                n = item["count"]
+                lines.append(f"🏟️ **{item['time_str']}** · {n} market group{'s' if n != 1 else ''}")
+            elif item["type"] == "single":
                 m = item["market"]
                 title = m.get("yes_sub_title") or m.get("title") or "?"
                 exp = _earliest_market_time(m)
@@ -484,9 +562,24 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
     async def callback(self, interaction: discord.Interaction) -> None:
         value = self.values[0]
         view = self.view
+        parent_series = getattr(view, "parent_series", None) if view is not None else None
         await interaction.response.defer()
 
-        if value.startswith("m:"):
+        if value.startswith("gb:"):
+            global_idx = int(value[3:])
+            bucket = self._grouped[global_idx]
+            game_series = dict(self._series)
+            game_series["label"] = f"{self._series.get('label', '')} — {bucket['time_str']}"
+            game_series["markets"] = bucket["markets"]
+            sub_view = KalshiMarketsView(
+                game_series, self._category, self._browse_data,
+                series_page=self._series_page, page=0,
+                parent_series=self._series,
+            )
+            embed = sub_view.build_embed()
+            await interaction.edit_original_response(embed=embed, view=sub_view)
+
+        elif value.startswith("m:"):
             ticker = value[2:]
             # Find the market in grouped items
             market = None
@@ -500,6 +593,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
             bet_view = KalshiMarketBetView(
                 market, self._series, self._category, self._browse_data,
                 series_page=self._series_page, markets_page=self._markets_page,
+                parent_series=parent_series,
             )
             embed = bet_view.build_embed()
             await interaction.edit_original_response(embed=embed, view=bet_view)
@@ -510,6 +604,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
             threshold_view = KalshiThresholdView(
                 item["markets"], self._series, self._category,
                 self._browse_data, self._series_page, self._markets_page,
+                parent_series=parent_series,
             )
             embed = threshold_view.build_embed()
             await interaction.edit_original_response(embed=embed, view=threshold_view)
@@ -536,7 +631,10 @@ class KalshiMarketsPageButton(discord.ui.Button["KalshiMarketsView"]):
 
 
 class KalshiBackToSeriesButton(discord.ui.Button["KalshiMarketsView"]):
-    def __init__(self, category: str, browse_data: dict, series_page: int, row: int) -> None:
+    def __init__(
+        self, category: str, browse_data: dict, series_page: int, row: int,
+        parent_series: dict | None = None,
+    ) -> None:
         super().__init__(
             label="Back", style=discord.ButtonStyle.secondary,
             emoji="\u25c0\ufe0f", row=row,
@@ -544,14 +642,24 @@ class KalshiBackToSeriesButton(discord.ui.Button["KalshiMarketsView"]):
         self._category = category
         self._browse_data = browse_data
         self._series_page = series_page
+        self._parent_series = parent_series
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        series_list = self._browse_data.get(self._category, [])
-        series_view = KalshiSeriesView(
-            self._category, series_list, self._browse_data, page=self._series_page
-        )
-        embed = series_view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=series_view)
+        if self._parent_series is not None:
+            # We're in a game sub-view — go back to the game list
+            parent_view = KalshiMarketsView(
+                self._parent_series, self._category, self._browse_data,
+                series_page=self._series_page, page=0,
+            )
+            embed = parent_view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=parent_view)
+        else:
+            series_list = self._browse_data.get(self._category, [])
+            series_view = KalshiSeriesView(
+                self._category, series_list, self._browse_data, page=self._series_page
+            )
+            embed = series_view.build_embed()
+            await interaction.response.edit_message(embed=embed, view=series_view)
 
 
 class KalshiMarketBetView(discord.ui.View):
@@ -565,6 +673,7 @@ class KalshiMarketBetView(discord.ui.View):
         browse_data: dict[str, list[dict]],
         series_page: int = 0,
         markets_page: int = 0,
+        parent_series: dict | None = None,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
@@ -572,7 +681,10 @@ class KalshiMarketBetView(discord.ui.View):
         yes_am, no_am = _market_odds_str(market)
         self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
         self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
-        self.add_item(KalshiMarketBackButton(series, category, browse_data, series_page, markets_page, row=1))
+        self.add_item(KalshiMarketBackButton(
+            series, category, browse_data, series_page, markets_page, row=1,
+            parent_series=parent_series,
+        ))
 
     def build_embed(self) -> discord.Embed:
         m = self.market
@@ -603,6 +715,7 @@ class KalshiMarketBackButton(discord.ui.Button["KalshiMarketBetView"]):
     def __init__(
         self, series: dict, category: str, browse_data: dict,
         series_page: int, markets_page: int, row: int,
+        parent_series: dict | None = None,
     ) -> None:
         super().__init__(
             label="Back", style=discord.ButtonStyle.secondary,
@@ -613,11 +726,13 @@ class KalshiMarketBackButton(discord.ui.Button["KalshiMarketBetView"]):
         self._browse_data = browse_data
         self._series_page = series_page
         self._markets_page = markets_page
+        self._parent_series = parent_series
 
     async def callback(self, interaction: discord.Interaction) -> None:
         markets_view = KalshiMarketsView(
             self._series, self._category, self._browse_data,
             series_page=self._series_page, page=self._markets_page,
+            parent_series=self._parent_series,
         )
         embed = markets_view.build_embed()
         await interaction.response.edit_message(embed=embed, view=markets_view)
@@ -640,6 +755,7 @@ class KalshiThresholdView(discord.ui.View):
         series_page: int = 0,
         markets_page: int = 0,
         page: int = 0,
+        parent_series: dict | None = None,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
@@ -650,6 +766,7 @@ class KalshiThresholdView(discord.ui.View):
         self.series_page = series_page
         self.markets_page = markets_page
         self.page = page
+        self.parent_series = parent_series
         self.message: discord.Message | None = None
         self._rebuild()
 
@@ -672,6 +789,7 @@ class KalshiThresholdView(discord.ui.View):
             self.add_item(KalshiThresholdSelect(
                 options, self.markets, self.series, self.category,
                 self.browse_data, self.series_page, self.markets_page,
+                parent_series=self.parent_series,
             ))
 
         if total_pages > 1:
@@ -683,6 +801,7 @@ class KalshiThresholdView(discord.ui.View):
         self.add_item(KalshiThresholdBackButton(
             self.series, self.category, self.browse_data,
             self.series_page, self.markets_page, row=2,
+            parent_series=self.parent_series,
         ))
 
     def build_embed(self) -> discord.Embed:
@@ -727,6 +846,7 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
         browse_data: dict,
         series_page: int,
         markets_page: int,
+        parent_series: dict | None = None,
     ) -> None:
         super().__init__(placeholder="Select a threshold to bet on...", options=options, row=0)
         self._market_map = {m.get("ticker", ""): m for m in markets}
@@ -735,6 +855,7 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
         self._browse_data = browse_data
         self._series_page = series_page
         self._markets_page = markets_page
+        self._parent_series = parent_series
 
     async def callback(self, interaction: discord.Interaction) -> None:
         ticker = self.values[0]
@@ -746,6 +867,7 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
         bet_view = KalshiMarketBetView(
             market, self._series, self._category, self._browse_data,
             series_page=self._series_page, markets_page=self._markets_page,
+            parent_series=self._parent_series,
         )
         embed = bet_view.build_embed()
         await interaction.edit_original_response(embed=embed, view=bet_view)
@@ -775,6 +897,7 @@ class KalshiThresholdBackButton(discord.ui.Button["KalshiThresholdView"]):
     def __init__(
         self, series: dict, category: str, browse_data: dict,
         series_page: int, markets_page: int, row: int,
+        parent_series: dict | None = None,
     ) -> None:
         super().__init__(
             label="Back", style=discord.ButtonStyle.secondary,
@@ -785,11 +908,13 @@ class KalshiThresholdBackButton(discord.ui.Button["KalshiThresholdView"]):
         self._browse_data = browse_data
         self._series_page = series_page
         self._markets_page = markets_page
+        self._parent_series = parent_series
 
     async def callback(self, interaction: discord.Interaction) -> None:
         markets_view = KalshiMarketsView(
             self._series, self._category, self._browse_data,
             series_page=self._series_page, page=self._markets_page,
+            parent_series=self._parent_series,
         )
         embed = markets_view.build_embed()
         await interaction.response.edit_message(embed=embed, view=markets_view)
