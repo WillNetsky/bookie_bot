@@ -626,6 +626,7 @@ class KalshiAPI:
         self._sports_series_cache: set[str] = set()
         self._series_info: dict[str, dict] = {}  # {ticker: {"category": ..., "title": ...}}
         self._prewarm_task: asyncio.Task | None = None
+        self._markets_fetch_lock = asyncio.Lock()  # Prevent concurrent full-market fetches
         # In-memory caches — avoid SQLite round-trips + JSON parsing on hot paths
         self._mem_all_markets: tuple[list[dict], float] | None = None
         self._mem_browse_markets: tuple[list[dict], float] | None = None
@@ -1049,96 +1050,112 @@ class KalshiAPI:
         # paginating through ALL Kalshi markets (elections, crypto, etc.)
         log.debug("Cache MISS all_open_markets — fetching per-series from API")
 
-        if not SPORTS:
-            await self.refresh_sports()
+        # Lock prevents two concurrent callers from both starting a full fetch.
+        # The entire fetch + cache-write runs under this lock so that a second
+        # caller that was waiting will find the cache warm when it acquires it.
+        async with self._markets_fetch_lock:
+            # Re-check cache after acquiring the lock — the previous holder may
+            # have already populated it while we were waiting.
+            if self._mem_all_markets is not None:
+                data, ts = self._mem_all_markets
+                if time.monotonic() - ts < CACHE_TTL:
+                    return data
 
-        sports_series = self._sports_series_cache
-        if not sports_series:
-            log.warning("No sports series known — cannot fetch markets")
-            if stale_data:
-                result = [m for m in json.loads(stale_data) if _is_market_active(m)]
-                self._mem_all_markets = (result, time.monotonic())
-                return result
-            return []
+            if not SPORTS:
+                await self.refresh_sports()
 
-        session = await self._get_session()
-        url = f"{BASE_URL}/markets"
+            sports_series = self._sports_series_cache
+            if not sports_series:
+                log.warning("No sports series known — cannot fetch markets")
+                if stale_data:
+                    result = [m for m in json.loads(stale_data) if _is_market_active(m)]
+                    self._mem_all_markets = (result, time.monotonic())
+                    return result
+                return []
 
-        async def _fetch_series(series_ticker: str) -> list[dict]:
-            params: dict = {"series_ticker": series_ticker, "status": "open", "limit": 1000}
-            async with self._semaphore:
+            session = await self._get_session()
+            url = f"{BASE_URL}/markets"
+
+            async def _fetch_series(series_ticker: str) -> list[dict]:
+                params: dict = {"series_ticker": series_ticker, "status": "open", "limit": 1000}
                 for attempt in range(MAX_RETRIES + 1):
+                    got_429 = False
                     try:
-                        headers = self._auth_headers("GET", url)
-                        async with session.get(url, params=params, headers=headers) as resp:
-                            if resp.status == 429:
-                                if attempt < MAX_RETRIES:
-                                    wait = RETRY_BACKOFF * (2 ** attempt)
-                                    log.info("Kalshi 429 (markets/%s), retrying in %.1fs...", series_ticker, wait)
-                                    await asyncio.sleep(wait)
-                                    continue
+                        async with self._semaphore:
+                            headers = self._auth_headers("GET", url)
+                            async with session.get(url, params=params, headers=headers) as resp:
+                                if resp.status == 429:
+                                    got_429 = True
+                                elif resp.status != 200:
+                                    log.warning("Kalshi markets returned %s for %s", resp.status, series_ticker)
+                                    return []
+                                else:
+                                    page_data = await resp.json()
+                                    if not page_data or "markets" not in page_data:
+                                        return []
+                                    return [self._prune_market(m) for m in page_data["markets"]]
+                        # Semaphore released — sleep for 429 outside the semaphore
+                        if got_429:
+                            if attempt < MAX_RETRIES:
+                                wait = RETRY_BACKOFF * (2 ** attempt)
+                                log.info("Kalshi 429 (markets/%s), retrying in %.1fs...", series_ticker, wait)
+                                await asyncio.sleep(wait)
+                            else:
                                 log.warning("Kalshi markets 429 after %d retries (%s)", MAX_RETRIES, series_ticker)
                                 return []
-                            if resp.status != 200:
-                                log.warning("Kalshi markets returned %s for %s", resp.status, series_ticker)
-                                return []
-                            page_data = await resp.json()
-                            if not page_data or "markets" not in page_data:
-                                return []
-                            return [self._prune_market(m) for m in page_data["markets"]]
                     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                         log.warning("Kalshi markets request failed (%s): %s", series_ticker, e)
                         return []
-            return []
+                return []
 
-        # Fetch in small batches with a delay between batches to avoid 429 bursts.
-        # With 60+ series, firing them all at once overwhelms the rate limit.
-        FETCH_BATCH = 3
-        FETCH_DELAY = 0.4  # seconds between batches
-        series_list = sorted(sports_series)
-        all_results: list[list[dict]] = []
-        for i in range(0, len(series_list), FETCH_BATCH):
-            batch = series_list[i:i + FETCH_BATCH]
-            batch_results = await asyncio.gather(*[_fetch_series(t) for t in batch])
-            all_results.extend(batch_results)
-            if i + FETCH_BATCH < len(series_list):
-                await asyncio.sleep(FETCH_DELAY)
-        all_markets: list[dict] = [m for markets in all_results for m in markets]
+            # Fetch in small batches with a delay between batches to avoid 429 bursts.
+            # With 60+ series, firing them all at once overwhelms the rate limit.
+            FETCH_BATCH = 3
+            FETCH_DELAY = 0.4  # seconds between batches
+            series_list = sorted(sports_series)
+            all_results: list[list[dict]] = []
+            for i in range(0, len(series_list), FETCH_BATCH):
+                batch = series_list[i:i + FETCH_BATCH]
+                batch_results = await asyncio.gather(*[_fetch_series(t) for t in batch])
+                all_results.extend(batch_results)
+                if i + FETCH_BATCH < len(series_list):
+                    await asyncio.sleep(FETCH_DELAY)
+            all_markets: list[dict] = [m for markets in all_results for m in markets]
 
-        log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
-        all_markets = [m for m in all_markets if _is_market_active(m)]
-        log.debug("After expiry filter: %d sports markets", len(all_markets))
+            log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
+            all_markets = [m for m in all_markets if _is_market_active(m)]
+            log.debug("After expiry filter: %d sports markets", len(all_markets))
 
-        if not all_markets:
-            if stale_data:
-                log.warning("Kalshi markets fetch returned nothing, using stale cache")
-                result = [m for m in json.loads(stale_data) if _is_market_active(m)]
-                self._mem_all_markets = (result, time.monotonic())
-                return result
-            return []
+            if not all_markets:
+                if stale_data:
+                    log.warning("Kalshi markets fetch returned nothing, using stale cache")
+                    result = [m for m in json.loads(stale_data) if _is_market_active(m)]
+                    self._mem_all_markets = (result, time.monotonic())
+                    return result
+                return []
 
-        # Store as single aggregated entry (replaces any previous entry)
-        self._mem_all_markets = (all_markets, time.monotonic())
-        data_str = json.dumps(all_markets)
-        for attempt in range(3):
-            db = await get_connection()
-            try:
-                await db.execute(
-                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
-                    " VALUES (?, 'kalshi', ?, datetime('now'))",
-                    (AGG_MARKETS_CACHE_KEY, data_str),
-                )
-                await db.commit()
-                break
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e) and attempt < 2:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
-                log.warning("Failed to update aggregated markets cache: %s", e)
-            finally:
-                await db.close()
+            # Store as single aggregated entry (replaces any previous entry)
+            self._mem_all_markets = (all_markets, time.monotonic())
+            data_str = json.dumps(all_markets)
+            for attempt in range(3):
+                db = await get_connection()
+                try:
+                    await db.execute(
+                        "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
+                        " VALUES (?, 'kalshi', ?, datetime('now'))",
+                        (AGG_MARKETS_CACHE_KEY, data_str),
+                    )
+                    await db.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if "locked" in str(e) and attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    log.warning("Failed to update aggregated markets cache: %s", e)
+                finally:
+                    await db.close()
 
-        return all_markets
+            return all_markets
 
     async def _fetch_all_markets_for_browse(self) -> list[dict]:
         """Fetch ALL open Kalshi markets (no sport filter) for /kalshi browse.
