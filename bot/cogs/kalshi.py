@@ -3498,7 +3498,7 @@ class KalshiCog(commands.Cog):
                 bets = await models.get_pending_kalshi_bets_by_market(ticker)
                 for bet in bets:
                     won = bet["pick"] == winning_side
-                    payout = round(bet["amount"] * bet["odds"]) if won else 0
+                    payout = round(bet["amount"] * bet["odds"], 2) if won else 0
                     await models.resolve_kalshi_bet(bet["id"], won, payout)
 
                     if channel:
@@ -3567,7 +3567,7 @@ class KalshiCog(commands.Cog):
                         effective_odds = 1.0
                         for l in all_legs:
                             effective_odds *= l["odds"]
-                        payout = round(kp["amount"] * effective_odds)
+                        payout = round(kp["amount"] * effective_odds, 2)
                         await models.update_kalshi_parlay(pid, "won", payout=payout)
                         await deposit(kp["user_id"], payout)
                         if channel:
