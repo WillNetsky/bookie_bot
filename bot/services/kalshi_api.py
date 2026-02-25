@@ -1045,20 +1045,27 @@ class KalshiAPI:
         finally:
             await db.close()
 
-        # Cache miss/stale — fetch all pages without caching each one
-        log.debug("Cache MISS all_open_markets — fetching from API")
-        all_markets: list[dict] = []
-        page_cursor = None
-        session = await self._get_session()
+        # Cache miss/stale — fetch per sports series concurrently instead of
+        # paginating through ALL Kalshi markets (elections, crypto, etc.)
+        log.debug("Cache MISS all_open_markets — fetching per-series from API")
+
+        if not SPORTS:
+            await self.refresh_sports()
+
         sports_series = self._sports_series_cache
+        if not sports_series:
+            log.warning("No sports series known — cannot fetch markets")
+            if stale_data:
+                result = [m for m in json.loads(stale_data) if _is_market_active(m)]
+                self._mem_all_markets = (result, time.monotonic())
+                return result
+            return []
 
-        while True:
-            params: dict = {"status": "open", "limit": 1000}
-            if page_cursor:
-                params["cursor"] = page_cursor
+        session = await self._get_session()
+        url = f"{BASE_URL}/markets"
 
-            url = f"{BASE_URL}/markets"
-            page_data = None
+        async def _fetch_series(series_ticker: str) -> list[dict]:
+            params: dict = {"series_ticker": series_ticker, "status": "open", "limit": 1000}
             async with self._semaphore:
                 for attempt in range(MAX_RETRIES + 1):
                     try:
@@ -1067,37 +1074,27 @@ class KalshiAPI:
                             if resp.status == 429:
                                 if attempt < MAX_RETRIES:
                                     wait = RETRY_BACKOFF * (2 ** attempt)
-                                    log.info("Kalshi 429 (markets), retrying in %.1fs...", wait)
+                                    log.info("Kalshi 429 (markets/%s), retrying in %.1fs...", series_ticker, wait)
                                     await asyncio.sleep(wait)
                                     continue
-                                log.warning("Kalshi markets 429 after %d retries", MAX_RETRIES)
-                                break
+                                log.warning("Kalshi markets 429 after %d retries (%s)", MAX_RETRIES, series_ticker)
+                                return []
                             if resp.status != 200:
-                                log.warning("Kalshi markets returned %s", resp.status)
-                                break
+                                log.warning("Kalshi markets returned %s for %s", resp.status, series_ticker)
+                                return []
                             page_data = await resp.json()
-                            break
+                            if not page_data or "markets" not in page_data:
+                                return []
+                            return [self._prune_market(m) for m in page_data["markets"]]
                     except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                        log.warning("Kalshi markets request failed: %s", e)
-                        break
+                        log.warning("Kalshi markets request failed (%s): %s", series_ticker, e)
+                        return []
+            return []
 
-            if not page_data or "markets" not in page_data:
-                break
+        results = await asyncio.gather(*[_fetch_series(t) for t in sports_series])
+        all_markets: list[dict] = [m for markets in results for m in markets]
 
-            # Filter to sports markets only and prune fields immediately
-            for m in page_data["markets"]:
-                st = m.get("series_ticker") or (
-                    m.get("event_ticker", "").split("-")[0] if m.get("event_ticker") else ""
-                )
-                if st in sports_series:
-                    all_markets.append(self._prune_market(m))
-
-            page_cursor = page_data.get("cursor")
-            if not page_cursor:
-                break
-            await asyncio.sleep(0.2)
-
-        log.info("Fetched %d open sports markets from Kalshi", len(all_markets))
+        log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
         all_markets = [m for m in all_markets if _is_market_active(m)]
         log.debug("After expiry filter: %d sports markets", len(all_markets))
 
