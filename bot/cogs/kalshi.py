@@ -353,6 +353,40 @@ def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
     return results
 
 
+# Matches "Set 1", "Map 2", "Round 3" inside market titles
+_QUALIFIER_RE = re.compile(r'\b(Set|Map|Round)\s+(\d+)\b', re.IGNORECASE)
+
+
+def _clean_market_title(title: str) -> str:
+    """Clean a raw Kalshi market title for compact display.
+
+    - Strips trailing "Winner?" / "winner?"
+    - Strips any remaining trailing "?"
+    - Moves "Set N" / "Map N" / "Round N" to a "(Set N)" prefix so the
+      matchup reads naturally.
+
+    Examples:
+      "Djokovic vs Medvedev Winner?"      → "Djokovic vs Medvedev"
+      "Djokovic vs Medvedev Set 1 Winner?"→ "(Set 1) Djokovic vs Medvedev"
+      "Team A vs Team B Map 2 Winner?"    → "(Map 2) Team A vs Team B"
+      "Team A wins?"                      → "Team A wins"
+    """
+    if not title:
+        return title
+    t = title.strip()
+    # Strip trailing "Winner?" (case-insensitive, "?" optional)
+    t = re.sub(r'\s*[Ww]inner\s*\??\s*$', '', t).strip()
+    # Strip any leftover trailing "?"
+    t = re.sub(r'\?+$', '', t).strip()
+    # Hoist set/map/round qualifier to a "(X N)" prefix
+    qm = _QUALIFIER_RE.search(t)
+    if qm:
+        qualifier = f"({qm.group(1).capitalize()} {qm.group(2)})"
+        rest = (t[:qm.start()] + t[qm.end():]).strip()
+        t = f"{qualifier} {rest}".strip() if rest else qualifier
+    return t or title
+
+
 def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
     """Group markets that belong to the same game/event into a single entry.
 
@@ -397,7 +431,7 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
                 subtitle = f"{len(group_sorted)} thresholds"
             else:
                 # Game outcomes (win/loss/tie, team names, etc.)
-                label = game_title
+                label = _clean_market_title(game_title)
                 subs = [s for s in sub_titles[:3] if s]
                 subtitle = " · ".join(subs) if subs else f"{len(group_sorted)} options"
             result.append({
@@ -1230,7 +1264,7 @@ class MarketListView(discord.ui.View):
         for item in page_items:
             if item["type"] == "single":
                 m = item["market"]
-                title = m.get("title") or "?"
+                title = _clean_market_title(m.get("title") or "?")
                 exp = _earliest_market_time(m)
                 sport = _series_label(m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
@@ -1292,7 +1326,7 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
             if item["type"] == "single":
                 m = item["market"]
                 ticker = m.get("ticker") or ""
-                title = m.get("yes_sub_title") or m.get("title") or ticker
+                title = m.get("yes_sub_title") or _clean_market_title(m.get("title") or ticker)
                 label = title[:100]
                 pct = _market_yes_pct(m)
                 if pct is not None:
