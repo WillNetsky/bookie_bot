@@ -301,6 +301,58 @@ def _prop_stem(title: str) -> str:
     return _NUMBER_RE.sub("#", title).strip()
 
 
+def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
+    """Parse raw markets in a game bucket into (matchup_label, odds_str) tuples.
+
+    Returns one tuple per distinct event_ticker found in the markets.
+    matchup_label: e.g. "India vs Pakistan"
+    odds_str:      e.g. "India 62% · Pakistan 38%"
+    Returns [] if team names can't be extracted.
+    """
+    from collections import OrderedDict
+    event_map: dict[str, list[dict]] = OrderedDict()
+    for m in markets:
+        key = m.get("event_ticker") or m.get("ticker", "")
+        event_map.setdefault(key, []).append(m)
+
+    results = []
+    for _key, group in event_map.items():
+        # Collect (team_name, win_pct) pairs from yes_sub_title + yes_ask_dollars
+        pairs: list[tuple[str, int | None]] = []
+        for m in group:
+            sub = (m.get("yes_sub_title") or "").strip()
+            if not sub:
+                continue
+            price = m.get("yes_ask_dollars") or m.get("last_price_dollars")
+            pct: int | None = None
+            if price is not None:
+                try:
+                    p = float(price)
+                    if 0 < p < 1:
+                        pct = round(p * 100)
+                except (TypeError, ValueError):
+                    pass
+            pairs.append((sub, pct))
+
+        if len(pairs) < 2:
+            continue
+
+        # Build matchup label from the first two sides
+        matchup = f"{pairs[0][0]} vs {pairs[1][0]}"
+
+        # Build odds string
+        odds_parts = []
+        for name, pct in pairs[:2]:
+            if pct is not None:
+                odds_parts.append(f"{name} {pct}%")
+            else:
+                odds_parts.append(name)
+        odds_str = " · ".join(odds_parts)
+
+        results.append((matchup, odds_str))
+    return results
+
+
 def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
     """Group markets that belong to the same game/event into a single entry.
 
@@ -456,9 +508,18 @@ class KalshiMarketsView(discord.ui.View):
         options: list[discord.SelectOption] = []
         for global_idx, item in enumerate(grouped[start:start + BROWSE_MARKETS_PER_PAGE], start=start):
             if item["type"] == "game_bucket":
-                label = item["time_str"][:100]
-                n = item["count"]
-                desc = f"{n} market group{'s' if n != 1 else ''}"[:100]
+                game_summaries = _summarize_bucket_games(item["markets"])
+                if game_summaries and len(game_summaries) == 1:
+                    matchup, odds_str = game_summaries[0]
+                    label = f"{item['time_str']} · {matchup}"[:100]
+                    desc = odds_str[:100]
+                elif game_summaries:
+                    label = item["time_str"][:100]
+                    desc = " / ".join(m for m, _ in game_summaries[:2])[:100]
+                else:
+                    label = item["time_str"][:100]
+                    n = item["count"]
+                    desc = f"{n} market group{'s' if n != 1 else ''}"[:100]
                 options.append(discord.SelectOption(
                     label=label, value=f"gb:{global_idx}",
                     description=desc, emoji="🏟️",
@@ -510,8 +571,15 @@ class KalshiMarketsView(discord.ui.View):
         lines = []
         for item in page_items:
             if item["type"] == "game_bucket":
-                n = item["count"]
-                lines.append(f"🏟️ **{item['time_str']}** · {n} market group{'s' if n != 1 else ''}")
+                game_summaries = _summarize_bucket_games(item["markets"])
+                if game_summaries:
+                    sub_lines = []
+                    for matchup, odds_str in game_summaries:
+                        sub_lines.append(f"**{matchup}** · {odds_str}")
+                    lines.append(f"🏟️ {item['time_str']}\n" + "\n".join(sub_lines))
+                else:
+                    n = item["count"]
+                    lines.append(f"🏟️ **{item['time_str']}** · {n} market group{'s' if n != 1 else ''}")
             elif item["type"] == "single":
                 m = item["market"]
                 title = m.get("yes_sub_title") or m.get("title") or "?"
