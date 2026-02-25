@@ -1107,6 +1107,14 @@ def _market_odds_str(m: dict) -> tuple[str, str]:
     return "?", "?"
 
 
+def _market_yes_pct(m: dict) -> int | None:
+    """Return the implied YES win probability as a rounded integer percent, or None."""
+    yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+    if 0 < yes_ask < 1:
+        return round(yes_ask * 100)
+    return None
+
+
 def _series_label(series_ticker: str) -> str:
     """Return a human-readable sport label for a series ticker, or ''."""
     for info in SPORTS.values():
@@ -1158,11 +1166,16 @@ class MarketListView(discord.ui.View):
                 exp = _earliest_market_time(m)
                 sport = _series_label(m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
-                yes_am, no_am = _market_odds_str(m)
                 header = f"**{title}**"
                 if sport:
                     header += f"  _{sport}_"
-                lines.append(f"{header}\n{time_str} · YES {yes_am} / NO {no_am}")
+                pct = _market_yes_pct(m)
+                if pct is not None:
+                    odds_str = f"{pct}% YES / {100 - pct}% NO"
+                else:
+                    yes_am, no_am = _market_odds_str(m)
+                    odds_str = f"YES {yes_am} / NO {no_am}"
+                lines.append(f"{header}\n{time_str} · {odds_str}")
             else:
                 label = item["label"]
                 count = item["count"]
@@ -1173,7 +1186,16 @@ class MarketListView(discord.ui.View):
                 header = f"\U0001f4ca **{label}**"
                 if sport:
                     header += f"  _{sport}_"
-                subtitle = item.get("subtitle", f"{count} options")
+                # Build per-outcome probability string (e.g. "Lakers 65% · Warriors 35%")
+                parts = []
+                for mkt in item["markets"][:3]:
+                    sub = mkt.get("yes_sub_title") or ""
+                    pct = _market_yes_pct(mkt)
+                    if sub and pct is not None:
+                        parts.append(f"{sub} {pct}%")
+                    elif sub:
+                        parts.append(sub)
+                subtitle = " · ".join(parts) if parts else item.get("subtitle", f"{count} options")
                 lines.append(f"{header}\n{time_str} · {subtitle}")
 
         embed.description = "\n\n".join(lines)
@@ -1204,15 +1226,27 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
                 ticker = m.get("ticker") or ""
                 title = m.get("yes_sub_title") or m.get("title") or ticker
                 label = title[:100]
-                yes_am, no_am = _market_odds_str(m)
-                desc = f"YES {yes_am} / NO {no_am}"[:100]
+                pct = _market_yes_pct(m)
+                if pct is not None:
+                    desc = f"{pct}% YES / {100 - pct}% NO"
+                else:
+                    yes_am, no_am = _market_odds_str(m)
+                    desc = f"YES {yes_am} / NO {no_am}"
                 key = f"m:{start + i}"  # position-based; avoids long ticker exceeding 100-char limit
                 self._market_map[key] = m
-                options.append(discord.SelectOption(label=label, value=key, description=desc))
+                options.append(discord.SelectOption(label=label, value=key, description=desc[:100]))
             else:
                 key = f"g:{start + i}"
                 label = item["label"][:100]
-                desc = item.get("subtitle", f"{item['count']} options")[:100]
+                parts = []
+                for mkt in item["markets"][:3]:
+                    sub = mkt.get("yes_sub_title") or ""
+                    pct = _market_yes_pct(mkt)
+                    if sub and pct is not None:
+                        parts.append(f"{sub} {pct}%")
+                    elif sub:
+                        parts.append(sub)
+                desc = (" · ".join(parts) if parts else item.get("subtitle", f"{item['count']} options"))[:100]
                 self._group_map[key] = item["markets"]
                 options.append(discord.SelectOption(label=label, value=key, description=desc, emoji="\U0001f4ca"))
         super().__init__(placeholder="Select a market to bet on...", options=options, row=row)
