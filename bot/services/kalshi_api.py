@@ -537,8 +537,8 @@ def _pick_best_total(markets: list[dict]) -> dict | None:
 
 
 MAX_CONCURRENT = 5  # Max simultaneous Kalshi API requests
-MAX_RETRIES = 2
-RETRY_BACKOFF = 1.0  # seconds, doubles each retry
+MAX_RETRIES = 3
+RETRY_BACKOFF = 2.0  # seconds, doubles each retry (2, 4, 8s)
 
 # ── RSA signing for authenticated requests ────────────────────────────
 
@@ -1091,8 +1091,19 @@ class KalshiAPI:
                         return []
             return []
 
-        results = await asyncio.gather(*[_fetch_series(t) for t in sports_series])
-        all_markets: list[dict] = [m for markets in results for m in markets]
+        # Fetch in small batches with a delay between batches to avoid 429 bursts.
+        # With 60+ series, firing them all at once overwhelms the rate limit.
+        FETCH_BATCH = 3
+        FETCH_DELAY = 0.4  # seconds between batches
+        series_list = sorted(sports_series)
+        all_results: list[list[dict]] = []
+        for i in range(0, len(series_list), FETCH_BATCH):
+            batch = series_list[i:i + FETCH_BATCH]
+            batch_results = await asyncio.gather(*[_fetch_series(t) for t in batch])
+            all_results.extend(batch_results)
+            if i + FETCH_BATCH < len(series_list):
+                await asyncio.sleep(FETCH_DELAY)
+        all_markets: list[dict] = [m for markets in all_results for m in markets]
 
         log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
         all_markets = [m for m in all_markets if _is_market_active(m)]
