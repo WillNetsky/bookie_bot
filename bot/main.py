@@ -1,7 +1,7 @@
-import asyncio
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from bot.config import DISCORD_TOKEN, GUILD_ID
@@ -45,6 +45,30 @@ class BookieBot(commands.Bot):
         else:
             await self.tree.sync()
             log.info("Slash commands synced globally.")
+
+        @self.tree.error
+        async def on_tree_error(
+            interaction: discord.Interaction,
+            error: app_commands.AppCommandError,
+        ) -> None:
+            cause = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+            if isinstance(cause, discord.HTTPException) and cause.status == 429:
+                log.warning(
+                    "Global rate limit hit in command '%s' — responding gracefully",
+                    interaction.command.name if interaction.command else "unknown",
+                )
+                msg = "Discord is rate-limiting the bot right now — please try again in a moment."
+                try:
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(msg, ephemeral=True)
+                    else:
+                        await interaction.followup.send(msg, ephemeral=True)
+                except Exception:
+                    pass
+                return
+            log.exception("Unhandled app command error in '%s'",
+                          interaction.command.name if interaction.command else "unknown",
+                          exc_info=error)
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (ID: %s)", self.user, self.user.id)
