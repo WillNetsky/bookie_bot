@@ -509,7 +509,7 @@ class KalshiMarketsView(discord.ui.View):
                 desc = item.get("subtitle", f"{item['count']} options")[:100]
                 options.append(discord.SelectOption(
                     label=label, value=f"g:{global_idx}",
-                    description=desc, emoji="📊",
+                    description=desc, emoji=_sport_emoji(item["markets"][0].get("series_ticker") or ""),
                 ))
 
         if options:
@@ -564,7 +564,8 @@ class KalshiMarketsView(discord.ui.View):
                 exp = _earliest_market_time(first_m)
                 time_str = _format_game_time(exp) if exp else "TBD"
                 subtitle = item.get("subtitle", f"{item['count']} options")
-                lines.append(f"📊 **{item['label']}** · {time_str} · {subtitle}")
+                sport_emoji = _sport_emoji(item["markets"][0].get("series_ticker") or "")
+                lines.append(f"{sport_emoji} **{item['label']}** · {time_str} · {subtitle}")
 
         embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
@@ -1219,7 +1220,8 @@ class MarketListView(discord.ui.View):
                 exp = _earliest_market_time(first_m)
                 sport = _series_label(first_m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
-                header = f"\U0001f4ca **{label}**"
+                sport_emoji = _sport_emoji(item["markets"][0].get("series_ticker") or "")
+                header = f"{sport_emoji} **{label}**"
                 if sport:
                     header += f"  _{sport}_"
                 # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
@@ -1288,7 +1290,8 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
                         parts.append(sub)
                 desc = (" · ".join(parts) if parts else item.get("subtitle", f"{item['count']} options"))[:100]
                 self._group_map[key] = item["markets"]
-                options.append(discord.SelectOption(label=label, value=key, description=desc, emoji="\U0001f4ca"))
+                sport_emoji = _sport_emoji(item["markets"][0].get("series_ticker") or "")
+                options.append(discord.SelectOption(label=label, value=key, description=desc, emoji=sport_emoji))
         super().__init__(placeholder="Select a market to bet on...", options=options, row=row)
 
     async def callback(self, interaction: discord.Interaction) -> None:
