@@ -10,6 +10,9 @@ from bot.db import models
 
 log = logging.getLogger(__name__)
 
+_ADMIN_ROLE = "Mayor"
+_ADMIN_MSG  = "You need the Mayor role to use this command."
+
 
 class Wallet(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -32,17 +35,17 @@ class Wallet(commands.Cog):
             lines.append(f"**{i}.** <@{u['discord_id']}> — ${u['balance']:.2f}")
         await interaction.response.send_message("\n".join(lines))
 
-    # ── /setbalance (admin) ───────────────────────────────────────────
+    # ── /setbalance (Mayor only) ───────────────────────────────────────
 
     @app_commands.command(
         name="setbalance",
-        description="[Admin] Set a specific user's balance",
+        description="[Mayor] Set a specific user's balance",
     )
     @app_commands.describe(
         user="The user whose balance to set",
         amount="New balance amount",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(_ADMIN_ROLE)
     async def setbalance(
         self,
         interaction: discord.Interaction,
@@ -57,33 +60,29 @@ class Wallet(commands.Cog):
 
         await models.get_or_create_user(user.id)
         new_bal = await models.set_user_balance(user.id, amount)
-        log.info("Admin %s set %s's balance to $%d", interaction.user, user, new_bal)
+        log.info("Mayor %s set %s's balance to $%d", interaction.user, user, new_bal)
         await interaction.response.send_message(
             f"Set {user.mention}'s balance to **${new_bal:,}**.", ephemeral=True
         )
 
     @setbalance.error
     async def setbalance_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            msg = "You need administrator permissions to use this command."
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
+        if isinstance(error, app_commands.MissingRole):
+            await _deny(interaction, _ADMIN_MSG)
         else:
             log.exception("Error in /setbalance command", exc_info=error)
 
-    # ── /resetbalances (admin) ────────────────────────────────────────
+    # ── /resetbalances (Mayor only) ────────────────────────────────────
 
     @app_commands.command(
         name="resetbalances",
-        description="[Admin] Reset all balances to starting amount and clear all bets",
+        description="[Mayor] Reset all balances to starting amount and clear all bets",
     )
     @app_commands.describe(
         amount="Balance to set for all users (default: starting balance)",
         confirm="Type 'yes' to confirm the reset",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(_ADMIN_ROLE)
     async def resetbalances(
         self,
         interaction: discord.Interaction,
@@ -101,7 +100,7 @@ class Wallet(commands.Cog):
 
         count = await models.reset_all_balances(reset_amount)
         log.info(
-            "Admin %s reset all balances to $%d (%d users affected)",
+            "Mayor %s reset all balances to $%d (%d users affected)",
             interaction.user, reset_amount, count,
         )
 
@@ -112,26 +111,22 @@ class Wallet(commands.Cog):
 
     @resetbalances.error
     async def resetbalances_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            msg = "You need administrator permissions to use this command."
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
+        if isinstance(error, app_commands.MissingRole):
+            await _deny(interaction, _ADMIN_MSG)
         else:
             log.exception("Error in /resetbalances command", exc_info=error)
 
-    # ── /devalue (admin) ──────────────────────────────────────────────
+    # ── /devalue (Mayor only) ──────────────────────────────────────────
 
     @app_commands.command(
         name="devalue",
-        description="[Admin] Devalue everyone's currency by a percentage",
+        description="[Mayor] Devalue everyone's currency by a percentage",
     )
     @app_commands.describe(
         percent="Percentage to cut (e.g. 50 = everyone loses half their balance)",
         confirm="Type 'yes' to confirm",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.has_role(_ADMIN_ROLE)
     async def devalue(
         self,
         interaction: discord.Interaction,
@@ -154,7 +149,7 @@ class Wallet(commands.Cog):
 
         count, total_removed = await models.devalue_all_balances(percent)
         log.info(
-            "Admin %s devalued currency by %d%% (%d users, $%d removed)",
+            "Mayor %s devalued currency by %d%% (%d users, $%d removed)",
             interaction.user, percent, count, total_removed,
         )
 
@@ -170,14 +165,17 @@ class Wallet(commands.Cog):
 
     @devalue.error
     async def devalue_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            msg = "You need administrator permissions to use this command."
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
+        if isinstance(error, app_commands.MissingRole):
+            await _deny(interaction, _ADMIN_MSG)
         else:
             log.exception("Error in /devalue command", exc_info=error)
+
+
+async def _deny(interaction: discord.Interaction, msg: str) -> None:
+    if interaction.response.is_done():
+        await interaction.followup.send(msg, ephemeral=True)
+    else:
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
