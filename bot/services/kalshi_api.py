@@ -1044,16 +1044,14 @@ class KalshiAPI:
         finally:
             await db.close()
 
-        # Cache miss/stale — fetch per sports series concurrently instead of
-        # paginating through ALL Kalshi markets (elections, crypto, etc.)
-        log.debug("Cache MISS all_open_markets — fetching per-series from API")
+        # Cache miss/stale — paginate all open Kalshi markets in one pass and
+        # filter to sports series client-side.  This is 1-2 API calls instead of
+        # one call per series (60+), which avoids 429 storms on cold start.
+        log.debug("Cache MISS all_open_markets — fetching via pagination")
 
         # Lock prevents two concurrent callers from both starting a full fetch.
-        # The entire fetch + cache-write runs under this lock so that a second
-        # caller that was waiting will find the cache warm when it acquires it.
         async with self._markets_fetch_lock:
-            # Re-check cache after acquiring the lock — the previous holder may
-            # have already populated it while we were waiting.
+            # Re-check after acquiring lock in case previous holder already filled it.
             if self._mem_all_markets is not None:
                 data, ts = self._mem_all_markets
                 if time.monotonic() - ts < CACHE_TTL:
@@ -1073,52 +1071,48 @@ class KalshiAPI:
 
             session = await self._get_session()
             url = f"{BASE_URL}/markets"
+            all_markets: list[dict] = []
+            page_cursor = None
 
-            async def _fetch_series(series_ticker: str) -> list[dict]:
-                params: dict = {"series_ticker": series_ticker, "status": "open", "limit": 1000}
-                for attempt in range(MAX_RETRIES + 1):
-                    got_429 = False
-                    try:
-                        async with self._semaphore:
+            while True:
+                params: dict = {"status": "open", "limit": 1000}
+                if page_cursor:
+                    params["cursor"] = page_cursor
+
+                page_data = None
+                async with self._semaphore:
+                    for attempt in range(MAX_RETRIES + 1):
+                        try:
                             headers = self._auth_headers("GET", url)
                             async with session.get(url, params=params, headers=headers) as resp:
                                 if resp.status == 429:
-                                    got_429 = True
-                                elif resp.status != 200:
-                                    log.warning("Kalshi markets returned %s for %s", resp.status, series_ticker)
-                                    return []
-                                else:
-                                    page_data = await resp.json()
-                                    if not page_data or "markets" not in page_data:
-                                        return []
-                                    return [self._prune_market(m) for m in page_data["markets"]]
-                        # Semaphore released — sleep for 429 outside the semaphore
-                        if got_429:
-                            if attempt < MAX_RETRIES:
-                                wait = RETRY_BACKOFF * (2 ** attempt)
-                                log.info("Kalshi 429 (markets/%s), retrying in %.1fs...", series_ticker, wait)
-                                await asyncio.sleep(wait)
-                            else:
-                                log.warning("Kalshi markets 429 after %d retries (%s)", MAX_RETRIES, series_ticker)
-                                return []
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                        log.warning("Kalshi markets request failed (%s): %s", series_ticker, e)
-                        return []
-                return []
+                                    if attempt < MAX_RETRIES:
+                                        wait = RETRY_BACKOFF * (2 ** attempt)
+                                        log.info("Kalshi 429 (markets page), retrying in %.1fs...", wait)
+                                        await asyncio.sleep(wait)
+                                        continue
+                                    log.warning("Kalshi markets 429 after %d retries", MAX_RETRIES)
+                                    break
+                                if resp.status != 200:
+                                    log.warning("Kalshi markets returned %s", resp.status)
+                                    break
+                                page_data = await resp.json()
+                                break
+                        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                            log.warning("Kalshi markets request failed: %s", e)
+                            break
 
-            # Fetch in small batches with a delay between batches to avoid 429 bursts.
-            # With 60+ series, firing them all at once overwhelms the rate limit.
-            FETCH_BATCH = 3
-            FETCH_DELAY = 0.4  # seconds between batches
-            series_list = sorted(sports_series)
-            all_results: list[list[dict]] = []
-            for i in range(0, len(series_list), FETCH_BATCH):
-                batch = series_list[i:i + FETCH_BATCH]
-                batch_results = await asyncio.gather(*[_fetch_series(t) for t in batch])
-                all_results.extend(batch_results)
-                if i + FETCH_BATCH < len(series_list):
-                    await asyncio.sleep(FETCH_DELAY)
-            all_markets: list[dict] = [m for markets in all_results for m in markets]
+                if not page_data or "markets" not in page_data:
+                    break
+
+                for m in page_data["markets"]:
+                    if m.get("series_ticker") in sports_series:
+                        all_markets.append(self._prune_market(m))
+
+                page_cursor = page_data.get("cursor")
+                if not page_cursor:
+                    break
+                await asyncio.sleep(0.2)
 
             log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
             all_markets = [m for m in all_markets if _is_market_active(m)]
