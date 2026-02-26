@@ -561,6 +561,19 @@ def _is_market_active(m: dict) -> bool:
         return True
 
 
+def _is_market_bettable(m: dict) -> bool:
+    """Return True if the market's YES price is between 2¢ and 98¢ (2%–98%).
+
+    Filters out near-certain and near-impossible markets where one side
+    offers no meaningful payout.
+    """
+    try:
+        price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+    except (ValueError, TypeError):
+        return False
+    return 0.02 <= price <= 0.98
+
+
 def _earliest_market_time(m: dict) -> str:
     """Return the earlier of close_time / expected_expiration_time as an ISO string."""
     ct = m.get("close_time") or ""
@@ -1064,7 +1077,7 @@ class KalshiAPI:
             if not sports_series:
                 log.warning("No sports series known — cannot fetch markets")
                 if stale_data:
-                    result = [m for m in json.loads(stale_data) if _is_market_active(m)]
+                    result = [m for m in json.loads(stale_data) if _is_market_active(m) and _is_market_bettable(m)]
                     self._mem_all_markets = (result, time.monotonic())
                     return result
                 return []
@@ -1115,13 +1128,13 @@ class KalshiAPI:
                 await asyncio.sleep(0.2)
 
             log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
-            all_markets = [m for m in all_markets if _is_market_active(m)]
+            all_markets = [m for m in all_markets if _is_market_active(m) and _is_market_bettable(m)]
             log.debug("After expiry filter: %d sports markets", len(all_markets))
 
             if not all_markets:
                 if stale_data:
                     log.warning("Kalshi markets fetch returned nothing, using stale cache")
-                    result = [m for m in json.loads(stale_data) if _is_market_active(m)]
+                    result = [m for m in json.loads(stale_data) if _is_market_active(m) and _is_market_bettable(m)]
                     self._mem_all_markets = (result, time.monotonic())
                     return result
                 return []
@@ -1457,7 +1470,7 @@ class KalshiAPI:
         options = []
         for m in data["markets"]:
             yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0")
-            if yes_price <= 0:
+            if not (0.02 <= yes_price <= 0.98):
                 continue
             decimal_odds = round(1.0 / yes_price, 3)
             american = decimal_to_american(decimal_odds)
