@@ -255,22 +255,22 @@ def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
 
     results = []
     for _key, group in event_map.items():
-        # Collect (team_name, win_pct) pairs from yes_sub_title + yes_ask_dollars
-        pairs: list[tuple[str, int | None]] = []
+        # Collect (team_name, american_odds) pairs from yes_sub_title + yes_ask_dollars
+        pairs: list[tuple[str, str | None]] = []
         for m in group:
             sub = (m.get("yes_sub_title") or "").strip()
             if not sub:
                 continue
             price = m.get("yes_ask_dollars") or m.get("last_price_dollars")
-            pct: int | None = None
+            am: str | None = None
             if price is not None:
                 try:
                     p = float(price)
                     if 0 < p < 1:
-                        pct = round(p * 100)
+                        am = _price_to_american(p)
                 except (TypeError, ValueError):
                     pass
-            pairs.append((sub, pct))
+            pairs.append((sub, am))
 
         if len(pairs) < 2:
             continue
@@ -280,9 +280,9 @@ def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
 
         # Build odds string
         odds_parts = []
-        for name, pct in pairs[:2]:
-            if pct is not None:
-                odds_parts.append(f"{name} {pct}%")
+        for name, am in pairs[:2]:
+            if am is not None:
+                odds_parts.append(f"{name} {am}")
             else:
                 odds_parts.append(name)
         odds_str = " · ".join(odds_parts)
@@ -1148,12 +1148,11 @@ def _market_odds_str(m: dict) -> tuple[str, str]:
     return "?", "?"
 
 
-def _market_yes_pct(m: dict) -> int | None:
-    """Return the implied YES win probability as a rounded integer percent, or None."""
-    yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
-    if 0 < yes_ask < 1:
-        return round(yes_ask * 100)
-    return None
+def _price_to_american(price: float) -> str:
+    """Convert a Kalshi yes price (0–1) to a formatted American odds string."""
+    if 0 < price < 1:
+        return format_american(decimal_to_american(round(1.0 / price, 3)))
+    return "?"
 
 
 def _series_label(series_ticker: str) -> str:
@@ -1210,12 +1209,8 @@ class MarketListView(discord.ui.View):
                 header = f"**{title}**"
                 if sport:
                     header += f"  _{sport}_"
-                pct = _market_yes_pct(m)
-                if pct is not None:
-                    odds_str = f"{pct}% YES / {100 - pct}% NO"
-                else:
-                    yes_am, no_am = _market_odds_str(m)
-                    odds_str = f"YES {yes_am} / NO {no_am}"
+                yes_am, no_am = _market_odds_str(m)
+                odds_str = f"YES {yes_am} / NO {no_am}"
                 lines.append(f"{header}\n{time_str} · {odds_str}")
             else:
                 label = item["label"]
@@ -1227,13 +1222,17 @@ class MarketListView(discord.ui.View):
                 header = f"\U0001f4ca **{label}**"
                 if sport:
                     header += f"  _{sport}_"
-                # Build per-outcome probability string (e.g. "Lakers 65% · Warriors 35%")
+                # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
                 parts = []
                 for mkt in item["markets"][:3]:
                     sub = mkt.get("yes_sub_title") or ""
-                    pct = _market_yes_pct(mkt)
-                    if sub and pct is not None:
-                        parts.append(f"{sub} {pct}%")
+                    price = mkt.get("yes_ask_dollars") or mkt.get("last_price_dollars")
+                    try:
+                        am = _price_to_american(float(price)) if price is not None else None
+                    except (TypeError, ValueError):
+                        am = None
+                    if sub and am is not None:
+                        parts.append(f"{sub} {am}")
                     elif sub:
                         parts.append(sub)
                 subtitle = " · ".join(parts) if parts else item.get("subtitle", f"{count} options")
@@ -1267,12 +1266,8 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
                 ticker = m.get("ticker") or ""
                 title = m.get("yes_sub_title") or _clean_market_title(m.get("title") or ticker)
                 label = title[:100]
-                pct = _market_yes_pct(m)
-                if pct is not None:
-                    desc = f"{pct}% YES / {100 - pct}% NO"
-                else:
-                    yes_am, no_am = _market_odds_str(m)
-                    desc = f"YES {yes_am} / NO {no_am}"
+                yes_am, no_am = _market_odds_str(m)
+                desc = f"YES {yes_am} / NO {no_am}"
                 key = f"m:{start + i}"  # position-based; avoids long ticker exceeding 100-char limit
                 self._market_map[key] = m
                 options.append(discord.SelectOption(label=label, value=key, description=desc[:100]))
@@ -1282,9 +1277,13 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
                 parts = []
                 for mkt in item["markets"][:3]:
                     sub = mkt.get("yes_sub_title") or ""
-                    pct = _market_yes_pct(mkt)
-                    if sub and pct is not None:
-                        parts.append(f"{sub} {pct}%")
+                    price = mkt.get("yes_ask_dollars") or mkt.get("last_price_dollars")
+                    try:
+                        am = _price_to_american(float(price)) if price is not None else None
+                    except (TypeError, ValueError):
+                        am = None
+                    if sub and am is not None:
+                        parts.append(f"{sub} {am}")
                     elif sub:
                         parts.append(sub)
                 desc = (" · ".join(parts) if parts else item.get("subtitle", f"{item['count']} options"))[:100]
