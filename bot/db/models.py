@@ -475,6 +475,28 @@ async def reset_all_balances(amount: int) -> int:
 
 
 @db_retry()
+async def set_user_balance(discord_id: int, amount: int) -> int | None:
+    """Set a single user's balance to exactly amount.
+
+    Returns the new balance, or None if the user doesn't exist.
+    """
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "UPDATE users SET balance = ? WHERE discord_id = ?", (amount, discord_id)
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            return None
+        row = await (await db.execute(
+            "SELECT balance FROM users WHERE discord_id = ?", (discord_id,)
+        )).fetchone()
+        return row["balance"] if row else None
+    finally:
+        await db.close()
+
+
+@db_retry()
 async def devalue_all_balances(percent: float) -> tuple[int, int]:
     """Reduce all user balances by a percentage.
 

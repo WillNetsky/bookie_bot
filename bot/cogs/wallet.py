@@ -32,6 +32,47 @@ class Wallet(commands.Cog):
             lines.append(f"**{i}.** <@{u['discord_id']}> — ${u['balance']:.2f}")
         await interaction.response.send_message("\n".join(lines))
 
+    # ── /setbalance (admin) ───────────────────────────────────────────
+
+    @app_commands.command(
+        name="setbalance",
+        description="[Admin] Set a specific user's balance",
+    )
+    @app_commands.describe(
+        user="The user whose balance to set",
+        amount="New balance amount",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def setbalance(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        amount: int,
+    ) -> None:
+        if amount < 0:
+            await interaction.response.send_message(
+                "Amount must be 0 or greater.", ephemeral=True
+            )
+            return
+
+        await models.get_or_create_user(user.id)
+        new_bal = await models.set_user_balance(user.id, amount)
+        log.info("Admin %s set %s's balance to $%d", interaction.user, user, new_bal)
+        await interaction.response.send_message(
+            f"Set {user.mention}'s balance to **${new_bal:,}**.", ephemeral=True
+        )
+
+    @setbalance.error
+    async def setbalance_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "You need administrator permissions to use this command."
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        else:
+            log.exception("Error in /setbalance command", exc_info=error)
+
     # ── /resetbalances (admin) ────────────────────────────────────────
 
     @app_commands.command(
