@@ -23,7 +23,6 @@ BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 CACHE_TTL = 900  # 15 minutes
 DISCOVERY_TTL = 1800  # 30 minutes for availability checks
 AGG_MARKETS_CACHE_KEY = "kalshi:all_open_markets:aggregated"  # single stable cache key
-BROWSE_CACHE_KEY = "kalshi:browse_markets:aggregated"  # all markets (no sport filter)
 
 # ── Kalshi → Odds-API sport key mapping (for live scores) ─────────────
 KALSHI_TO_ODDS_API = {
@@ -629,7 +628,6 @@ class KalshiAPI:
         self._markets_fetch_lock = asyncio.Lock()  # Prevent concurrent full-market fetches
         # In-memory caches — avoid SQLite round-trips + JSON parsing on hot paths
         self._mem_all_markets: tuple[list[dict], float] | None = None
-        self._mem_browse_markets: tuple[list[dict], float] | None = None
         self._mem_browse_data: tuple[dict[str, list[dict]], float] | None = None
         # Log auth config at init
         if KALSHI_API_KEY_ID:
@@ -1157,128 +1155,14 @@ class KalshiAPI:
 
             return all_markets
 
-    async def _fetch_all_markets_for_browse(self) -> list[dict]:
-        """Fetch ALL open Kalshi markets (no sport filter) for /kalshi browse.
-
-        Cached under BROWSE_CACHE_KEY for CACHE_TTL (15 min).
-        """
-        if self._mem_browse_markets is not None:
-            data, ts = self._mem_browse_markets
-            if time.monotonic() - ts < CACHE_TTL:
-                log.debug("Cache HIT browse_markets (in-memory)")
-                return data
-
-        stale_data = None
-        db = await get_connection()
-        try:
-            cursor = await db.execute(
-                "SELECT data, fetched_at FROM games_cache WHERE game_id = ?",
-                (BROWSE_CACHE_KEY,),
-            )
-            row = await cursor.fetchone()
-            if row:
-                try:
-                    fetched_dt = datetime.fromisoformat(row[1])
-                    if fetched_dt.tzinfo is None:
-                        fetched_dt = fetched_dt.replace(tzinfo=timezone.utc)
-                    age = (datetime.now(timezone.utc) - fetched_dt).total_seconds()
-                    if age < CACHE_TTL:
-                        log.debug("Cache HIT browse_markets (age %.0fs)", age)
-                        result = json.loads(row[0])
-                        self._mem_browse_markets = (result, time.monotonic())
-                        return result
-                    log.debug("Cache STALE browse_markets (age %.0fs)", age)
-                except (ValueError, TypeError):
-                    pass
-                stale_data = row[0]
-        finally:
-            await db.close()
-
-        log.debug("Cache MISS browse_markets — fetching from API")
-        all_markets: list[dict] = []
-        page_cursor = None
-        session = await self._get_session()
-
-        while True:
-            params: dict = {"status": "open", "limit": 1000}
-            if page_cursor:
-                params["cursor"] = page_cursor
-
-            url = f"{BASE_URL}/markets"
-            page_data = None
-            async with self._semaphore:
-                for attempt in range(MAX_RETRIES + 1):
-                    try:
-                        headers = self._auth_headers("GET", url)
-                        async with session.get(url, params=params, headers=headers) as resp:
-                            if resp.status == 429:
-                                if attempt < MAX_RETRIES:
-                                    wait = RETRY_BACKOFF * (2 ** attempt)
-                                    log.info("Kalshi 429 (browse), retrying in %.1fs...", wait)
-                                    await asyncio.sleep(wait)
-                                    continue
-                                log.warning("Kalshi browse 429 after %d retries", MAX_RETRIES)
-                                break
-                            if resp.status != 200:
-                                log.warning("Kalshi browse markets returned %s", resp.status)
-                                break
-                            page_data = await resp.json()
-                            break
-                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                        log.warning("Kalshi browse request failed: %s", e)
-                        break
-
-            if not page_data or "markets" not in page_data:
-                break
-
-            for m in page_data["markets"]:
-                all_markets.append(self._prune_market(m))
-
-            page_cursor = page_data.get("cursor")
-            if not page_cursor:
-                break
-            await asyncio.sleep(0.2)
-
-        log.info("Fetched %d open markets for browse", len(all_markets))
-        all_markets = [m for m in all_markets if _is_market_active(m)]
-        log.debug("After expiry filter: %d browse markets", len(all_markets))
-
-        if not all_markets:
-            if stale_data:
-                log.warning("Browse markets fetch returned nothing, using stale cache")
-                result = [m for m in json.loads(stale_data) if _is_market_active(m)]
-                self._mem_browse_markets = (result, time.monotonic())
-                return result
-            return []
-
-        self._mem_browse_markets = (all_markets, time.monotonic())
-        data_str = json.dumps(all_markets)
-        for attempt in range(3):
-            db = await get_connection()
-            try:
-                await db.execute(
-                    "INSERT OR REPLACE INTO games_cache (game_id, sport, data, fetched_at)"
-                    " VALUES (?, 'kalshi', ?, datetime('now'))",
-                    (BROWSE_CACHE_KEY, data_str),
-                )
-                await db.commit()
-                break
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e) and attempt < 2:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-                    continue
-                log.warning("Failed to update browse markets cache: %s", e)
-            finally:
-                await db.close()
-
-        return all_markets
-
     async def get_browse_data(self) -> dict[str, list[dict]]:
-        """All open markets grouped by Kalshi category → series. Cached 15 min.
+        """Sports markets grouped by series for /bet browse. Cached 15 min.
 
-        Returns: {category_name: [{ticker, label, market_count, markets: [...]}, ...]}
-        Series within each category are sorted by soonest closing market.
-        Markets within each series are sorted by close_time ascending.
+        Reuses the sports-only markets cache (get_all_open_markets) — no separate
+        full-Kalshi-market fetch. Returns a single "Sports" category containing
+        all active sports series, sorted by soonest closing market.
+
+        Returns: {"Sports": [{ticker, label, market_count, markets: [...]}, ...]}
         """
         if self._mem_browse_data is not None:
             data, ts = self._mem_browse_data
@@ -1286,10 +1170,7 @@ class KalshiAPI:
                 log.debug("Cache HIT browse_data (in-memory)")
                 return data
 
-        if not self._series_info:
-            await self.refresh_sports()
-
-        all_markets = await self._fetch_all_markets_for_browse()
+        all_markets = await self.get_all_open_sports_markets()
 
         # Group markets by series_ticker
         series_markets: dict[str, list[dict]] = {}
@@ -1301,39 +1182,28 @@ class KalshiAPI:
                 series_markets[st] = []
             series_markets[st].append(m)
 
-        # Build category → list of series dicts
-        category_data: dict[str, list[dict]] = {}
+        # Build series list
+        series_list: list[dict] = []
         for series_ticker, markets in series_markets.items():
-            info = self._series_info.get(series_ticker, {})
-            category = info.get("category", "") or "Other"
-            # Use `or` (not dict default) so None/empty from API also falls back to ticker
-            raw_title = info.get("title") or series_ticker
+            raw_title = self._series_info.get(series_ticker, {}).get("title") or series_ticker
             label = _LABEL_OVERRIDES.get(series_ticker) or raw_title
 
-            # Sort markets by soonest actionable deadline
             markets_sorted = sorted(
                 markets,
                 key=lambda m: _earliest_market_time(m) or "9999"
             )
 
-            if category not in category_data:
-                category_data[category] = []
-            category_data[category].append({
+            series_list.append({
                 "ticker": series_ticker,
                 "label": label,
                 "market_count": len(markets),
                 "markets": markets_sorted,
             })
 
-        # Sort series within each category by soonest closing market
-        for cat in category_data:
-            def _series_sort_key(s: dict) -> str:
-                markets = s.get("markets", [])
-                if not markets:
-                    return "9999"
-                return _earliest_market_time(markets[0]) or "9999"
-            category_data[cat].sort(key=_series_sort_key)
+        # Sort by soonest closing market
+        series_list.sort(key=lambda s: _earliest_market_time(s["markets"][0]) if s["markets"] else "9999")
 
+        category_data: dict[str, list[dict]] = {"Sports": series_list}
         self._mem_browse_data = (category_data, time.monotonic())
         return category_data
 

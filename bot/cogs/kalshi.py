@@ -110,63 +110,6 @@ SERIES_PER_PAGE = 25
 BROWSE_MARKETS_PER_PAGE = 20
 
 
-class KalshiTopView(discord.ui.View):
-    """Landing page: category dropdown using Kalshi's own category taxonomy."""
-
-    def __init__(self, browse_data: dict[str, list[dict]], timeout: float = 180.0) -> None:
-        super().__init__(timeout=timeout)
-        self.browse_data = browse_data
-        self.message: discord.Message | None = None
-
-        options: list[discord.SelectOption] = []
-        for category in sorted(browse_data.keys()):
-            series_list = browse_data[category]
-            series_count = len(series_list)
-            market_count = sum(s["market_count"] for s in series_list)
-            label = category[:100]
-            desc = f"{series_count} series · {market_count} markets"[:100]
-            options.append(discord.SelectOption(label=label, value=category, description=desc))
-
-        if options:
-            self.add_item(KalshiCategorySelect(options[:25]))
-
-    def build_embed(self) -> discord.Embed:
-        embed = discord.Embed(title="Kalshi Markets", color=discord.Color.blue())
-        if not self.browse_data:
-            embed.description = "No open markets right now."
-            return embed
-        lines = []
-        for category in sorted(self.browse_data.keys()):
-            series_list = self.browse_data[category]
-            series_count = len(series_list)
-            market_count = sum(s["market_count"] for s in series_list)
-            lines.append(f"**{category}** — {series_count} series, {market_count} markets")
-        embed.description = "\n".join(lines)
-        embed.set_footer(text="Select a category below")
-        return embed
-
-    async def on_timeout(self) -> None:
-        self.clear_items()
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except discord.NotFound:
-                pass
-
-
-class KalshiCategorySelect(discord.ui.Select["KalshiTopView"]):
-    def __init__(self, options: list[discord.SelectOption]) -> None:
-        super().__init__(placeholder="Select a category...", options=options, row=0)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        category = self.values[0]
-        view = self.view
-        series_list = view.browse_data.get(category, [])
-        await interaction.response.defer()
-        series_view = KalshiSeriesView(category, series_list, view.browse_data)
-        embed = series_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=series_view)
-
 
 class KalshiSeriesView(discord.ui.View):
     """Shows series within a chosen category."""
@@ -208,8 +151,6 @@ class KalshiSeriesView(discord.ui.View):
                 self.add_item(KalshiSeriesPageButton("prev", self.page - 1, row=1))
             if self.page < total_pages - 1:
                 self.add_item(KalshiSeriesPageButton("next", self.page + 1, row=1))
-
-        self.add_item(KalshiBackToCategoriesButton(self.browse_data, row=2))
 
     def build_embed(self) -> discord.Embed:
         total_pages = max(1, (len(self.series_list) + SERIES_PER_PAGE - 1) // SERIES_PER_PAGE)
@@ -279,19 +220,6 @@ class KalshiSeriesPageButton(discord.ui.Button["KalshiSeriesView"]):
         except discord.NotFound:
             pass
 
-
-class KalshiBackToCategoriesButton(discord.ui.Button["KalshiSeriesView"]):
-    def __init__(self, browse_data: dict, row: int) -> None:
-        super().__init__(
-            label="Back", style=discord.ButtonStyle.secondary,
-            emoji="\u25c0\ufe0f", row=row,
-        )
-        self._browse_data = browse_data
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        top_view = KalshiTopView(self._browse_data)
-        embed = top_view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=top_view)
 
 
 _NUMBER_RE = re.compile(r'\b\d+\.?\d*\b')
@@ -2353,11 +2281,13 @@ class KalshiCog(commands.Cog):
             return
 
         browse_data = await kalshi_api.get_browse_data()
-        if not browse_data:
-            await interaction.followup.send("No open markets on Kalshi right now.")
+        series_list = browse_data.get("Sports", [])
+        if not series_list:
+            await interaction.followup.send("No open sports markets on Kalshi right now.")
             return
 
-        view = KalshiTopView(browse_data)
+        # Go directly to the series list — no top-level category picker needed
+        view = KalshiSeriesView("Sports", series_list, browse_data)
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
