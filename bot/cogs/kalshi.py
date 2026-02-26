@@ -23,6 +23,17 @@ from bot.db.database import cleanup_cache, vacuum_db
 log = logging.getLogger(__name__)
 
 
+async def _safe_defer(interaction: discord.Interaction) -> bool:
+    """Defer an interaction, returning False if it has already expired (Discord 10062)."""
+    try:
+        await interaction.response.defer()
+        return True
+    except discord.errors.NotFound:
+        cmd = interaction.command
+        log.warning("Interaction expired before defer (command: %s)", cmd.name if cmd else "unknown")
+        return False
+
+
 def _sport_emoji(sport_key: str) -> str:
     """Return an appropriate emoji for a sport based on its ticker."""
     sk = sport_key.upper()
@@ -193,7 +204,8 @@ class KalshiSeriesSelect(discord.ui.Select["KalshiSeriesView"]):
             await interaction.response.send_message("Series not found.", ephemeral=True)
             return
         view = self.view
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
         markets_view = KalshiMarketsView(series, view.category, view.series_list, series_page=view.page)
         embed = markets_view.build_embed()
         await interaction.edit_original_response(embed=embed, view=markets_view)
@@ -591,7 +603,8 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
         value = self.values[0]
         view = self.view
         parent_series = getattr(view, "parent_series", None) if view is not None else None
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         if value.startswith("gb:"):
             global_idx = int(value[3:])
@@ -890,7 +903,8 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
         if not market:
             await interaction.response.send_message("Market not found.", ephemeral=True)
             return
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
         bet_view = KalshiMarketBetView(
             market, self._series, self._category, self._series_list,
             series_page=self._series_page, markets_page=self._markets_page,
@@ -1280,7 +1294,8 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         value = self.values[0]
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
         if value.startswith("m:"):
             market = self._market_map.get(value)
             if not market:
@@ -1397,7 +1412,8 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
         if not market:
             await interaction.response.send_message("Market not found.", ephemeral=True)
             return
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
         list_view = MarketListView(self._all_markets, self._list_page)
         bet_view = RawMarketBetView(market, list_view)
         embed = bet_view.build_embed()
@@ -1528,7 +1544,8 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
             await interaction.response.send_message("Amount must be positive.", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         m    = self.market
         pick = self.pick
@@ -1695,7 +1712,8 @@ class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
         if view is None:
             return
 
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         sport_key = game.get("sport_key", "")
         parsed = await kalshi_api.get_game_odds(sport_key, game)
@@ -1927,7 +1945,8 @@ class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
             await interaction.response.send_message("Bet amount must be positive.", ephemeral=True)
             return
 
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         pv = self.parlay_view
         if len(pv.legs) < 2:
@@ -2255,7 +2274,8 @@ class KalshiCog(commands.Cog):
     @app_commands.command(name="bet", description="Browse Kalshi markets and bet YES or NO")
     @app_commands.describe(search="Search markets by keyword (leave blank to browse categories)")
     async def bet(self, interaction: discord.Interaction, search: str | None = None) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
         log.info("/bet called by %s (search=%r)", interaction.user, search)
 
         if search:
@@ -2294,7 +2314,8 @@ class KalshiCog(commands.Cog):
     @app_commands.describe(sport="Filter by sport (leave blank for all)")
     @app_commands.autocomplete(sport=sport_autocomplete)
     async def parlay(self, interaction: discord.Interaction, sport: str | None = None) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         if sport and sport in SPORTS:
             games = await kalshi_api.get_sport_games(sport)
@@ -2317,7 +2338,8 @@ class KalshiCog(commands.Cog):
 
     @app_commands.command(name="myparlays", description="View your parlays")
     async def myparlays(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         # Fetch both old and kalshi parlays
         old_parlays = await betting_service.get_user_parlays(interaction.user.id)
@@ -2437,7 +2459,8 @@ class KalshiCog(commands.Cog):
 
     @app_commands.command(name="myhistory", description="View your resolved bets with stats")
     async def myhistory(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         stats = await betting_service.get_user_stats(interaction.user.id)
         total_items = await betting_service.count_user_resolved(interaction.user.id)
@@ -2455,7 +2478,8 @@ class KalshiCog(commands.Cog):
 
     @app_commands.command(name="mybets", description="View your active/pending bets")
     async def mybets(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         bets = await betting_service.get_user_bets(interaction.user.id, status="pending")
         parlays = await betting_service.get_user_parlays(interaction.user.id, status="pending")
@@ -2604,7 +2628,8 @@ class KalshiCog(commands.Cog):
 
     @app_commands.command(name="livescores", description="View live scores for all pending bets")
     async def livescores(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         from bot.db import models as _models
         from bot.services.kalshi_api import _parse_event_ticker_date
@@ -3130,7 +3155,8 @@ class KalshiCog(commands.Cog):
 
     @app_commands.command(name="live", description="Upcoming sports markets — sorted by soonest close")
     async def live(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
+        if not await _safe_defer(interaction):
+            return
 
         all_markets = await kalshi_api.get_all_open_markets()
         now = datetime.now(timezone.utc)
