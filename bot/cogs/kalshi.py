@@ -118,14 +118,12 @@ class KalshiSeriesView(discord.ui.View):
         self,
         category: str,
         series_list: list[dict],
-        browse_data: dict[str, list[dict]],
         page: int = 0,
         timeout: float = 180.0,
     ) -> None:
         super().__init__(timeout=timeout)
         self.category = category
         self.series_list = series_list
-        self.browse_data = browse_data
         self.page = page
         self.message: discord.Message | None = None
         self._rebuild()
@@ -196,7 +194,7 @@ class KalshiSeriesSelect(discord.ui.Select["KalshiSeriesView"]):
             return
         view = self.view
         await interaction.response.defer()
-        markets_view = KalshiMarketsView(series, view.category, view.browse_data, series_page=view.page)
+        markets_view = KalshiMarketsView(series, view.category, view.series_list, series_page=view.page)
         embed = markets_view.build_embed()
         await interaction.edit_original_response(embed=embed, view=markets_view)
 
@@ -443,7 +441,7 @@ class KalshiMarketsView(discord.ui.View):
         self,
         series: dict,
         category: str,
-        browse_data: dict[str, list[dict]],
+        series_list: list[dict],
         series_page: int = 0,
         page: int = 0,
         parent_series: dict | None = None,
@@ -452,7 +450,7 @@ class KalshiMarketsView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.series = series
         self.category = category
-        self.browse_data = browse_data
+        self.series_list = series_list
         self.series_page = series_page
         self.page = page
         self.parent_series = parent_series
@@ -505,7 +503,7 @@ class KalshiMarketsView(discord.ui.View):
         if options:
             self.add_item(KalshiMarketsSelect(
                 options, self._grouped, self.series, self.category,
-                self.browse_data, self.series_page, self.page,
+                self.series_list, self.series_page, self.page,
             ))
 
         if total_pages > 1:
@@ -515,7 +513,7 @@ class KalshiMarketsView(discord.ui.View):
                 self.add_item(KalshiMarketsPageButton("next", self.page + 1, row=1))
 
         self.add_item(KalshiBackToSeriesButton(
-            self.category, self.browse_data, self.series_page, row=2,
+            self.category, self.series_list, self.series_page, row=2,
             parent_series=self.parent_series,
         ))
 
@@ -577,7 +575,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
         grouped: list[dict],
         series: dict,
         category: str,
-        browse_data: dict,
+        series_list: list[dict],
         series_page: int,
         markets_page: int,
     ) -> None:
@@ -585,7 +583,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
         self._grouped = grouped
         self._series = series
         self._category = category
-        self._browse_data = browse_data
+        self._series_list = series_list
         self._series_page = series_page
         self._markets_page = markets_page
 
@@ -602,7 +600,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
             game_series["label"] = f"{self._series.get('label', '')} — {bucket['time_str']}"
             game_series["markets"] = bucket["markets"]
             sub_view = KalshiMarketsView(
-                game_series, self._category, self._browse_data,
+                game_series, self._category, self._series_list,
                 series_page=self._series_page, page=0,
                 parent_series=self._series,
             )
@@ -621,7 +619,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
                 await interaction.followup.send("Market not found.", ephemeral=True)
                 return
             bet_view = KalshiMarketBetView(
-                market, self._series, self._category, self._browse_data,
+                market, self._series, self._category, self._series_list,
                 series_page=self._series_page, markets_page=self._markets_page,
                 parent_series=parent_series,
             )
@@ -633,7 +631,7 @@ class KalshiMarketsSelect(discord.ui.Select["KalshiMarketsView"]):
             item = self._grouped[global_idx]
             threshold_view = KalshiThresholdView(
                 item["markets"], self._series, self._category,
-                self._browse_data, self._series_page, self._markets_page,
+                self._series_list, self._series_page, self._markets_page,
                 parent_series=parent_series,
             )
             embed = threshold_view.build_embed()
@@ -662,7 +660,7 @@ class KalshiMarketsPageButton(discord.ui.Button["KalshiMarketsView"]):
 
 class KalshiBackToSeriesButton(discord.ui.Button["KalshiMarketsView"]):
     def __init__(
-        self, category: str, browse_data: dict, series_page: int, row: int,
+        self, category: str, series_list: list[dict], series_page: int, row: int,
         parent_series: dict | None = None,
     ) -> None:
         super().__init__(
@@ -670,7 +668,7 @@ class KalshiBackToSeriesButton(discord.ui.Button["KalshiMarketsView"]):
             emoji="\u25c0\ufe0f", row=row,
         )
         self._category = category
-        self._browse_data = browse_data
+        self._series_list = series_list
         self._series_page = series_page
         self._parent_series = parent_series
 
@@ -678,15 +676,14 @@ class KalshiBackToSeriesButton(discord.ui.Button["KalshiMarketsView"]):
         if self._parent_series is not None:
             # We're in a game sub-view — go back to the game list
             parent_view = KalshiMarketsView(
-                self._parent_series, self._category, self._browse_data,
+                self._parent_series, self._category, self._series_list,
                 series_page=self._series_page, page=0,
             )
             embed = parent_view.build_embed()
             await interaction.response.edit_message(embed=embed, view=parent_view)
         else:
-            series_list = self._browse_data.get(self._category, [])
             series_view = KalshiSeriesView(
-                self._category, series_list, self._browse_data, page=self._series_page
+                self._category, self._series_list, page=self._series_page
             )
             embed = series_view.build_embed()
             await interaction.response.edit_message(embed=embed, view=series_view)
@@ -700,7 +697,7 @@ class KalshiMarketBetView(discord.ui.View):
         market: dict,
         series: dict,
         category: str,
-        browse_data: dict[str, list[dict]],
+        series_list: list[dict],
         series_page: int = 0,
         markets_page: int = 0,
         parent_series: dict | None = None,
@@ -712,7 +709,7 @@ class KalshiMarketBetView(discord.ui.View):
         self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
         self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
         self.add_item(KalshiMarketBackButton(
-            series, category, browse_data, series_page, markets_page, row=1,
+            series, category, series_list, series_page, markets_page, row=1,
             parent_series=parent_series,
         ))
 
@@ -743,7 +740,7 @@ class KalshiMarketBetView(discord.ui.View):
 
 class KalshiMarketBackButton(discord.ui.Button["KalshiMarketBetView"]):
     def __init__(
-        self, series: dict, category: str, browse_data: dict,
+        self, series: dict, category: str, series_list: list[dict],
         series_page: int, markets_page: int, row: int,
         parent_series: dict | None = None,
     ) -> None:
@@ -753,14 +750,14 @@ class KalshiMarketBackButton(discord.ui.Button["KalshiMarketBetView"]):
         )
         self._series = series
         self._category = category
-        self._browse_data = browse_data
+        self._series_list = series_list
         self._series_page = series_page
         self._markets_page = markets_page
         self._parent_series = parent_series
 
     async def callback(self, interaction: discord.Interaction) -> None:
         markets_view = KalshiMarketsView(
-            self._series, self._category, self._browse_data,
+            self._series, self._category, self._series_list,
             series_page=self._series_page, page=self._markets_page,
             parent_series=self._parent_series,
         )
@@ -781,7 +778,7 @@ class KalshiThresholdView(discord.ui.View):
         markets: list[dict],
         series: dict,
         category: str,
-        browse_data: dict[str, list[dict]],
+        series_list: list[dict],
         series_page: int = 0,
         markets_page: int = 0,
         page: int = 0,
@@ -792,7 +789,7 @@ class KalshiThresholdView(discord.ui.View):
         self.markets = markets
         self.series = series
         self.category = category
-        self.browse_data = browse_data
+        self.series_list = series_list
         self.series_page = series_page
         self.markets_page = markets_page
         self.page = page
@@ -818,7 +815,7 @@ class KalshiThresholdView(discord.ui.View):
         if options:
             self.add_item(KalshiThresholdSelect(
                 options, self.markets, self.series, self.category,
-                self.browse_data, self.series_page, self.markets_page,
+                self.series_list, self.series_page, self.markets_page,
                 parent_series=self.parent_series,
             ))
 
@@ -829,7 +826,7 @@ class KalshiThresholdView(discord.ui.View):
                 self.add_item(KalshiThresholdPageButton("next", self.page + 1, row=1))
 
         self.add_item(KalshiThresholdBackButton(
-            self.series, self.category, self.browse_data,
+            self.series, self.category, self.series_list,
             self.series_page, self.markets_page, row=2,
             parent_series=self.parent_series,
         ))
@@ -873,7 +870,7 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
         markets: list[dict],
         series: dict,
         category: str,
-        browse_data: dict,
+        series_list: list[dict],
         series_page: int,
         markets_page: int,
         parent_series: dict | None = None,
@@ -882,7 +879,7 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
         self._market_map = {m.get("ticker", ""): m for m in markets}
         self._series = series
         self._category = category
-        self._browse_data = browse_data
+        self._series_list = series_list
         self._series_page = series_page
         self._markets_page = markets_page
         self._parent_series = parent_series
@@ -895,7 +892,7 @@ class KalshiThresholdSelect(discord.ui.Select["KalshiThresholdView"]):
             return
         await interaction.response.defer()
         bet_view = KalshiMarketBetView(
-            market, self._series, self._category, self._browse_data,
+            market, self._series, self._category, self._series_list,
             series_page=self._series_page, markets_page=self._markets_page,
             parent_series=self._parent_series,
         )
@@ -925,7 +922,7 @@ class KalshiThresholdPageButton(discord.ui.Button["KalshiThresholdView"]):
 
 class KalshiThresholdBackButton(discord.ui.Button["KalshiThresholdView"]):
     def __init__(
-        self, series: dict, category: str, browse_data: dict,
+        self, series: dict, category: str, series_list: list[dict],
         series_page: int, markets_page: int, row: int,
         parent_series: dict | None = None,
     ) -> None:
@@ -935,14 +932,14 @@ class KalshiThresholdBackButton(discord.ui.Button["KalshiThresholdView"]):
         )
         self._series = series
         self._category = category
-        self._browse_data = browse_data
+        self._series_list = series_list
         self._series_page = series_page
         self._markets_page = markets_page
         self._parent_series = parent_series
 
     async def callback(self, interaction: discord.Interaction) -> None:
         markets_view = KalshiMarketsView(
-            self._series, self._category, self._browse_data,
+            self._series, self._category, self._series_list,
             series_page=self._series_page, page=self._markets_page,
             parent_series=self._parent_series,
         )
@@ -2286,8 +2283,7 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("No open sports markets on Kalshi right now.")
             return
 
-        # Go directly to the series list — no top-level category picker needed
-        view = KalshiSeriesView("Sports", series_list, browse_data)
+        view = KalshiSeriesView("Sports", series_list)
         embed = view.build_embed()
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
