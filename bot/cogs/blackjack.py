@@ -57,6 +57,7 @@ class _Player:
     stood: bool = False
     doubled: bool = False
     result: str | None = None  # "blackjack" | "win" | "push" | "lose"
+    final_balance: int | None = None
 
     @property
     def val(self) -> int:
@@ -163,6 +164,8 @@ class _BlackjackView(discord.ui.View):
                 lines.append(f"Bet: **${p.bet:,}**")
                 if status:
                     lines.append(status)
+                if self.phase == "done" and p.final_balance is not None:
+                    lines.append(f"Balance: **${p.final_balance:,}**")
 
                 embed.add_field(name=label, value="\n".join(lines), inline=True)
 
@@ -348,8 +351,7 @@ class _BlackjackView(discord.ui.View):
         for p in self.players:
             if p.busted:
                 p.result = "lose"
-                continue
-            if p.blackjack and not dealer_bj:
+            elif p.blackjack and not dealer_bj:
                 p.result = "blackjack"
                 await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet + int(p.bet * 1.5), "blackjack")
             elif p.blackjack and dealer_bj:
@@ -365,6 +367,7 @@ class _BlackjackView(discord.ui.View):
                 await wallet_service.deposit(p.user_id, p.bet)
             else:
                 p.result = "lose"
+            p.final_balance = await wallet_service.get_balance(p.user_id)
 
         if self.message:
             await self.message.edit(embed=self._build_embed(), view=self)
