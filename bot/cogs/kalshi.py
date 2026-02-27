@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -2724,6 +2725,15 @@ class KalshiCog(commands.Cog):
                 market_map: dict[str, dict] = {m["ticker"]: m for m in all_markets}
             except Exception:
                 market_map = {}
+
+            # For bets whose market isn't in the bulk open-markets list (closed/finalized),
+            # fetch each one individually so we can still show live/final prices.
+            missing = [kb["market_ticker"] for kb in kalshi_bets if kb["market_ticker"] not in market_map]
+            if missing:
+                fetched = await asyncio.gather(*[kalshi_api.get_market(t) for t in missing], return_exceptions=True)
+                for ticker, result in zip(missing, fetched):
+                    if isinstance(result, dict) and result:
+                        market_map[ticker] = result
         else:
             market_map = {}
 
@@ -2751,9 +2761,15 @@ class KalshiCog(commands.Cog):
 
             # Look up current market odds; fall back to stored odds
             market = market_map.get(kb["market_ticker"])
-            display_odds = kb["odds"]
+            display_odds = kb["odds"] if (kb["odds"] or 0) > 0 else None
             if market:
-                yes_ask_raw = market.get("yes_ask_dollars") or market.get("last_price_dollars")
+                # For finalized markets, yes_ask_dollars is at extreme (0.01 or 1.00);
+                # prefer previous_yes_ask_dollars which reflects the pre-settlement price.
+                is_finalized = (market.get("status") or "") == "finalized"
+                if is_finalized:
+                    yes_ask_raw = market.get("previous_yes_ask_dollars")
+                else:
+                    yes_ask_raw = market.get("yes_ask_dollars") or market.get("last_price_dollars")
                 if yes_ask_raw is not None:
                     try:
                         yes_ask = float(yes_ask_raw)
@@ -2765,7 +2781,10 @@ class KalshiCog(commands.Cog):
                     except (ValueError, TypeError):
                         pass
 
-            potential = round(kb["amount"] * display_odds, 2)
+            if display_odds:
+                potential = round(kb["amount"] * display_odds, 2)
+            else:
+                potential = None
 
             # Cash-out value
             cashout = _calc_cashout(kb, market) if market else None
@@ -2777,13 +2796,18 @@ class KalshiCog(commands.Cog):
             else:
                 cashout_line = ""
 
-            status_text = f"Pending — potential **${potential:.2f}**"
+            if potential is not None:
+                status_text = f"Pending — potential **${potential:.2f}**"
+                odds_str = f"{display_odds:.2f}x"
+            else:
+                status_text = "Pending — potential **N/A**"
+                odds_str = "N/A"
 
             embed.add_field(
                 name=f"{icon} Kalshi #{kb['id']} · {status_text}",
                 value=(
                     f"**{title}**\n"
-                    f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {display_odds:.2f}x"
+                    f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {odds_str}"
                     f"{time_line}"
                     f"{cashout_line}"
                 ),
