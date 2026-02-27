@@ -2730,7 +2730,6 @@ class KalshiCog(commands.Cog):
         # Show pending Kalshi bets
         now = datetime.now(timezone.utc)
         for kb in kalshi_bets:
-            potential = round(kb["amount"] * kb["odds"], 2)
             title = kb.get("title") or kb["market_ticker"]
             pick_label = kb.get("pick_display") or kb["pick"].upper()
 
@@ -2750,8 +2749,25 @@ class KalshiCog(commands.Cog):
                 if ticker_date:
                     time_line = f"\n{ticker_date.strftime('%-m/%-d')}"
 
-            # Cash-out value
+            # Look up current market odds; fall back to stored odds
             market = market_map.get(kb["market_ticker"])
+            display_odds = kb["odds"]
+            if market:
+                yes_ask_raw = market.get("yes_ask_dollars") or market.get("last_price_dollars")
+                if yes_ask_raw is not None:
+                    try:
+                        yes_ask = float(yes_ask_raw)
+                        if 0.01 <= yes_ask <= 0.99:
+                            pick = (kb.get("pick") or "").lower()
+                            current_price = yes_ask if pick == "yes" else (1.0 - yes_ask)
+                            if current_price > 0:
+                                display_odds = round(1.0 / current_price, 3)
+                    except (ValueError, TypeError):
+                        pass
+
+            potential = round(kb["amount"] * display_odds, 2)
+
+            # Cash-out value
             cashout = _calc_cashout(kb, market) if market else None
             if cashout is not None:
                 cashout_pairs.append((kb, cashout))
@@ -2767,7 +2783,7 @@ class KalshiCog(commands.Cog):
                 name=f"{icon} Kalshi #{kb['id']} · {status_text}",
                 value=(
                     f"**{title}**\n"
-                    f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
+                    f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {display_odds:.2f}x"
                     f"{time_line}"
                     f"{cashout_line}"
                 ),
