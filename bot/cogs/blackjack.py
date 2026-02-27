@@ -75,65 +75,14 @@ class _Player:
         return self.stood or self.busted or self.blackjack or self.result is not None
 
 
-# ── Modal ─────────────────────────────────────────────────────────────────────
-
-
-class _JoinModal(discord.ui.Modal, title="Join Blackjack"):
-    amount_input = discord.ui.TextInput(
-        label="Bet amount",
-        placeholder="100",
-        min_length=1,
-        max_length=10,
-    )
-
-    def __init__(self, view: "_BlackjackView") -> None:
-        super().__init__()
-        self._view = view
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        try:
-            amount = int(self.amount_input.value)
-        except ValueError:
-            await interaction.response.send_message("Enter a valid number.", ephemeral=True)
-            return
-        if amount <= 0:
-            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
-            return
-
-        view = self._view
-        uid = interaction.user.id
-
-        if view.phase != "joining":
-            await interaction.response.send_message("Game has already started.", ephemeral=True)
-            return
-        if any(p.user_id == uid for p in view.players):
-            await interaction.response.send_message("You're already at the table.", ephemeral=True)
-            return
-        if len(view.players) >= MAX_PLAYERS:
-            await interaction.response.send_message("Table is full.", ephemeral=True)
-            return
-
-        new_bal = await wallet_service.withdraw(uid, amount)
-        if new_bal is None:
-            bal = await wallet_service.get_balance(uid)
-            await interaction.response.send_message(
-                f"Not enough. Balance: **${bal:,}**", ephemeral=True
-            )
-            return
-
-        view.players.append(_Player(user_id=uid, name=interaction.user.display_name, bet=amount))
-        await interaction.response.send_message(f"Joined with **${amount:,}**.", ephemeral=True)
-        if view.message:
-            await view.message.edit(embed=view._build_embed(), view=view)
-
-
 # ── View ──────────────────────────────────────────────────────────────────────
 
 
 class _BlackjackView(discord.ui.View):
-    def __init__(self, host: discord.User | discord.Member) -> None:
+    def __init__(self, host: discord.User | discord.Member, bet: int) -> None:
         super().__init__(timeout=300)
         self.host = host
+        self.bet = bet
         self.players: list[_Player] = []
         self.dealer_hand: list[str] = []
         self.phase = "joining"  # joining | playing | dealer | done
@@ -218,7 +167,7 @@ class _BlackjackView(discord.ui.View):
                 embed.add_field(name=label, value="\n".join(lines), inline=True)
 
         if self.phase == "joining":
-            embed.set_footer(text=f"Up to {MAX_PLAYERS} players. Host presses Deal to start.")
+            embed.set_footer(text=f"Bet: ${self.bet:,} · Up to {MAX_PLAYERS} players · Host presses Deal to start")
 
         return embed
 
@@ -228,7 +177,30 @@ class _BlackjackView(discord.ui.View):
     async def join_btn(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
-        await interaction.response.send_modal(_JoinModal(self))
+        uid = interaction.user.id
+
+        if self.phase != "joining":
+            await interaction.response.send_message("Game has already started.", ephemeral=True)
+            return
+        if any(p.user_id == uid for p in self.players):
+            await interaction.response.send_message("You're already at the table.", ephemeral=True)
+            return
+        if len(self.players) >= MAX_PLAYERS:
+            await interaction.response.send_message("Table is full.", ephemeral=True)
+            return
+
+        new_bal = await wallet_service.withdraw(uid, self.bet)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(uid)
+            await interaction.response.send_message(
+                f"Not enough to join. Balance: **${bal:,}** (need **${self.bet:,}**)", ephemeral=True
+            )
+            return
+
+        self.players.append(_Player(user_id=uid, name=interaction.user.display_name, bet=self.bet))
+        await interaction.response.send_message(f"Joined! **${self.bet:,}** deducted.", ephemeral=True)
+        if self.message:
+            await self.message.edit(embed=self._build_embed(), view=self)
 
     @discord.ui.button(label="Deal", style=discord.ButtonStyle.primary)
     async def deal_btn(
@@ -425,8 +397,23 @@ class Blackjack(commands.Cog):
         name="blackjack",
         description="Open a blackjack table — others can join before the deal",
     )
-    async def blackjack(self, interaction: discord.Interaction) -> None:
-        view = _BlackjackView(host=interaction.user)
+    @app_commands.describe(bet="Amount everyone at the table bets")
+    async def blackjack(self, interaction: discord.Interaction, bet: int) -> None:
+        if bet <= 0:
+            await interaction.response.send_message("Bet must be positive.", ephemeral=True)
+            return
+
+        # Charge the host immediately
+        new_bal = await wallet_service.withdraw(interaction.user.id, bet)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(interaction.user.id)
+            await interaction.response.send_message(
+                f"Not enough to start. Balance: **${bal:,}** (need **${bet:,}**)", ephemeral=True
+            )
+            return
+
+        view = _BlackjackView(host=interaction.user, bet=bet)
+        view.players.append(_Player(user_id=interaction.user.id, name=interaction.user.display_name, bet=bet))
         await interaction.response.send_message(embed=view._build_embed(), view=view)
         view.message = await interaction.original_response()
 
