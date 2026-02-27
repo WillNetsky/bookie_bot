@@ -677,6 +677,35 @@ async def resolve_kalshi_bet(bet_id: int, won: bool, payout: int) -> None:
 
 
 @db_retry()
+async def cashout_kalshi_bet(bet_id: int, cashout_amount: int) -> int | None:
+    """Mark a pending bet as cashed out, deposit the amount, and return the user_id.
+
+    Returns None if the bet doesn't exist or is not pending.
+    """
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT user_id FROM kalshi_bets WHERE id = ? AND status = 'pending'", (bet_id,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        user_id = row["user_id"]
+        await db.execute(
+            "UPDATE kalshi_bets SET status = 'cashed_out', payout = ? WHERE id = ?",
+            (cashout_amount, bet_id),
+        )
+        await db.execute(
+            "UPDATE users SET balance = balance + ? WHERE discord_id = ?",
+            (cashout_amount, user_id),
+        )
+        await db.commit()
+        return user_id
+    finally:
+        await db.close()
+
+
+@db_retry()
 async def get_user_resolved_kalshi_bets(user_id: int, limit: int = 10, offset: int = 0) -> list[dict]:
     db = await get_connection()
     try:

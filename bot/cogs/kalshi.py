@@ -115,6 +115,28 @@ def _earliest_market_time(m: dict) -> str:
         return ct or et
 
 
+def _calc_cashout(bet: dict, market: dict) -> int | None:
+    """Calculate the current cash-out value for a Kalshi bet in whole dollars.
+
+    Returns None if market price data is unavailable or out of valid range.
+    """
+    yes_ask = market.get("yes_ask_dollars") or market.get("last_price_dollars")
+    if yes_ask is None:
+        return None
+    try:
+        yes_ask = float(yes_ask)
+    except (ValueError, TypeError):
+        return None
+    if not (0.01 <= yes_ask <= 0.99):
+        return None
+
+    pick = (bet.get("pick") or "").lower()
+    current_price = yes_ask if pick == "yes" else (1.0 - yes_ask)
+    # n_contracts = potential payout; each contract pays $1 at resolution
+    n_contracts = bet["amount"] * bet["odds"]
+    return max(round(n_contracts * current_price), 0)
+
+
 # ── /kalshi Browse Views (category → series → markets → bet) ──────────
 
 SERIES_PER_PAGE = 25
@@ -1983,6 +2005,118 @@ class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
         await interaction.edit_original_response(embed=embed, view=None)
 
 
+# ── /mybets Cash-Out Views ────────────────────────────────────────────
+
+
+class _CashOutConfirmView(discord.ui.View):
+    """Ephemeral confirm/cancel prompt shown when a user picks a bet to cash out."""
+
+    def __init__(self, bet_id: int, cashout: int, wagered: int) -> None:
+        super().__init__(timeout=60)
+        self.bet_id = bet_id
+        self.cashout = cashout
+        self.wagered = wagered
+
+    @discord.ui.button(label="Confirm Cash Out", style=discord.ButtonStyle.success)
+    async def confirm(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        from bot.db import models as _models
+
+        user_id = await _models.cashout_kalshi_bet(self.bet_id, self.cashout)
+        if user_id is None:
+            await interaction.response.edit_message(
+                content="This bet is no longer pending (already resolved or cashed out).",
+                embed=None,
+                view=None,
+            )
+            return
+
+        delta = self.cashout - self.wagered
+        sign = "+" if delta >= 0 else ""
+        self.stop()
+        await interaction.response.edit_message(
+            content=f"Cashed out for **${self.cashout:,}** ({sign}${delta:,}). Balance updated.",
+            embed=None,
+            view=None,
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        self.stop()
+        await interaction.response.edit_message(
+            content="Cash out cancelled.", embed=None, view=None
+        )
+
+
+class _KalshiCashOutSelect(discord.ui.Select["_KalshiCashOutView"]):
+    def __init__(self, user_id: int, bets_with_cashout: list[tuple[dict, int]]) -> None:
+        self._user_id = user_id
+        self._bets: dict[str, tuple[dict, int]] = {
+            str(bet["id"]): (bet, cashout) for bet, cashout in bets_with_cashout
+        }
+        options = []
+        for bet, cashout in bets_with_cashout[:25]:
+            pick_label = bet.get("pick_display") or bet["pick"].upper()
+            delta = cashout - bet["amount"]
+            sign = "+" if delta >= 0 else ""
+            label = f"#{bet['id']} · {pick_label} · ${cashout:,} ({sign}${delta:,})"
+            if len(label) > 100:
+                label = label[:97] + "..."
+            title = bet.get("title") or bet["market_ticker"]
+            desc = title[:100] if len(title) <= 100 else title[:97] + "..."
+            options.append(
+                discord.SelectOption(label=label, value=str(bet["id"]), description=desc)
+            )
+        super().__init__(placeholder="Select a bet to cash out...", options=options)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self._user_id:
+            await interaction.response.send_message(
+                "These aren't your bets.", ephemeral=True
+            )
+            return
+
+        bet_id_str = self.values[0]
+        bet, cashout = self._bets[bet_id_str]
+        delta = cashout - bet["amount"]
+        sign = "+" if delta >= 0 else ""
+        title = bet.get("title") or bet["market_ticker"]
+        pick_label = bet.get("pick_display") or bet["pick"].upper()
+
+        embed = discord.Embed(
+            title="Cash Out Confirmation",
+            description=(
+                f"**{title}**\n"
+                f"Pick: **{pick_label}** · Wagered: **${bet['amount']:,}**\n\n"
+                f"Cash out now for **${cashout:,}** ({sign}${delta:,})"
+            ),
+            color=discord.Color.green() if delta >= 0 else discord.Color.red(),
+        )
+        view = _CashOutConfirmView(bet["id"], cashout, bet["amount"])
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+class _KalshiCashOutView(discord.ui.View):
+    """Attached to the /mybets response; lets users cash out individual Kalshi bets."""
+
+    def __init__(self, user_id: int, bets_with_cashout: list[tuple[dict, int]]) -> None:
+        super().__init__(timeout=300)
+        self.message: discord.Message | None = None
+        self.add_item(_KalshiCashOutSelect(user_id, bets_with_cashout))
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True  # type: ignore[union-attr]
+        if self.message:
+            try:
+                await self.message.delete()
+            except Exception:
+                pass
+
+
 # ── Cog ───────────────────────────────────────────────────────────────
 
 
@@ -2128,6 +2262,9 @@ class HistoryView(discord.ui.View):
         if status == "won":
             icon = "\U0001f7e2"
             status_text = f"Won — **${b.get('payout', 0):.2f}**"
+        elif status == "cashed_out":
+            icon = "\U0001f4b0"
+            status_text = f"Cashed Out — **${b.get('payout', 0):.2f}**"
         else:
             icon = "\U0001f534"
             status_text = "Lost"
@@ -2579,7 +2716,19 @@ class KalshiCog(commands.Cog):
                 inline=False,
             )
 
+        # Fetch current Kalshi market prices for cash-out calculation
+        cashout_pairs: list[tuple[dict, int]] = []
+        if kalshi_bets:
+            try:
+                all_markets = await kalshi_api.get_all_open_markets()
+                market_map: dict[str, dict] = {m["ticker"]: m for m in all_markets}
+            except Exception:
+                market_map = {}
+        else:
+            market_map = {}
+
         # Show pending Kalshi bets
+        now = datetime.now(timezone.utc)
         for kb in kalshi_bets:
             potential = round(kb["amount"] * kb["odds"], 2)
             title = kb.get("title") or kb["market_ticker"]
@@ -2588,7 +2737,6 @@ class KalshiCog(commands.Cog):
             # Determine live/upcoming status from event_ticker date
             event_ticker = kb.get("event_ticker", "")
             ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
-            now = datetime.now(timezone.utc)
 
             if ticker_date and ticker_date.date() < now.date():
                 icon = "\U0001f534"  # red — likely live/completed
@@ -2602,6 +2750,17 @@ class KalshiCog(commands.Cog):
                 if ticker_date:
                     time_line = f"\n{ticker_date.strftime('%-m/%-d')}"
 
+            # Cash-out value
+            market = market_map.get(kb["market_ticker"])
+            cashout = _calc_cashout(kb, market) if market else None
+            if cashout is not None:
+                cashout_pairs.append((kb, cashout))
+                delta = cashout - kb["amount"]
+                sign = "+" if delta >= 0 else ""
+                cashout_line = f"\nCash out: **${cashout:,}** ({sign}${delta:,})"
+            else:
+                cashout_line = ""
+
             status_text = f"Pending — potential **${potential:.2f}**"
 
             embed.add_field(
@@ -2610,12 +2769,21 @@ class KalshiCog(commands.Cog):
                     f"**{title}**\n"
                     f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {kb['odds']:.2f}x"
                     f"{time_line}"
+                    f"{cashout_line}"
                 ),
                 inline=False,
             )
 
-        embed.set_footer(text="Use /myhistory to view resolved bets")
-        await interaction.followup.send(embed=embed)
+        embed.set_footer(
+            text="Use /myhistory to view resolved bets"
+            + (" · Use the dropdown to cash out a Kalshi bet early" if cashout_pairs else "")
+        )
+        if cashout_pairs:
+            cashout_view = _KalshiCashOutView(interaction.user.id, cashout_pairs)
+            msg = await interaction.followup.send(embed=embed, view=cashout_view)
+            cashout_view.message = msg
+        else:
+            await interaction.followup.send(embed=embed)
 
     # ── /livescores ────────────────────────────────────────────────────
 
