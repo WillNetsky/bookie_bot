@@ -88,10 +88,21 @@ class _BlackjackView(discord.ui.View):
         self.dealer_hand: list[str] = []
         self.phase = "joining"  # joining | playing | dealer | done
         self.current_idx: int = 0
-        self.message: discord.Message | None = None
+        self.message: discord.PartialMessage | None = None
         self._update_buttons()
 
     # ── helpers ───────────────────────────────────────────────────────────────
+
+    async def _safe_edit(self, interaction: discord.Interaction) -> None:
+        """Edit via the button interaction if still valid, else fall back to direct message edit."""
+        try:
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        except discord.NotFound:
+            if self.message:
+                try:
+                    await self.message.edit(embed=self._build_embed(), view=self)
+                except discord.HTTPException:
+                    pass
 
     def _update_buttons(self) -> None:
         joining = self.phase == "joining"
@@ -235,11 +246,9 @@ class _BlackjackView(discord.ui.View):
         # Disable double — can't double after hitting
         self.double_btn.disabled = True
 
+        await self._safe_edit(interaction)
         if p.busted:
-            await interaction.response.edit_message(embed=self._build_embed(), view=self)
             await self._advance()
-        else:
-            await interaction.response.edit_message(embed=self._build_embed(), view=self)
 
     @discord.ui.button(label="Stand", style=discord.ButtonStyle.danger)
     async def stand_btn(
@@ -254,7 +263,7 @@ class _BlackjackView(discord.ui.View):
             return
 
         p.stood = True
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        await self._safe_edit(interaction)
         await self._advance()
 
     @discord.ui.button(label="Restart", style=discord.ButtonStyle.secondary, disabled=True)
@@ -270,7 +279,7 @@ class _BlackjackView(discord.ui.View):
         self.phase = "joining"
         self.current_idx = 0
         self._update_buttons()
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        await self._safe_edit(interaction)
 
     @discord.ui.button(label="Double", style=discord.ButtonStyle.secondary)
     async def double_btn(
@@ -302,7 +311,7 @@ class _BlackjackView(discord.ui.View):
         p.hand.append(_draw())
         p.stood = True  # must stand after doubling
 
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        await self._safe_edit(interaction)
         await self._advance()
 
     # ── game logic ────────────────────────────────────────────────────────────
@@ -322,12 +331,12 @@ class _BlackjackView(discord.ui.View):
 
         if self.current_idx >= len(self.players):
             # All players have blackjack — go straight to dealer
-            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+            await self._safe_edit(interaction)
             await self._dealer_play()
         else:
             # Double starts enabled (first player always has 2 cards)
             self.double_btn.disabled = False
-            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+            await self._safe_edit(interaction)
 
     async def _advance(self) -> None:
         self.current_idx += 1
@@ -434,7 +443,8 @@ class Blackjack(commands.Cog):
         view = _BlackjackView(host=interaction.user, bet=bet)
         view.players.append(_Player(user_id=interaction.user.id, name=interaction.user.display_name, bet=bet))
         await interaction.response.send_message(embed=view._build_embed(), view=view)
-        view.message = await interaction.original_response()
+        original = await interaction.original_response()
+        view.message = interaction.channel.get_partial_message(original.id)
 
 
 async def setup(bot: commands.Bot) -> None:

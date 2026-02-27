@@ -451,9 +451,9 @@ class Craps(commands.Cog):
 
         view = _StreetCrapsView(shooter=interaction.user, wager=amount)
         msg = await interaction.followup.send(embed=view._build_embed("betting"), view=view)
-        view.message = msg
+        view.message = interaction.channel.get_partial_message(msg.id)
         try:
-            await msg.add_reaction("🎲")
+            await view.message.add_reaction("🎲")
         except discord.HTTPException:
             pass
 
