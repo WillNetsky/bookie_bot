@@ -198,6 +198,7 @@ class _StreetCrapsView(discord.ui.View):
         self.point: int | None = None
         self.phase = "betting"
         self.message: discord.Message | None = None
+        self.final_balances: dict[int, int] = {}
 
     # ── embed builder ─────────────────────────────────────────────────
 
@@ -268,13 +269,16 @@ class _StreetCrapsView(discord.ui.View):
                 shooter_won = state in ("natural", "point_hit")
                 lines = []
                 sign = "+" if shooter_won else "-"
-                lines.append(f"{self.shooter.display_name}  {sign}${self.wager:,}")
+                bal_str = f"  →  ${self.final_balances[self.shooter.id]:,}" if self.shooter.id in self.final_balances else ""
+                lines.append(f"{self.shooter.display_name}  {sign}${self.wager:,}{bal_str}")
                 for uid in self.fades:
                     sign = "+" if not shooter_won else "-"
-                    lines.append(f"{self.fade_names[uid]}  {sign}${self.fades[uid]:,}")
+                    bal_str = f"  →  ${self.final_balances[uid]:,}" if uid in self.final_balances else ""
+                    lines.append(f"{self.fade_names[uid]}  {sign}${self.fades[uid]:,}{bal_str}")
                 for uid in self.backs:
                     sign = "+" if shooter_won else "-"
-                    lines.append(f"{self.back_names[uid]}  {sign}${self.backs[uid]:,}")
+                    bal_str = f"  →  ${self.final_balances[uid]:,}" if uid in self.final_balances else ""
+                    lines.append(f"{self.back_names[uid]}  {sign}${self.backs[uid]:,}{bal_str}")
                 embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
 
             # Footer flavor
@@ -389,6 +393,10 @@ class _StreetCrapsView(discord.ui.View):
         for uid, amt in self.backs.items():
             if shooter_won:
                 await leaderboard_notifier.deposit_and_notify(uid, amt * 2, "craps")
+
+        all_uids = {self.shooter.id} | self.fades.keys() | self.backs.keys()
+        for uid in all_uids:
+            self.final_balances[uid] = await wallet_service.get_balance(uid)
 
         await interaction.response.edit_message(
             embed=self._build_embed(state), view=self
