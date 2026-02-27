@@ -3412,6 +3412,7 @@ class KalshiCog(commands.Cog):
                 len(games), len(futures),
             )
             await kalshi_api.get_browse_data()
+            await kalshi_api.get_all_games()
         except Exception:
             log.exception("Error in periodic discovery")
 

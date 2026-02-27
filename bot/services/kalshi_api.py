@@ -20,7 +20,7 @@ from bot.utils import decimal_to_american
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
-CACHE_TTL = 900  # 15 minutes
+CACHE_TTL = 1800  # 30 minutes — matches refresh_discovery loop interval
 DISCOVERY_TTL = 1800  # 30 minutes for availability checks
 AGG_MARKETS_CACHE_KEY = "kalshi:all_open_markets:aggregated"  # single stable cache key
 
@@ -642,6 +642,7 @@ class KalshiAPI:
         # In-memory caches — avoid SQLite round-trips + JSON parsing on hot paths
         self._mem_all_markets: tuple[list[dict], float] | None = None
         self._mem_browse_data: tuple[dict[str, list[dict]], float] | None = None
+        self._mem_all_games: tuple[list[dict], float] | None = None
         # Log auth config at init
         if KALSHI_API_KEY_ID:
             log.info("Kalshi API key configured: %s...", KALSHI_API_KEY_ID[:8])
@@ -1393,6 +1394,11 @@ class KalshiAPI:
         Uses get_all_open_sports_markets to fetch everything once, then filters and
         groups by event locally. This replaces 140+ individual API calls with 1-2.
         """
+        if self._mem_all_games is not None:
+            data, ts = self._mem_all_games
+            if time.monotonic() - ts < CACHE_TTL:
+                return data
+
         all_markets = await self.get_all_open_sports_markets()
         
         # Build mapping of series_ticker -> (sport_key, sport_label, is_soccer)
@@ -1441,6 +1447,7 @@ class KalshiAPI:
             all_games.append(game)
 
         all_games.sort(key=lambda g: g.get("commence_time", "9999"))
+        self._mem_all_games = (all_games, time.monotonic())
         return all_games
 
     async def get_available_sports(self) -> list[str]:
