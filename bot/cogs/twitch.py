@@ -18,6 +18,7 @@ class TwitchCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.live_now: set[str] = set()
+        self._initialized: bool = False
         self._token: str | None = None
         self._session: aiohttp.ClientSession | None = None
 
@@ -94,6 +95,13 @@ class TwitchCog(commands.Cog):
                     live_info[stream["user_login"].lower()] = stream
 
         live_logins = set(live_info.keys())
+
+        if not self._initialized:
+            # Seed state on first poll — don't notify for already-live streams
+            self.live_now = live_logins
+            self._initialized = True
+            return
+
         newly_live = live_logins - self.live_now
         went_offline = self.live_now - live_logins
 
