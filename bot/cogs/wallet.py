@@ -33,7 +33,9 @@ class Wallet(commands.Cog):
         lines = []
         for i, u in enumerate(top, 1):
             lines.append(f"**{i}.** <@{u['discord_id']}> — ${u['balance']:.2f}")
-        await interaction.response.send_message("\n".join(lines))
+        await interaction.response.send_message(
+            "\n".join(lines), allowed_mentions=discord.AllowedMentions.none()
+        )
 
     # ── /setbalance (Mayor only) ───────────────────────────────────────
 
