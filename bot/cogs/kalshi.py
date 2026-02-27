@@ -184,10 +184,9 @@ class KalshiSeriesView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -573,10 +572,9 @@ class KalshiMarketsView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -744,10 +742,9 @@ class KalshiMarketBetView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if hasattr(self, "message") and self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -869,10 +866,9 @@ class KalshiThresholdView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -1100,10 +1096,9 @@ class GamesListView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -1245,10 +1240,9 @@ class MarketListView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -1386,10 +1380,9 @@ class LiveThresholdView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -1675,10 +1668,9 @@ class KalshiParlayView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
@@ -2209,10 +2201,9 @@ class HistoryView(discord.ui.View):
             pass
 
     async def on_timeout(self) -> None:
-        self.clear_items()
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.delete()
             except discord.NotFound:
                 pass
 
