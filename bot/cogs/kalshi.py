@@ -3352,6 +3352,12 @@ class KalshiCog(commands.Cog):
         except discord.HTTPException:
             log.exception("Failed to send resolution announcement")
 
+        if any(p["result"] == "won" for p in parlay_entries):
+            try:
+                await channel.send("oh shit pullin a kecker")
+            except discord.HTTPException:
+                pass
+
     # ── /live ─────────────────────────────────────────────────────────
 
     @app_commands.command(name="live", description="Upcoming sports markets — sorted by soonest close")
@@ -3746,6 +3752,7 @@ class KalshiCog(commands.Cog):
                             embed.add_field(name="Legs", value=leg_summary[:1024], inline=False)
                             try:
                                 await channel.send(embed=embed)
+                                await channel.send("oh shit pullin a kecker")
                             except discord.DiscordException:
                                 pass
                     # else: still pending
