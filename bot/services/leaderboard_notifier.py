@@ -52,6 +52,8 @@ async def _check_and_notify(
     board_before: list[dict],
     source: str,
 ) -> None:
+    return  # notifications disabled
+
     if _bot is None:
         return
 
