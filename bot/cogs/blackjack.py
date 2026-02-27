@@ -96,11 +96,13 @@ class _BlackjackView(discord.ui.View):
     def _update_buttons(self) -> None:
         joining = self.phase == "joining"
         playing = self.phase == "playing"
+        done = self.phase == "done"
         self.join_btn.disabled = not joining
         self.deal_btn.disabled = not joining
         self.hit_btn.disabled = not playing
         self.stand_btn.disabled = not playing
         self.double_btn.disabled = not playing
+        self.restart_btn.disabled = not done
 
     def _build_embed(self) -> discord.Embed:
         colors = {
@@ -255,6 +257,21 @@ class _BlackjackView(discord.ui.View):
         await interaction.response.edit_message(embed=self._build_embed(), view=self)
         await self._advance()
 
+    @discord.ui.button(label="Restart", style=discord.ButtonStyle.secondary, disabled=True)
+    async def restart_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if interaction.user.id != self.host.id:
+            await interaction.response.send_message("Only the host can restart.", ephemeral=True)
+            return
+
+        self.players = []
+        self.dealer_hand = []
+        self.phase = "joining"
+        self.current_idx = 0
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+
     @discord.ui.button(label="Double", style=discord.ButtonStyle.secondary)
     async def double_btn(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -343,7 +360,6 @@ class _BlackjackView(discord.ui.View):
     async def _resolve(self) -> None:
         self.phase = "done"
         self._update_buttons()
-        self.stop()
 
         dealer_val = _value(self.dealer_hand)
         dealer_bj = _is_bj(self.dealer_hand)
