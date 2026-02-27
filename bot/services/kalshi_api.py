@@ -1058,6 +1058,19 @@ class KalshiAPI:
         finally:
             await db.close()
 
+        # Stale-while-revalidate: if we have any old data, serve it immediately
+        # and kick off a background refresh. This makes the first post-restart load
+        # instant instead of blocking for 5-10s on a full paginated fetch.
+        if stale_data and not (self._prewarm_task and not self._prewarm_task.done()):
+            result = [m for m in json.loads(stale_data) if _is_market_active(m) and _is_market_bettable(m)]
+            if result:
+                log.debug("Serving stale markets immediately, refreshing in background")
+                # Expire the in-memory ts so the prewarm overwrites it, but
+                # keep it non-None so the lock re-check inside the fetch skips it.
+                self._mem_all_markets = (result, time.monotonic() - CACHE_TTL - 1)
+                self.schedule_markets_prewarm()
+                return result
+
         # Cache miss/stale — paginate all open Kalshi markets in one pass and
         # filter to sports series client-side.  This is 1-2 API calls instead of
         # one call per series (60+), which avoids 429 storms on cold start.
@@ -1126,7 +1139,6 @@ class KalshiAPI:
                 page_cursor = page_data.get("cursor")
                 if not page_cursor:
                     break
-                await asyncio.sleep(0.2)
 
             log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
             all_markets = [m for m in all_markets if _is_market_active(m) and _is_market_bettable(m)]
