@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.services import wallet_service
+from bot.services import wallet_service, leaderboard_notifier
 
 log = logging.getLogger(__name__)
 
@@ -382,13 +382,13 @@ class _StreetCrapsView(discord.ui.View):
         self.stop()
 
         if shooter_won:
-            await wallet_service.deposit(self.shooter.id, self.wager * 2)
+            await leaderboard_notifier.deposit_and_notify(self.shooter.id, self.wager * 2, "craps")
         for uid, amt in self.fades.items():
             if not shooter_won:
-                await wallet_service.deposit(uid, amt * 2)
+                await leaderboard_notifier.deposit_and_notify(uid, amt * 2, "craps")
         for uid, amt in self.backs.items():
             if shooter_won:
-                await wallet_service.deposit(uid, amt * 2)
+                await leaderboard_notifier.deposit_and_notify(uid, amt * 2, "craps")
 
         await interaction.response.edit_message(
             embed=self._build_embed(state), view=self

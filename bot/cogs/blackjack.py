@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.services import wallet_service
+from bot.services import wallet_service, leaderboard_notifier
 
 log = logging.getLogger(__name__)
 
@@ -351,7 +351,7 @@ class _BlackjackView(discord.ui.View):
                 continue
             if p.blackjack and not dealer_bj:
                 p.result = "blackjack"
-                await wallet_service.deposit(p.user_id, p.bet + int(p.bet * 1.5))
+                await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet + int(p.bet * 1.5), "blackjack")
             elif p.blackjack and dealer_bj:
                 p.result = "push"
                 await wallet_service.deposit(p.user_id, p.bet)
@@ -359,7 +359,7 @@ class _BlackjackView(discord.ui.View):
                 p.result = "lose"
             elif dealer_val > 21 or p.val > dealer_val:
                 p.result = "win"
-                await wallet_service.deposit(p.user_id, p.bet * 2)
+                await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet * 2, "blackjack")
             elif p.val == dealer_val:
                 p.result = "push"
                 await wallet_service.deposit(p.user_id, p.bet)

@@ -6,6 +6,7 @@ from discord.ext import commands
 
 from bot.config import DISCORD_TOKEN, GUILD_ID
 from bot.db.database import init_db
+from bot.services import leaderboard_notifier
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -45,6 +46,8 @@ class BookieBot(commands.Bot):
         else:
             await self.tree.sync()
             log.info("Slash commands synced globally.")
+
+        leaderboard_notifier.init(self)
 
         @self.tree.error
         async def on_tree_error(

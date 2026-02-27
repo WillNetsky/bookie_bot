@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from bot.config import BET_RESULTS_CHANNEL_ID
-from bot.services import betting_service
+from bot.services import betting_service, leaderboard_notifier
 from bot.services.kalshi_api import (
     kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API,
     _parse_event_ticker_date
@@ -3345,6 +3345,7 @@ class KalshiCog(commands.Cog):
 
                     winner = "home" if home_score > away_score else "away" if away_score > home_score else "draw"
 
+                    board_before = await leaderboard_notifier.snapshot()
                     resolved = await betting_service.resolve_game(
                         composite_id, winner,
                         home_score=home_score, away_score=away_score,
@@ -3354,6 +3355,9 @@ class KalshiCog(commands.Cog):
                         await self._post_resolution_announcement(
                             resolved, home_score=home_score, away_score=away_score,
                         )
+                        for r in resolved:
+                            if r.get("result") == "won" and r.get("payout"):
+                                await leaderboard_notifier.notify_if_passed(r["user_id"], int(r["payout"]), board_before, "sports betting")
         except Exception:
             log.exception("Error in check_legacy_results loop")
 
@@ -3366,7 +3370,6 @@ class KalshiCog(commands.Cog):
     @tasks.loop(minutes=3)
     async def check_kalshi_results(self) -> None:
         from bot.db import models
-        from bot.services.wallet_service import deposit
 
         pending = await models.get_pending_kalshi_tickers_with_close_time()
         parlay_pending = await models.get_pending_kalshi_parlay_tickers_with_close_time()
@@ -3441,10 +3444,13 @@ class KalshiCog(commands.Cog):
                     winning_side = "yes" if sv >= 0.99 else "no"
 
                 bets = await models.get_pending_kalshi_bets_by_market(ticker)
+                board_before = await leaderboard_notifier.snapshot()
                 for bet in bets:
                     won = bet["pick"] == winning_side
                     payout = round(bet["amount"] * bet["odds"], 2) if won else 0
                     await models.resolve_kalshi_bet(bet["id"], won, payout)
+                    if won:
+                        await leaderboard_notifier.notify_if_passed(bet["user_id"], int(payout), board_before, "sports betting")
 
                     if channel:
                         result_text = "won" if won else "lost"
@@ -3514,7 +3520,7 @@ class KalshiCog(commands.Cog):
                             effective_odds *= l["odds"]
                         payout = round(kp["amount"] * effective_odds, 2)
                         await models.update_kalshi_parlay(pid, "won", payout=payout)
-                        await deposit(kp["user_id"], payout)
+                        await leaderboard_notifier.deposit_and_notify(kp["user_id"], int(payout), "sports betting")
                         if channel:
                             user = self.bot.get_user(kp["user_id"])
                             name = user.display_name if user else f"User {kp['user_id']}"

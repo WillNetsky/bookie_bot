@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from bot.db import models
 from bot.services.wallet_service import deposit, withdraw
+from bot.services import leaderboard_notifier
 
 
 async def place_bet(
@@ -464,7 +465,7 @@ async def _resolve_parlay_legs(
                     effective_odds *= l["odds"]
             payout = round(parlay["amount"] * effective_odds)
             await models.update_parlay(parlay_id, "won", payout=payout)
-            await deposit(parlay["user_id"], payout)
+            await leaderboard_notifier.deposit_and_notify(parlay["user_id"], payout, "sports betting")
             entry = dict(parlay)
             entry["result"] = "won"
             entry["payout"] = payout
