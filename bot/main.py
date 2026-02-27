@@ -55,6 +55,12 @@ class BookieBot(commands.Bot):
             error: app_commands.AppCommandError,
         ) -> None:
             cause = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+            if isinstance(cause, discord.NotFound) and cause.code == 10062:
+                log.warning(
+                    "Interaction expired before bot could respond in '%s' — likely event loop was busy",
+                    interaction.command.name if interaction.command else "unknown",
+                )
+                return
             if isinstance(cause, discord.HTTPException) and cause.status == 429:
                 log.warning(
                     "Global rate limit hit in command '%s' — responding gracefully",

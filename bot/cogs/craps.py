@@ -428,7 +428,10 @@ class Craps(commands.Cog):
             )
             return
 
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            return  # Interaction expired before we could respond
 
         new_bal = await wallet_service.withdraw(interaction.user.id, amount)
         if new_bal is None:
