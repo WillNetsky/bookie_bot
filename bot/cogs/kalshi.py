@@ -84,6 +84,64 @@ def _sport_emoji(sport_key: str) -> str:
     return "\u26bd"  # ⚽
 
 
+# Maps sport aliases (text or emoji) → the canonical emoji returned by _sport_emoji.
+# Used so `/bet baseball` or `/bet ⚾` returns every baseball market regardless of
+# which series ticker it comes from.
+_SPORT_ALIASES: dict[str, str] = {
+    # ── text aliases ───────────────────────────────────────────────────
+    "basketball":       "🏀",
+    "nba":              "🏀",
+    "wnba":             "🏀",
+    "college basketball": "🏀",
+    "ncaa basketball":  "🏀",
+    "football":         "🏈",
+    "nfl":              "🏈",
+    "college football": "🏈",
+    "ncaa football":    "🏈",
+    "baseball":         "⚾",
+    "mlb":              "⚾",
+    "hockey":           "🏒",
+    "nhl":              "🏒",
+    "ice hockey":       "🏒",
+    "ufc":              "🥊",
+    "boxing":           "🥊",
+    "mma":              "🥊",
+    "fighting":         "🥊",
+    "soccer":           "⚽",
+    "lacrosse":         "🥍",
+    "cricket":          "🏏",
+    "tennis":           "🎾",
+    "curling":          "🥌",
+    "chess":            "♟️",
+    "pickleball":       "🏓",
+    "rugby":            "🏉",
+    "darts":            "🎯",
+    "nascar":           "🏎️",
+    "racing":           "🏎️",
+    "golf":             "⛳",
+    "esports":          "🎮",
+    "gaming":           "🎮",
+    # ── emoji aliases (direct emoji input) ─────────────────────────────
+    "🏀": "🏀",
+    "🏈": "🏈",
+    "⚾": "⚾",
+    "🏒": "🏒",
+    "🥊": "🥊",
+    "🥍": "🥍",
+    "🏏": "🏏",
+    "🎾": "🎾",
+    "🥌": "🥌",
+    "♟️": "♟️",
+    "🏓": "🏓",
+    "🏉": "🏉",
+    "🎯": "🎯",
+    "🏎️": "🏎️",
+    "⛳": "⛳",
+    "🎮": "🎮",
+    "⚽": "⚽",
+}
+
+
 def _is_ended(expiration_time: str) -> bool:
     """Check if a game has ended based on expected_expiration_time."""
     if not expiration_time:
@@ -2495,7 +2553,7 @@ class KalshiCog(commands.Cog):
 
         if search:
             all_markets = await kalshi_api.get_all_open_markets()
-            search_lower = search.lower()
+            search_lower = search.lower().strip()
             # Build series_ticker → sport label map so searches like
             # "nascar race" can match the series label even when individual
             # market titles don't contain those exact words.
@@ -2513,10 +2571,14 @@ class KalshiCog(commands.Cog):
                     st = et.split("-")[0] if "-" in et else et
                 return st.lower()
 
+            # Sport-category search: "baseball", "⚾", "nba", etc.
+            # If the query matches an alias, include any market whose series ticker
+            # maps to the same emoji via _sport_emoji.
+            target_emoji = _SPORT_ALIASES.get(search_lower)
+
             log.info(
-                "/bet search=%r: %d markets, sample series_tickers=%s",
-                search, len(all_markets),
-                list({_st(m) for m in all_markets})[:8],
+                "/bet search=%r (target_emoji=%r): %d markets",
+                search, target_emoji, len(all_markets),
             )
             filtered = [
                 m for m in all_markets
@@ -2524,6 +2586,8 @@ class KalshiCog(commands.Cog):
                 or search_lower in (m.get("yes_sub_title") or "").lower()
                 or search_lower in series_label_map.get(_st(m).upper(), "")
                 or search_lower in _st(m)
+                or (target_emoji is not None
+                    and _sport_emoji(_st(m).upper()) == target_emoji)
             ]
             log.info("/bet search=%r: %d filtered results", search, len(filtered))
             if not filtered:
@@ -2532,7 +2596,10 @@ class KalshiCog(commands.Cog):
             filtered.sort(key=lambda m: _earliest_market_time(m) or "9999")
             view = MarketListView(filtered)
             embed = view.build_embed()
-            embed.title = f"Search: {search}"
+            if target_emoji:
+                embed.title = f"{target_emoji} {search.title()} Markets"
+            else:
+                embed.title = f"Search: {search}"
             msg = await interaction.followup.send(embed=embed, view=view)
             view.message = msg
             return
