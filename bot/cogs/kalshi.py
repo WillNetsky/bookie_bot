@@ -2436,6 +2436,7 @@ class KalshiCog(commands.Cog):
                 if search_lower in (m.get("title") or "").lower()
                 or search_lower in (m.get("yes_sub_title") or "").lower()
                 or search_lower in series_label_map.get(m.get("series_ticker", ""), "")
+                or search_lower in (m.get("series_ticker") or "").lower()
             ]
             if not filtered:
                 await interaction.followup.send(f"No markets found matching **{search}**.")
