@@ -60,6 +60,8 @@ class TwitchCog(commands.Cog):
     async def poll_streams(self) -> None:
         try:
             await self._check_streams()
+        except (aiohttp.ClientConnectorError, aiohttp.ClientConnectorDNSError, aiohttp.ServerDisconnectedError):
+            log.warning("Twitch poll skipped — transient network error (will retry)")
         except Exception:
             log.exception("Error polling Twitch streams")
 
