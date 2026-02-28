@@ -25,13 +25,19 @@ log = logging.getLogger(__name__)
 
 
 async def _safe_defer(interaction: discord.Interaction) -> bool:
-    """Defer an interaction, returning False if it has already expired (Discord 10062)."""
+    """Defer an interaction, returning False if it cannot be deferred."""
     try:
         await interaction.response.defer()
         return True
     except discord.errors.NotFound:
+        # 10062 — interaction expired before we could defer (took > 3s to get here)
         cmd = interaction.command
         log.warning("Interaction expired before defer (command: %s)", cmd.name if cmd else "unknown")
+        return False
+    except discord.errors.HTTPException as e:
+        # 40060 — already acknowledged, usually means two bot instances running
+        cmd = interaction.command
+        log.warning("Interaction already acknowledged (command: %s, code: %s)", cmd.name if cmd else "unknown", e.code)
         return False
 
 
