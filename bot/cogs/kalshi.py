@@ -269,6 +269,19 @@ def _prop_stem(title: str) -> str:
     return _NUMBER_RE.sub("#", title).strip()
 
 
+def _teams_from_event_ticker(event_ticker: str) -> tuple[str, str] | None:
+    """Extract (away, home) abbreviations from a hyphen-delimited event ticker.
+
+    Works for tickers like "KXNHLGAMETOTAL-26FEB28-TOR-BOS" where the last
+    two hyphen-delimited segments are team codes.  Returns None if the ticker
+    doesn't have enough segments.
+    """
+    parts = event_ticker.split("-")
+    if len(parts) >= 4:
+        return parts[2], parts[3]
+    return None
+
+
 def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
     """Parse raw markets in a game bucket into (matchup_label, odds_str) tuples.
 
@@ -305,7 +318,45 @@ def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
         if len(pairs) < 2:
             continue
 
-        # Detect 3-way soccer markets: one outcome is "Tie" or "Draw"
+        # Detect threshold/total markets: most yes_sub_titles contain numbers
+        # (e.g. "Over 7.5 goals scored", "Over 8.5 goals scored").
+        # For these, treat all options as thresholds and show the actual game
+        # matchup from the event_ticker instead of the threshold labels.
+        threshold_count = sum(1 for name, _ in pairs if _NUMBER_RE.search(name))
+        if threshold_count >= max(2, len(pairs) * 0.75):
+            teams = _teams_from_event_ticker(_key)
+            if teams:
+                away, home = teams
+                matchup = f"{away} @ {home}"
+            else:
+                # Fall back to parsing " at " / " vs " from the market title
+                title = (group[0].get("title") or "").strip()
+                matchup = None
+                for sep, fmt in ((" at ", "{} @ {}"), (" vs ", "{} vs {}")):
+                    if sep in title.lower():
+                        idx = title.lower().index(sep)
+                        t1 = title[:idx].split()[-1]
+                        t2 = title[idx + len(sep):].split()[0].rstrip("?")
+                        matchup = fmt.format(t1, t2)
+                        break
+                if not matchup:
+                    matchup = "Game Total"
+
+            nums = sorted({
+                float(n)
+                for name, _ in pairs
+                for n in _NUMBER_RE.findall(name)
+            })
+            if len(nums) >= 2:
+                odds_str = f"Over {nums[0]}–{nums[-1]} ({len(pairs)} thresholds)"
+            elif nums:
+                odds_str = f"Over {nums[0]} ({len(pairs)} thresholds)"
+            else:
+                odds_str = f"{len(pairs)} thresholds"
+            results.append((matchup, odds_str))
+            continue
+
+        # Standard binary/ternary market (win/loss/tie)
         _draw_names = {"tie", "draw"}
         draw_pairs = [(n, a) for n, a in pairs if n.lower() in _draw_names]
         team_pairs = [(n, a) for n, a in pairs if n.lower() not in _draw_names]
