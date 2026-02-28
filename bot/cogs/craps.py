@@ -64,16 +64,16 @@ def _pick(choices: list[str], **kwargs: object) -> str:
     return random.choice(choices).format(**kwargs)
 
 
-# Tracks consecutive 7-rolls per shooter across games (resets on any non-7 outcome)
-_seven_streak: dict[int, int] = {}
+# Tracks consecutive come-out wins (naturals: 7 or 11) per shooter across games
+_comeout_win_streak: dict[int, int] = {}
 
 
-def _update_seven_streak(shooter_id: int, rolled_seven: bool) -> int:
-    if rolled_seven:
-        _seven_streak[shooter_id] = _seven_streak.get(shooter_id, 0) + 1
+def _update_comeout_streak(shooter_id: int, won_comeout: bool) -> int:
+    if won_comeout:
+        _comeout_win_streak[shooter_id] = _comeout_win_streak.get(shooter_id, 0) + 1
     else:
-        _seven_streak[shooter_id] = 0
-    return _seven_streak[shooter_id]
+        _comeout_win_streak[shooter_id] = 0
+    return _comeout_win_streak[shooter_id]
 
 
 # ── Modals ────────────────────────────────────────────────────────────
@@ -359,11 +359,11 @@ class _StreetCrapsView(discord.ui.View):
 
         if total in (7, 11):
             self.roll_log.append(_log_entry(d1, d2, total, "natural"))
-            streak = _update_seven_streak(self.shooter.id, total == 7)
-            await self._resolve(interaction, shooter_won=True, state="natural", seven_streak=streak)
+            streak = _update_comeout_streak(self.shooter.id, True)
+            await self._resolve(interaction, shooter_won=True, state="natural", comeout_streak=streak)
         elif total in (2, 3, 12):
             self.roll_log.append(_log_entry(d1, d2, total, "craps"))
-            _update_seven_streak(self.shooter.id, False)
+            _update_comeout_streak(self.shooter.id, False)
             await self._resolve(interaction, shooter_won=False, state="craps")
         else:
             self.point = total
@@ -378,12 +378,12 @@ class _StreetCrapsView(discord.ui.View):
 
         if total == self.point:
             self.roll_log.append(_log_entry(d1, d2, total, "hit!"))
-            _update_seven_streak(self.shooter.id, False)
+            _update_comeout_streak(self.shooter.id, False)
             await self._resolve(interaction, shooter_won=True, state="point_hit")
         elif total == 7:
             self.roll_log.append(_log_entry(d1, d2, total, "seven out"))
-            streak = _update_seven_streak(self.shooter.id, True)
-            await self._resolve(interaction, shooter_won=False, state="seven_out", seven_streak=streak)
+            _update_comeout_streak(self.shooter.id, False)
+            await self._resolve(interaction, shooter_won=False, state="seven_out")
         else:
             self.roll_log.append(_log_entry(d1, d2, total))
             await interaction.response.edit_message(
@@ -396,7 +396,7 @@ class _StreetCrapsView(discord.ui.View):
         *,
         shooter_won: bool,
         state: str,
-        seven_streak: int = 0,
+        comeout_streak: int = 0,
     ) -> None:
         self.phase = "done"
         self.clear_items()
@@ -419,7 +419,7 @@ class _StreetCrapsView(discord.ui.View):
             embed=self._build_embed(state), view=self
         )
 
-        if seven_streak >= 3:
+        if comeout_streak >= 3:
             try:
                 await interaction.channel.send("oh damn pullin an RC!")
             except Exception:
