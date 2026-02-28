@@ -2431,13 +2431,28 @@ class KalshiCog(commands.Cog):
                 label_lower = info.get("label", "").lower()
                 for ticker in info["series"].values():
                     series_label_map[ticker] = label_lower
+
+            def _st(m: dict) -> str:
+                """Series ticker with event_ticker fallback (handles null from old cache)."""
+                st = m.get("series_ticker") or ""
+                if not st:
+                    et = m.get("event_ticker") or ""
+                    st = et.split("-")[0] if "-" in et else et
+                return st.lower()
+
+            log.info(
+                "/bet search=%r: %d markets, sample series_tickers=%s",
+                search, len(all_markets),
+                list({_st(m) for m in all_markets})[:8],
+            )
             filtered = [
                 m for m in all_markets
                 if search_lower in (m.get("title") or "").lower()
                 or search_lower in (m.get("yes_sub_title") or "").lower()
-                or search_lower in series_label_map.get(m.get("series_ticker", ""), "")
-                or search_lower in (m.get("series_ticker") or "").lower()
+                or search_lower in series_label_map.get(_st(m).upper(), "")
+                or search_lower in _st(m)
             ]
+            log.info("/bet search=%r: %d filtered results", search, len(filtered))
             if not filtered:
                 await interaction.followup.send(f"No markets found matching **{search}**.")
                 return
