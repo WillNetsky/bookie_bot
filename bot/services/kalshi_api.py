@@ -1132,8 +1132,16 @@ class KalshiAPI:
                 if not page_data or "markets" not in page_data:
                     break
 
-                for m in page_data["markets"]:
-                    if m.get("series_ticker") in sports_series:
+                page_markets = page_data["markets"]
+                log.debug("Kalshi markets page: %d raw markets", len(page_markets))
+                for m in page_markets:
+                    # Use same series_ticker fallback as _prune_market so markets
+                    # that omit series_ticker but have event_ticker still match.
+                    st = m.get("series_ticker")
+                    if not st:
+                        et = m.get("event_ticker", "")
+                        st = et.split("-")[0] if "-" in et else et
+                    if st in sports_series:
                         all_markets.append(self._prune_market(m))
 
                 page_cursor = page_data.get("cursor")
