@@ -274,7 +274,16 @@ class _BlackjackView(discord.ui.View):
             await interaction.response.send_message("Only the host can restart.", ephemeral=True)
             return
 
-        self.players = []
+        new_bal = await wallet_service.withdraw(self.host.id, self.bet)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(self.host.id)
+            await interaction.response.send_message(
+                f"Not enough to restart. Balance: **${bal:,}** (need **${self.bet:,}**)",
+                ephemeral=True,
+            )
+            return
+
+        self.players = [_Player(self.host.id, self.host.display_name, self.bet)]
         self.dealer_hand = []
         self.phase = "joining"
         self.current_idx = 0
