@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -3436,7 +3436,7 @@ class KalshiCog(commands.Cog):
 
     # ── Database maintenance task ────────────────────────────────────
 
-    @tasks.loop(hours=24)
+    @tasks.loop(time=time(hour=4, minute=0, tzinfo=timezone.utc))
     async def db_maintenance(self) -> None:
         """Periodic database cleanup to save disk space."""
         try:
