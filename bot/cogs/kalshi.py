@@ -297,17 +297,24 @@ def _summarize_bucket_games(markets: list[dict]) -> list[tuple[str, str]]:
         if len(pairs) < 2:
             continue
 
-        # Build matchup label from the first two sides
-        matchup = f"{pairs[0][0]} vs {pairs[1][0]}"
+        # Detect 3-way soccer markets: one outcome is "Tie" or "Draw"
+        _draw_names = {"tie", "draw"}
+        draw_pairs = [(n, a) for n, a in pairs if n.lower() in _draw_names]
+        team_pairs = [(n, a) for n, a in pairs if n.lower() not in _draw_names]
 
-        # Build odds string
-        odds_parts = []
-        for name, am in pairs[:2]:
-            if am is not None:
-                odds_parts.append(f"{name} {am}")
-            else:
-                odds_parts.append(name)
-        odds_str = " · ".join(odds_parts)
+        if draw_pairs and len(team_pairs) >= 2:
+            # Soccer 3-way: show "Home vs Away" with all three odds
+            matchup = f"{team_pairs[0][0]} vs {team_pairs[1][0]}"
+            all_three = [team_pairs[0], draw_pairs[0], team_pairs[1]]
+            odds_str = " · ".join(
+                f"{n} {a}" if a is not None else n for n, a in all_three
+            )
+        else:
+            # Standard binary market
+            matchup = f"{pairs[0][0]} vs {pairs[1][0]}"
+            odds_str = " · ".join(
+                f"{n} {a}" if a is not None else n for n, a in pairs[:2]
+            )
 
         results.append((matchup, odds_str))
     return results
@@ -336,6 +343,8 @@ def _clean_market_title(title: str) -> str:
     t = title.strip()
     # Strip trailing "Winner?" (case-insensitive, "?" optional)
     t = re.sub(r'\s*[Ww]inner\s*\??\s*$', '', t).strip()
+    # Strip trailing " Game" / " Match" / " Fight" (series name bleed-through)
+    t = re.sub(r'\s+(Game|Match|Fight)$', '', t, flags=re.IGNORECASE).strip()
     # Strip any leftover trailing "?"
     t = re.sub(r'\?+$', '', t).strip()
     # Hoist set/map/round qualifier to a "(X N)" prefix

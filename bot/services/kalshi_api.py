@@ -1213,8 +1213,19 @@ class KalshiAPI:
         # Build series list
         series_list: list[dict] = []
         for series_ticker, markets in series_markets.items():
-            raw_title = self._series_info.get(series_ticker, {}).get("title") or series_ticker
-            label = _LABEL_OVERRIDES.get(series_ticker) or raw_title
+            # Prefer the already-cleaned label from SPORTS (suffix-stripped by refresh_sports).
+            # Fall back to _LABEL_OVERRIDES, then raw series title with suffix stripping.
+            sport_info = SPORTS.get(series_ticker)
+            if sport_info:
+                label = sport_info["label"]
+            else:
+                raw_title = self._series_info.get(series_ticker, {}).get("title") or series_ticker
+                label = _LABEL_OVERRIDES.get(series_ticker) or raw_title
+                for _sfx in (" Game", " Games", " Winner", " winner", " Match", " match",
+                              " Fight", " fight", " fight winner"):
+                    if label.endswith(_sfx):
+                        label = label[: -len(_sfx)].strip()
+                        break
 
             markets_sorted = sorted(
                 markets,
@@ -1300,12 +1311,15 @@ class KalshiAPI:
                 event_groups[et] = []
             event_groups[et].append(m)
 
-        # Detect soccer for title parsing
-        is_soccer = "soccer" in sport["label"].lower() or "soccer" in sport_key.lower()
-
         games = []
         now = datetime.now(timezone.utc)
         for event_ticker, group in event_groups.items():
+            first_title = group[0].get("title", "")
+            has_tie = any(
+                (m.get("yes_sub_title") or "").strip().lower() in ("tie", "draw")
+                for m in group
+            )
+            is_soccer = " vs " in first_title or has_tie
             game = _parse_game_from_markets(group, event_ticker, sport_key, sport["label"], is_soccer)
             if not game:
                 continue
@@ -1425,14 +1439,8 @@ class KalshiAPI:
         series_to_sport = {}
         for sk, info in SPORTS.items():
             label = info["label"]
-            # We need to know if it's soccer for title parsing
-            # (Matches logic in get_sport_games)
-            # Find a representative market to check title format?
-            # Instead, just check if "Soccer" is in label or sport_key
-            is_soccer = "soccer" in label.lower() or "soccer" in sk.lower()
-            
             for ticker in info["series"].values():
-                series_to_sport[ticker] = (sk, label, is_soccer)
+                series_to_sport[ticker] = (sk, label)
 
         # Group markets by event_ticker
         event_groups: dict[str, list[dict]] = {}
@@ -1449,8 +1457,16 @@ class KalshiAPI:
         for event_ticker, group in event_groups.items():
             # Get sport info from the first market in group
             st = group[0].get("series_ticker", "")
-            sk, label, is_soccer = series_to_sport[st]
-            
+            sk, label = series_to_sport[st]
+            # Detect soccer by title format: soccer uses "Home vs Away", US sports use "Away at Home".
+            # Also detect by presence of a "Tie"/"Draw" outcome (3-way markets are always soccer).
+            first_title = group[0].get("title", "")
+            has_tie = any(
+                (m.get("yes_sub_title") or "").strip().lower() in ("tie", "draw")
+                for m in group
+            )
+            is_soccer = " vs " in first_title or has_tie
+
             game = _parse_game_from_markets(group, event_ticker, sk, label, is_soccer)
             if not game:
                 continue
