@@ -127,21 +127,37 @@ def _earliest_market_time(m: dict) -> str:
 def _calc_cashout(bet: dict, market: dict) -> float | None:
     """Calculate the current cash-out value for a Kalshi bet.
 
+    When selling a YES position you receive the BID price (what buyers offer),
+    not the ASK price (what sellers want).  For a NO position the exit price is
+    1 - YES_ask, which equals the NO bid.
+
     Returns None if market price data is unavailable or out of valid range.
     """
-    yes_ask = market.get("yes_ask_dollars") or market.get("last_price_dollars")
-    if yes_ask is None:
+    pick = (bet.get("pick") or "").lower()
+
+    if pick == "yes":
+        # Prefer bid (what you actually receive when selling YES)
+        raw = (
+            market.get("yes_bid_dollars")
+            or market.get("yes_ask_dollars")
+            or market.get("last_price_dollars")
+        )
+    else:
+        # NO exit price = 1 − YES_ask  (= NO bid)
+        raw = market.get("yes_ask_dollars") or market.get("last_price_dollars")
+
+    if raw is None:
         return None
     try:
-        yes_ask = float(yes_ask)
+        price = float(raw)
     except (ValueError, TypeError):
         return None
-    if not (0.01 <= yes_ask <= 0.99):
+
+    if not (0.01 <= price <= 0.99):
         return None
 
-    pick = (bet.get("pick") or "").lower()
-    current_price = yes_ask if pick == "yes" else (1.0 - yes_ask)
-    # n_contracts = potential payout; each contract pays $1 at resolution
+    current_price = price if pick == "yes" else (1.0 - price)
+    # n_contracts = amount ÷ entry_price = amount × entry_decimal_odds
     n_contracts = bet["amount"] * bet["odds"]
     return max(round(n_contracts * current_price, 2), 0)
 

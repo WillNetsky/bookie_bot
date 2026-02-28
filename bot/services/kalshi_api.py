@@ -986,6 +986,7 @@ class KalshiAPI:
             "title": m.get("title"),
             "yes_sub_title": m.get("yes_sub_title"),
             "yes_ask_dollars": m.get("yes_ask_dollars"),
+            "yes_bid_dollars": m.get("yes_bid_dollars"),
             "last_price_dollars": m.get("last_price_dollars"),
             "expected_expiration_time": m.get("expected_expiration_time"),
             "close_time": m.get("close_time"),
