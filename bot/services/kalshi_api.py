@@ -134,6 +134,7 @@ _LABEL_OVERRIDES: dict[str, str] = {
     "KXCRYPTOFIGHTNIGHT": "Crypto Fight Night",
     "KXVALORANTGAMETEAMVSMIBR": "Valorant (Team vs MIBR)",
     "KXFIFAUSPULLGAME": "FIFA US Pull",
+    "KXNASCARRACE": "NASCAR Race",
     "KXMCGREGORFIGHTNEXT": "McGregor Next Fight",
     "KXFANATICSGAMESFIRSTPLACE": "Fanatics Games (1st)",
     "KXFANATICSGAMESSECONDPLACE": "Fanatics Games (2nd)",
@@ -833,16 +834,29 @@ class KalshiAPI:
         spread_tickers: dict[str, str] = {}  # prefix → ticker
         total_tickers: dict[str, str] = {}   # prefix → ticker
 
+        # Known primary-game suffixes (used below to include non-Sports series
+        # like motor racing that Kalshi may place in a different category).
+        _GAME_SUFFIXES = ("GAME", "GAMES", "FIGHT", "MATCH", "BOUT", "RACE", "ROUND", "SET")
+
         for item in all_series:
             ticker = item.get("ticker", "")
             title = item.get("title", "")
             cat = item.get("category", "")
-            if cat != "Sports":
-                continue
             if ticker in _EXCLUDED_TICKERS:
                 continue
 
             t = ticker.upper()
+
+            # Skip non-Sports series UNLESS the ticker ends with a known game
+            # suffix — handles motor racing, combat sports, etc. that Kalshi
+            # may categorise under "Racing" or another non-"Sports" bucket.
+            if cat != "Sports":
+                if not any(t.endswith(s) for s in _GAME_SUFFIXES):
+                    continue
+                log.info(
+                    "Including non-Sports series with known suffix: %s (category=%r)",
+                    ticker, cat,
+                )
 
             # Classify as derivative (spread/total) or primary (game) series.
             # Use blacklist approach: anything that doesn't end with a known

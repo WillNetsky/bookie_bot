@@ -64,6 +64,8 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3c9"  # 🏉
     if "DARTS" in sk:
         return "\U0001f3af"  # 🎯
+    if "NASCAR" in sk or "RACE" in sk:
+        return "\U0001f3ce\ufe0f"  # 🏎️
     if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk:
         return "\u26f3"  # ⛳
     if "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk or "SSHIELD" in sk:
@@ -2421,10 +2423,19 @@ class KalshiCog(commands.Cog):
         if search:
             all_markets = await kalshi_api.get_all_open_markets()
             search_lower = search.lower()
+            # Build series_ticker → sport label map so searches like
+            # "nascar race" can match the series label even when individual
+            # market titles don't contain those exact words.
+            series_label_map: dict[str, str] = {}
+            for sk, info in SPORTS.items():
+                label_lower = info.get("label", "").lower()
+                for ticker in info["series"].values():
+                    series_label_map[ticker] = label_lower
             filtered = [
                 m for m in all_markets
                 if search_lower in (m.get("title") or "").lower()
                 or search_lower in (m.get("yes_sub_title") or "").lower()
+                or search_lower in series_label_map.get(m.get("series_ticker", ""), "")
             ]
             if not filtered:
                 await interaction.followup.send(f"No markets found matching **{search}**.")
