@@ -214,9 +214,7 @@ class _BlackjackView(discord.ui.View):
             return
 
         self.players.append(_Player(user_id=uid, name=interaction.user.display_name, bet=self.bet))
-        await interaction.response.send_message(f"Joined! **${self.bet:,}** deducted.", ephemeral=True)
-        if self.message:
-            await self.message.edit(embed=self._build_embed(), view=self)
+        await interaction.response.edit_message(embed=self._build_embed(), view=self)
 
     @discord.ui.button(label="Deal", style=discord.ButtonStyle.primary)
     async def deal_btn(
