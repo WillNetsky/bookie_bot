@@ -116,8 +116,8 @@ def _earliest_market_time(m: dict) -> str:
         return ct or et
 
 
-def _calc_cashout(bet: dict, market: dict) -> int | None:
-    """Calculate the current cash-out value for a Kalshi bet in whole dollars.
+def _calc_cashout(bet: dict, market: dict) -> float | None:
+    """Calculate the current cash-out value for a Kalshi bet.
 
     Returns None if market price data is unavailable or out of valid range.
     """
@@ -135,7 +135,7 @@ def _calc_cashout(bet: dict, market: dict) -> int | None:
     current_price = yes_ask if pick == "yes" else (1.0 - yes_ask)
     # n_contracts = potential payout; each contract pays $1 at resolution
     n_contracts = bet["amount"] * bet["odds"]
-    return max(round(n_contracts * current_price), 0)
+    return max(round(n_contracts * current_price, 2), 0)
 
 
 # ── /kalshi Browse Views (category → series → markets → bet) ──────────
@@ -2046,7 +2046,7 @@ class _CashOutConfirmView(discord.ui.View):
         sign = "+" if delta >= 0 else ""
         self.stop()
         await interaction.response.edit_message(
-            content=f"Cashed out for **${self.cashout:,}** ({sign}${delta:,}). Balance updated.",
+            content=f"Cashed out for **${self.cashout:.2f}** ({sign}${delta:.2f}). Balance updated.",
             embed=None,
             view=None,
         )
@@ -2072,7 +2072,7 @@ class _KalshiCashOutSelect(discord.ui.Select["_KalshiCashOutView"]):
             pick_label = bet.get("pick_display") or bet["pick"].upper()
             delta = cashout - bet["amount"]
             sign = "+" if delta >= 0 else ""
-            label = f"#{bet['id']} · {pick_label} · ${cashout:,} ({sign}${delta:,})"
+            label = f"#{bet['id']} · {pick_label} · ${cashout:.2f} ({sign}${delta:.2f})"
             if len(label) > 100:
                 label = label[:97] + "..."
             title = bet.get("title") or bet["market_ticker"]
@@ -2101,7 +2101,7 @@ class _KalshiCashOutSelect(discord.ui.Select["_KalshiCashOutView"]):
             description=(
                 f"**{title}**\n"
                 f"Pick: **{pick_label}** · Wagered: **${bet['amount']:,}**\n\n"
-                f"Cash out now for **${cashout:,}** ({sign}${delta:,})"
+                f"Cash out now for **${cashout:.2f}** ({sign}${delta:.2f})"
             ),
             color=discord.Color.green() if delta >= 0 else discord.Color.red(),
         )
@@ -2790,8 +2790,11 @@ class KalshiCog(commands.Cog):
                     except (ValueError, TypeError):
                         pass
 
-            if display_odds:
-                potential = round(kb["amount"] * display_odds, 2)
+            # Potential payout is locked in at purchase (stored odds), not live odds.
+            # Live display_odds shows how the market has moved since placement.
+            stored_odds = kb["odds"] if (kb.get("odds") or 0) > 0 else None
+            if stored_odds:
+                potential = round(kb["amount"] * stored_odds, 2)
             else:
                 potential = None
 
@@ -2801,7 +2804,7 @@ class KalshiCog(commands.Cog):
                 cashout_pairs.append((kb, cashout))
                 delta = cashout - kb["amount"]
                 sign = "+" if delta >= 0 else ""
-                cashout_line = f"\nCash out: **${cashout:,}** ({sign}${delta:,})"
+                cashout_line = f"\nCash out: **${cashout:.2f}** ({sign}${delta:.2f})"
             else:
                 cashout_line = ""
 
@@ -3674,7 +3677,7 @@ class KalshiCog(commands.Cog):
                     payout = round(bet["amount"] * bet["odds"], 2) if won else 0
                     await models.resolve_kalshi_bet(bet["id"], won, payout)
                     if won:
-                        await leaderboard_notifier.notify_if_passed(bet["user_id"], int(payout), board_before, "sports betting")
+                        await leaderboard_notifier.notify_if_passed(bet["user_id"], round(payout), board_before, "sports betting")
 
                     if channel:
                         result_text = "won" if won else "lost"

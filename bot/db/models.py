@@ -677,7 +677,7 @@ async def resolve_kalshi_bet(bet_id: int, won: bool, payout: int) -> None:
 
 
 @db_retry()
-async def cashout_kalshi_bet(bet_id: int, cashout_amount: int) -> int | None:
+async def cashout_kalshi_bet(bet_id: int, cashout_amount: float) -> int | None:
     """Mark a pending bet as cashed out, deposit the amount, and return the user_id.
 
     Returns None if the bet doesn't exist or is not pending.
@@ -697,7 +697,7 @@ async def cashout_kalshi_bet(bet_id: int, cashout_amount: int) -> int | None:
         )
         await db.execute(
             "UPDATE users SET balance = balance + ? WHERE discord_id = ?",
-            (cashout_amount, user_id),
+            (round(cashout_amount), user_id),
         )
         await db.commit()
         return user_id
