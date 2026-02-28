@@ -663,13 +663,19 @@ class KalshiAPI:
             self._session = aiohttp.ClientSession()
         return self._session
 
-    def _auth_headers(self, method: str, url: str) -> dict[str, str]:
-        """Generate Kalshi authentication headers if key is configured."""
+    async def _auth_headers(self, method: str, url: str) -> dict[str, str]:
+        """Generate Kalshi authentication headers if key is configured.
+
+        RSA signing runs in a thread executor so it doesn't block the event loop.
+        """
         if not KALSHI_API_KEY_ID:
             return {}
         timestamp_ms = int(time.time() * 1000)
         path = urlparse(url).path
-        signature = _sign_request(method.upper(), path, timestamp_ms)
+        loop = asyncio.get_running_loop()
+        signature = await loop.run_in_executor(
+            None, _sign_request, method.upper(), path, timestamp_ms
+        )
         if not signature:
             return {}
         return {
@@ -747,7 +753,7 @@ class KalshiAPI:
             session = await self._get_session()
             for attempt in range(MAX_RETRIES + 1):
                 try:
-                    headers = self._auth_headers("GET", url)
+                    headers = await self._auth_headers("GET", url)
                     async with session.get(url, params=params, headers=headers) as resp:
                         if resp.status == 429:
                             if attempt < MAX_RETRIES:
@@ -1124,7 +1130,7 @@ class KalshiAPI:
                 async with self._semaphore:
                     for attempt in range(MAX_RETRIES + 1):
                         try:
-                            headers = self._auth_headers("GET", url)
+                            headers = await self._auth_headers("GET", url)
                             async with session.get(url, params=params, headers=headers) as resp:
                                 if resp.status == 429:
                                     if attempt < MAX_RETRIES:
