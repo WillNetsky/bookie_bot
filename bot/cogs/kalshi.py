@@ -224,6 +224,19 @@ def _calc_cashout(bet: dict, market: dict) -> float | None:
 _NUMBER_RE = re.compile(r'\b\d+\.?\d*\b')
 
 
+def _teams_from_event_ticker(event_ticker: str) -> tuple[str, str] | None:
+    """Extract (away, home) team codes from a hyphen-delimited event ticker.
+
+    Works for tickers like "KXNHLGAMETOTAL-26FEB28-COL-ANA" where the last
+    two segments are uppercase team abbreviations.
+    """
+    parts = event_ticker.split("-")
+    if len(parts) >= 4:
+        away, home = parts[-2], parts[-1]
+        if away.isalpha() and home.isalpha() and 2 <= len(away) <= 4 and 2 <= len(home) <= 4:
+            return away, home
+    return None
+
 
 # Matches "Set 1", "Map 2", "Round 3" inside market titles
 _QUALIFIER_RE = re.compile(r'\b(Set|Map|Round)\s+(\d+)\b', re.IGNORECASE)
@@ -299,9 +312,11 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
                 if all_nums:
                     lo, hi = min(all_nums), max(all_nums)
                     first_sub = next((s for s in sub_titles if _NUMBER_RE.search(s)), "")
-                    label = _NUMBER_RE.sub("#", first_sub, count=1).replace("#", f"{lo}–{hi}", 1)
+                    threshold_label = _NUMBER_RE.sub("#", first_sub, count=1).replace("#", f"{lo}–{hi}", 1)
                 else:
-                    label = game_title
+                    threshold_label = game_title
+                teams = _teams_from_event_ticker(key)
+                label = f"{teams[0]} @ {teams[1]} · {threshold_label}" if teams else threshold_label
                 subtitle = f"{len(group_sorted)} thresholds"
             else:
                 # Game outcomes (win/loss/tie, team names, etc.)
