@@ -321,6 +321,11 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
             else:
                 # Game outcomes (win/loss/tie, team names, etc.)
                 label = _clean_market_title(game_title)
+                # For player props / non-outcome groups, add team context if not already present
+                if " at " not in label.lower() and " vs " not in label.lower() and " @ " not in label:
+                    teams = _teams_from_event_ticker(key)
+                    if teams:
+                        label = f"{teams[0]} @ {teams[1]} · {label}"
                 subs = [s for s in sub_titles[:3] if s]
                 subtitle = " · ".join(subs) if subs else f"{len(group_sorted)} options"
             result.append({
