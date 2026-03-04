@@ -903,10 +903,13 @@ class MarketListView(discord.ui.View):
                 exp = _earliest_market_time(first_m)
                 sport = _series_label(first_m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
-                sport_emoji = _sport_emoji(item["markets"][0].get("series_ticker") or "")
+                series_ticker = item["markets"][0].get("series_ticker") or ""
+                sport_emoji = _sport_emoji(series_ticker)
                 header = f"{sport_emoji} **{label}**"
                 if sport:
                     header += f"  _{sport}_"
+                if sport_emoji == "\U0001f3c6" and series_ticker:
+                    header += f"  `{series_ticker}`"
                 # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
                 parts = []
                 for mkt in item["markets"][:3]:
