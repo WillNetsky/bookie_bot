@@ -415,25 +415,54 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
     return result
 
 
+def _is_nba_market(m: dict) -> bool:
+    sk = _market_series_ticker(m).upper()
+    return "NBA" in sk or "WNBA" in sk
+
+
 def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
-    """Group markets by sport (same emoji key), sorted by most games first."""
+    """Group markets by sport (same emoji key), sorted by most games first.
+
+    NBA and WNBA are split out from the rest of basketball and shown as their
+    own "NBA" group; remaining basketball leagues appear as "International Basketball".
+    """
     sport_map: dict[str, list[dict]] = {}
     for m in markets:
         emoji = _sport_emoji(_market_series_ticker(m).upper())
         sport_map.setdefault(emoji, []).append(m)
     result = []
     for emoji, sport_markets in sport_map.items():
-        game_keys = {
-            _extract_game_fingerprint(m.get("event_ticker", "")) or m.get("event_ticker", "")
-            for m in sport_markets
-        }
-        label = _SPORT_EMOJI_LABEL.get(emoji, emoji)
-        result.append({
-            "emoji": emoji,
-            "label": label,
-            "markets": sport_markets,
-            "game_count": len(game_keys),
-        })
+        if emoji == "🏀":
+            nba_markets = [m for m in sport_markets if _is_nba_market(m)]
+            intl_markets = [m for m in sport_markets if not _is_nba_market(m)]
+            for sub_markets, sub_label in (
+                (nba_markets, "NBA"),
+                (intl_markets, "International Basketball"),
+            ):
+                if not sub_markets:
+                    continue
+                game_keys = {
+                    _extract_game_fingerprint(m.get("event_ticker", "")) or m.get("event_ticker", "")
+                    for m in sub_markets
+                }
+                result.append({
+                    "emoji": emoji,
+                    "label": sub_label,
+                    "markets": sub_markets,
+                    "game_count": len(game_keys),
+                })
+        else:
+            game_keys = {
+                _extract_game_fingerprint(m.get("event_ticker", "")) or m.get("event_ticker", "")
+                for m in sport_markets
+            }
+            label = _SPORT_EMOJI_LABEL.get(emoji, emoji)
+            result.append({
+                "emoji": emoji,
+                "label": label,
+                "markets": sport_markets,
+                "game_count": len(game_keys),
+            })
     result.sort(key=lambda x: x["game_count"], reverse=True)
     return result
 
