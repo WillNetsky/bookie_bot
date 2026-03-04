@@ -50,7 +50,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3c0"  # 🏀
     if "NFL" in sk or "NCAAF" in sk:
         return "\U0001f3c8"  # 🏈
-    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk or "NLA" in sk or "NLB" in sk:
+    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk or "NLA" in sk or "NLB" in sk or "KXNL" in sk:
         return "\U0001f3d2"  # 🏒
     if "UFC" in sk or "BOXING" in sk or "MMA" in sk or "FIGHT" in sk or "MCGREGOR" in sk:
         return "\U0001f94a"  # 🥊
@@ -102,7 +102,8 @@ def _sport_emoji(sport_key: str) -> str:
         or "LEAGUE" in sk  # catches most leagues not listed above
         or "CUP" in sk     # FA Cup, KNVB Cup, etc. — all specific cup sports caught above
         or "COPA" in sk or "COPALIB" in sk
-        or "SUPERLIGA" in sk or "SUPERLEAGUE" in sk
+        or "SUPERLIGA" in sk or "SUPERLEAGUE" in sk or "SUPERLIG" in sk
+        or "DIMAYOR" in sk  # Liga DIMAYOR (Colombian soccer)
         or "LIGA" in sk  # LALIGA already above, also catches DIMAYOR, BBVA, etc.
     ):
         return "\u26bd"  # ⚽
