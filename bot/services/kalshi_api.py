@@ -563,16 +563,17 @@ def _is_market_active(m: dict) -> bool:
 
 
 def _is_market_bettable(m: dict) -> bool:
-    """Return True if the market's YES price is between 2¢ and 98¢ (2%–98%).
+    """Return True if the market's YES price is between 10¢ and 90¢ (10%–90%).
 
     Filters out near-certain and near-impossible markets where one side
-    offers no meaningful payout.
+    offers no meaningful payout, and also catches completed-but-unsettled
+    markets whose prices have drifted to extreme values.
     """
     try:
         price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
     except (ValueError, TypeError):
         return False
-    return 0.02 <= price <= 0.98
+    return 0.10 <= price <= 0.90
 
 
 def _earliest_market_time(m: dict) -> str:
