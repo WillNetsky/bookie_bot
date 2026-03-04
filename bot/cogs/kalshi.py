@@ -2128,7 +2128,7 @@ class KalshiCog(commands.Cog):
                 name=f"{icon} Bet #{b['id']} (legacy) · {status_text}",
                 value=(
                     f"{sport_line}**{matchup}**\n"
-                    f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {b['odds']}x"
+                    f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {format_american(decimal_to_american(b['odds']))}"
                     f"{score_line}"
                 ),
                 inline=False,
@@ -2161,7 +2161,7 @@ class KalshiCog(commands.Cog):
                         pick_label += f" {point:+g}"
                     else:
                         pick_label += f" {point:g}"
-                leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({leg['odds']:.2f}x)")
+                leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({format_american(decimal_to_american(leg['odds']))})")
 
             embed.add_field(
                 name=f"{icon} Parlay #{p['id']} (legacy) · {status_text}",
@@ -2172,23 +2172,16 @@ class KalshiCog(commands.Cog):
                 inline=False,
             )
 
-        # Fetch current Kalshi market prices for cash-out calculation
+        # Fetch current Kalshi market prices for cash-out calculation.
+        # Fetch each bet's market individually (60s cache) for fresh prices.
         cashout_pairs: list[tuple[dict, int]] = []
         if kalshi_bets:
-            try:
-                all_markets = await kalshi_api.get_all_open_markets()
-                market_map: dict[str, dict] = {m["ticker"]: m for m in all_markets}
-            except Exception:
-                market_map = {}
-
-            # For bets whose market isn't in the bulk open-markets list (closed/finalized),
-            # fetch each one individually so we can still show live/final prices.
-            missing = [kb["market_ticker"] for kb in kalshi_bets if kb["market_ticker"] not in market_map]
-            if missing:
-                fetched = await asyncio.gather(*[kalshi_api.get_market(t) for t in missing], return_exceptions=True)
-                for ticker, result in zip(missing, fetched):
-                    if isinstance(result, dict) and result:
-                        market_map[ticker] = result
+            tickers = list({kb["market_ticker"] for kb in kalshi_bets})
+            fetched = await asyncio.gather(*[kalshi_api.get_market(t) for t in tickers], return_exceptions=True)
+            market_map: dict[str, dict] = {}
+            for ticker, result in zip(tickers, fetched):
+                if isinstance(result, dict) and result:
+                    market_map[ticker] = result
         else:
             market_map = {}
 
@@ -2256,7 +2249,7 @@ class KalshiCog(commands.Cog):
 
             if potential is not None:
                 status_text = f"Pending — potential **${potential:.2f}**"
-                odds_str = f"{display_odds:.2f}x"
+                odds_str = format_american(decimal_to_american(display_odds))
             else:
                 status_text = "Pending — potential **N/A**"
                 odds_str = "N/A"
