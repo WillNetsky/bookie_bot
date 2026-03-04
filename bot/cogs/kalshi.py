@@ -289,20 +289,29 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
     return None
 
 
+# Esports per-map/set segment: M1, MAP2, SET3, G1, GAME2, etc.
+_MAP_QUAL_RE = re.compile(r'^(?:M|MAP|SET|G|GAME|ROUND|R|Q)\d+$', re.IGNORECASE)
+
+
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
     """Return a stable game key by stripping the series prefix and capping at 3 segments.
 
     e.g. KXNBA-26MAR5-LAL-GSW and KXNBAGAMETOTAL-26MAR5-LAL-GSW → '26MAR5-LAL-GSW'
          KXNBA-26MAR5-LAL-GSW-LEBRONPOINTS → '26MAR5-LAL-GSW'  (player prop trimmed)
          KXASOCCER-20250304-MACARTHUR-CENTRALCOAST → '20250304-MACARTHUR-CENTRALCOAST'
+         KXLOL-M3-26MAR04-BLG-JDG (map as 2nd segment) → '26MAR04-BLG-JDG'
 
-    Returns None only if the ticker has no '-' at all (degenerate case).
+    Returns None only if the ticker has no '-' at all.
     """
     if "-" not in event_ticker:
         return None
     suffix = event_ticker.split("-", 1)[1]          # drop series prefix
     parts = suffix.split("-")
-    return "-".join(parts[:3])                        # date + up to 2 team segments
+    # Skip any leading map/set/game qualifier segments (M1, MAP2, SET3, G1, etc.)
+    # so per-map esports markets group with their overall match
+    while parts and _MAP_QUAL_RE.match(parts[0]):
+        parts = parts[1:]
+    return "-".join(parts[:3]) if parts else None    # date + up to 2 team segments
 
 
 # Matches "Set 1", "Map 2", "Round 3" inside market titles
@@ -459,21 +468,52 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
 
 
 def _best_game_label(markets: list[dict]) -> str:
-    """Pick the cleanest game title from a group of related markets.
+    """Build the cleanest possible game label from a group of related markets.
 
-    Prefers titles that look like a matchup ("X vs Y", "X at Y") without
-    qualifier noise like "Totals" or colon-separated subtypes.
+    Strategy (in order):
+    1. Use yes_sub_title values as team names (most reliable — e.g. "JD Gaming", "BLG")
+    2. Extract the "X vs. Y" portion out of verbose market titles
+    3. Fall back to the shortest title, stripped of leading map/set qualifiers
     """
-    titles = [m.get("title") or "" for m in markets if m.get("title")]
-    if not titles:
-        return "?"
-    # 1st choice: matchup title without "Totals" or colon qualifier
-    clean = [t for t in titles if ("vs" in t.lower() or " at " in t.lower()) and ":" not in t and "Total" not in t]
-    # 2nd choice: any matchup title
-    matchup = [t for t in titles if "vs" in t.lower() or " at " in t.lower()]
-    candidates = clean or matchup or titles
-    candidates.sort(key=len)
-    return _clean_market_title(candidates[0])
+    # 1. Collect unique non-numeric yes_sub_title values as team names
+    seen: set[str] = set()
+    teams: list[str] = []
+    for m in markets:
+        s = (m.get("yes_sub_title") or "").strip()
+        if s and not re.search(r'\d', s) and s.lower() not in ("tie", "draw", "yes", "no") and s not in seen:
+            seen.add(s)
+            teams.append(s)
+        if len(teams) == 2:
+            break
+    if len(teams) == 2:
+        return f"{teams[0]} vs. {teams[1]}"
+
+    # 2. Find "X vs. Y" or "X at Y" in market titles and extract just the matchup
+    titles = sorted([m.get("title") or "" for m in markets if m.get("title")], key=len)
+    for t in titles:
+        for sep in (" vs. ", " vs ", " at "):
+            if sep not in t:
+                continue
+            idx = t.index(sep)
+            before = t[:idx]
+            after = t[idx + len(sep):]
+            # Strip leading filler ("Will X win the", "in the", etc.)
+            for filler in (" in the ", " in ", " the "):
+                pos = before.rfind(filler)
+                if pos != -1:
+                    before = before[pos + len(filler):]
+                    break
+            # Strip trailing game-name / map noise from team_b
+            after = re.sub(r'\s+(?:match|game|series|Map\s+\d+|CS2|League of Legends|Dota\s*2?|Valorant|R6|COD).*$', '', after, flags=re.IGNORECASE).strip()
+            if before.strip() and after:
+                return f"{before.strip()}{sep}{after}"
+
+    # 3. Last resort: shortest title, removing any leading (Map X) / (Set X) qualifier
+    if titles:
+        cleaned = _clean_market_title(titles[0])
+        cleaned = re.sub(r'^\((?:Map|Set|Round|Game)\s+\d+\)\s*', '', cleaned)
+        return cleaned or titles[0]
+    return "?"
 
 
 # ── Helper functions ───────────────────────────────────────────────────
