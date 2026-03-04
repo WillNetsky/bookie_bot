@@ -69,9 +69,13 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3c9"  # 🏉
     if "DARTS" in sk:
         return "\U0001f3af"  # 🎯
-    if "NASCAR" in sk or "RACE" in sk:
-        return "\U0001f3ce\ufe0f"  # 🏎️
-    if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk or "LIVTOUR" in sk or "LIVTOP" in sk:
+    if "F1" in sk or "FORMULA" in sk:
+        return "\U0001f3ce\ufe0f"  # 🏎️ — Formula 1
+    if "NASCAR" in sk:
+        return "\U0001f3c1"  # 🏁 — NASCAR
+    if "RACE" in sk:
+        return "\U0001f697"  # 🚗 — Racing (other)
+    if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk or "LIV" in sk:
         return "\u26f3"  # ⛳
     if "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk or "SSHIELD" in sk:
         return "\U0001f3cf"  # 🏏
@@ -145,8 +149,11 @@ _SPORT_ALIASES: dict[str, str] = {
     "pickleball":       "🏓",
     "rugby":            "🏉",
     "darts":            "🎯",
-    "nascar":           "🏎️",
-    "racing":           "🏎️",
+    "formula 1":        "🏎️",
+    "formula one":      "🏎️",
+    "f1":               "🏎️",
+    "nascar":           "🏁",
+    "racing":           "🚗",
     "golf":             "⛳",
     "esports":          "🎮",
     "gaming":           "🎮",
@@ -165,6 +172,8 @@ _SPORT_ALIASES: dict[str, str] = {
     "🏉": "🏉",
     "🎯": "🎯",
     "🏎️": "🏎️",
+    "🏁": "🏁",
+    "🚗": "🚗",
     "⛳": "⛳",
     "🎮": "🎮",
     "⚽": "⚽",
@@ -186,7 +195,9 @@ _SPORT_EMOJI_LABEL: dict[str, str] = {
     "🏓": "Pickleball",
     "🏉": "Rugby",
     "🎯": "Darts",
-    "🏎️": "Racing",
+    "🏎️": "Formula 1",
+    "🏁": "NASCAR",
+    "🚗": "Racing",
     "⛳": "Golf",
     "🎮": "Esports",
     "🎬": "Entertainment",
