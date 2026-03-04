@@ -50,7 +50,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3c0"  # 🏀
     if "NFL" in sk or "NCAAF" in sk:
         return "\U0001f3c8"  # 🏈
-    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk:
+    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk or "NLA" in sk or "NLB" in sk:
         return "\U0001f3d2"  # 🏒
     if "UFC" in sk or "BOXING" in sk or "MMA" in sk or "FIGHT" in sk or "MCGREGOR" in sk:
         return "\U0001f94a"  # 🥊
@@ -93,10 +93,14 @@ def _sport_emoji(sport_key: str) -> str:
         or "EREDIVISIE" in sk or "EREDIV" in sk
         or "CHAMPIONSHIP" in sk
         or "ALEAGUE" in sk or "JLEAGUE" in sk or "KLEAGUE" in sk
-        or "ACL" in sk  # Asian Champions League
+        or "AFC" in sk   # AFC Champions League (AFC ≠ NFL conference at this point)
+        or "ACL" in sk   # Asian Champions League (alternate ticker)
+        or "COUPE" in sk # Coupe de France, Coupe de la Ligue, etc.
+        or "COPPA" in sk # Coppa Italia
+        or "PRIMERA" in sk or "DIVISION" in sk  # Argentina Primera, various divisions
         or "SOCCER" in sk
         or "LEAGUE" in sk  # catches most leagues not listed above
-        or "CUP" in sk     # FA Cup, Copa, etc. — all specific cup sports caught above
+        or "CUP" in sk     # FA Cup, KNVB Cup, etc. — all specific cup sports caught above
         or "COPA" in sk or "COPALIB" in sk
         or "SUPERLIGA" in sk or "SUPERLEAGUE" in sk
         or "LIGA" in sk  # LALIGA already above, also catches DIMAYOR, BBVA, etc.
