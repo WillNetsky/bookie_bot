@@ -343,6 +343,30 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
 # ── Helper functions ───────────────────────────────────────────────────
 
 
+def _market_series_ticker(m: dict) -> str:
+    """Return the series ticker for a market, falling back to the event_ticker prefix."""
+    st = m.get("series_ticker") or ""
+    if not st:
+        et = m.get("event_ticker") or ""
+        st = et.split("-")[0] if "-" in et else et
+    return st.lower()
+
+
+def _is_close_market(m: dict, max_pct: float) -> bool:
+    """Return True if the market's implied probability is within [1-max_pct, max_pct].
+
+    E.g. max_pct=0.60 keeps markets priced between 40¢ and 60¢ (≤60/40 odds).
+    """
+    price_raw = m.get("yes_ask_dollars") or m.get("last_price_dollars")
+    if price_raw is None:
+        return False
+    try:
+        p = float(price_raw)
+    except (ValueError, TypeError):
+        return False
+    return (1.0 - max_pct) <= p <= max_pct
+
+
 def _resolve_kalshi_bet(
     pick_key: str, kalshi_markets: dict, odds_entry: dict
 ) -> tuple[str | None, str]:
@@ -1813,6 +1837,60 @@ class KalshiCog(commands.Cog):
         view = MarketListView(markets)
         embed = view.build_embed()
         embed.title = title
+        msg = await interaction.followup.send(embed=embed, view=view)
+        view.message = msg
+
+    # ── /close ─────────────────────────────────────────────────────────
+
+    @app_commands.command(name="close", description="Markets with close odds, sorted by soonest close time")
+    @app_commands.describe(
+        threshold="Max favorite % — e.g. 60 shows markets ≤60/40 (default 60)",
+        sport="Filter by sport or keyword (optional)",
+    )
+    async def close(
+        self,
+        interaction: discord.Interaction,
+        threshold: app_commands.Range[int, 51, 99] = 60,
+        sport: str | None = None,
+    ) -> None:
+        if not await _safe_defer(interaction):
+            return
+
+        all_markets = await kalshi_api.get_all_open_markets()
+        max_pct = threshold / 100.0
+
+        if sport:
+            sport_lower = sport.lower().strip()
+            series_label_map: dict[str, str] = {}
+            for sk, info in SPORTS.items():
+                label_lower = info.get("label", "").lower()
+                for ticker in info["series"].values():
+                    series_label_map[ticker] = label_lower
+            target_emoji = _SPORT_ALIASES.get(sport_lower)
+            all_markets = [
+                m for m in all_markets
+                if sport_lower in (m.get("title") or "").lower()
+                or sport_lower in (m.get("yes_sub_title") or "").lower()
+                or sport_lower in series_label_map.get(_market_series_ticker(m).upper(), "")
+                or sport_lower in _market_series_ticker(m)
+                or (target_emoji is not None
+                    and _sport_emoji(_market_series_ticker(m).upper()) == target_emoji)
+            ]
+
+        markets = [m for m in all_markets if _is_close_market(m, max_pct)]
+
+        if not markets:
+            hint = f" Try `/bet {sport}`" if sport else " Try raising the threshold."
+            await interaction.followup.send(
+                f"No markets found with odds ≤{threshold}/{100 - threshold}.{hint}"
+            )
+            return
+
+        markets.sort(key=lambda m: _earliest_market_time(m) or "9999")
+        sport_label = sport.title() if sport else "All Sports"
+        view = MarketListView(markets)
+        embed = view.build_embed()
+        embed.title = f"\U0001f3af Close Markets \u2264{threshold}/{100 - threshold} \u2014 {sport_label}"
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
