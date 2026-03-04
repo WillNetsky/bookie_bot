@@ -290,22 +290,19 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
 
 
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
-    """Extract a stable 'DATE-TEAM1-TEAM2' key for grouping same-game markets across series.
+    """Return a stable game key by stripping the series prefix and capping at 3 segments.
 
-    e.g. KXNBA-26MAR5-LAL-GSW and KXNBAGAMETOTAL-26MAR5-LAL-GSW both return '26MAR5-LAL-GSW'.
-    Returns None for markets without a recognisable date+teams pattern (e.g. futures).
+    e.g. KXNBA-26MAR5-LAL-GSW and KXNBAGAMETOTAL-26MAR5-LAL-GSW → '26MAR5-LAL-GSW'
+         KXNBA-26MAR5-LAL-GSW-LEBRONPOINTS → '26MAR5-LAL-GSW'  (player prop trimmed)
+         KXASOCCER-20250304-MACARTHUR-CENTRALCOAST → '20250304-MACARTHUR-CENTRALCOAST'
+
+    Returns None only if the ticker has no '-' at all (degenerate case).
     """
-    parts = event_ticker.split("-")
-    date_part: str | None = None
-    team_parts: list[str] = []
-    for p in parts:
-        if not date_part and _DATE_SEGMENT_RE.match(p):
-            date_part = p.upper()
-        elif date_part and p.isalpha() and 2 <= len(p) <= 4 and p.isupper():
-            team_parts.append(p)
-            if len(team_parts) == 2:
-                return f"{date_part}-{team_parts[0]}-{team_parts[1]}"
-    return None
+    if "-" not in event_ticker:
+        return None
+    suffix = event_ticker.split("-", 1)[1]          # drop series prefix
+    parts = suffix.split("-")
+    return "-".join(parts[:3])                        # date + up to 2 team segments
 
 
 # Matches "Set 1", "Map 2", "Round 3" inside market titles
@@ -444,7 +441,10 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         sorted_markets = sorted(game_markets, key=lambda m: _earliest_market_time(m) or "9999")
         first = sorted_markets[0]
         teams = _teams_from_event_ticker_flexible(first.get("event_ticker", ""))
-        label = f"{teams[0]} @ {teams[1]}" if teams else _clean_market_title(first.get("title") or key)
+        if teams:
+            label = f"{teams[0]} @ {teams[1]}"
+        else:
+            label = _best_game_label(sorted_markets)
         exp = _earliest_market_time(first)
         result.append({
             "key": key,
@@ -456,6 +456,24 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         })
     result.sort(key=lambda g: g["time"] or "9999")
     return result
+
+
+def _best_game_label(markets: list[dict]) -> str:
+    """Pick the cleanest game title from a group of related markets.
+
+    Prefers titles that look like a matchup ("X vs Y", "X at Y") without
+    qualifier noise like "Totals" or colon-separated subtypes.
+    """
+    titles = [m.get("title") or "" for m in markets if m.get("title")]
+    if not titles:
+        return "?"
+    # 1st choice: matchup title without "Totals" or colon qualifier
+    clean = [t for t in titles if ("vs" in t.lower() or " at " in t.lower()) and ":" not in t and "Total" not in t]
+    # 2nd choice: any matchup title
+    matchup = [t for t in titles if "vs" in t.lower() or " at " in t.lower()]
+    candidates = clean or matchup or titles
+    candidates.sort(key=len)
+    return _clean_market_title(candidates[0])
 
 
 # ── Helper functions ───────────────────────────────────────────────────
