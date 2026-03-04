@@ -141,6 +141,28 @@ _SPORT_ALIASES: dict[str, str] = {
     "⚽": "⚽",
 }
 
+# Human-readable sport labels keyed by sport emoji (used for sport-selector display).
+_SPORT_EMOJI_LABEL: dict[str, str] = {
+    "🏀": "Pro Basketball",
+    "🏈": "Football",
+    "⚾": "Baseball",
+    "🏒": "Hockey",
+    "🥊": "Combat Sports",
+    "⚽": "Soccer",
+    "🎾": "Tennis",
+    "🥍": "Lacrosse",
+    "🏏": "Cricket",
+    "🥌": "Curling",
+    "♟️": "Chess",
+    "🏓": "Pickleball",
+    "🏉": "Rugby",
+    "🎯": "Darts",
+    "🏎️": "Racing",
+    "⛳": "Golf",
+    "🎮": "Esports",
+    "🎬": "Entertainment",
+}
+
 
 def _is_ended(expiration_time: str) -> bool:
     """Check if a game has ended based on expected_expiration_time."""
@@ -236,6 +258,53 @@ def _teams_from_event_ticker(event_ticker: str) -> tuple[str, str] | None:
         away, home = parts[-2], parts[-1]
         if away.isalpha() and home.isalpha() and 2 <= len(away) <= 10 and 2 <= len(home) <= 10:
             return away, home
+    return None
+
+
+_DATE_SEGMENT_RE = re.compile(r'^\d{2}[A-Za-z]{3}\d+$')
+
+
+def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | None:
+    """Like _teams_from_event_ticker but handles player-prop suffixes.
+
+    For tickers like KXNBA-26MAR5-LAL-GSW-LEBRONPOINTS the standard function
+    fails because parts[-1] is not a team code. This version scans forward past
+    the date segment and picks the first two 2-4 char alpha team codes found.
+    """
+    teams = _teams_from_event_ticker(event_ticker)
+    if teams:
+        return teams
+    parts = event_ticker.split("-")
+    found: list[str] = []
+    past_date = False
+    for p in parts[1:]:  # skip series prefix
+        if not past_date:
+            if _DATE_SEGMENT_RE.match(p):
+                past_date = True
+            continue
+        if p.isalpha() and 2 <= len(p) <= 4 and p.isupper():
+            found.append(p)
+            if len(found) == 2:
+                return (found[0], found[1])
+    return None
+
+
+def _extract_game_fingerprint(event_ticker: str) -> str | None:
+    """Extract a stable 'DATE-TEAM1-TEAM2' key for grouping same-game markets across series.
+
+    e.g. KXNBA-26MAR5-LAL-GSW and KXNBAGAMETOTAL-26MAR5-LAL-GSW both return '26MAR5-LAL-GSW'.
+    Returns None for markets without a recognisable date+teams pattern (e.g. futures).
+    """
+    parts = event_ticker.split("-")
+    date_part: str | None = None
+    team_parts: list[str] = []
+    for p in parts:
+        if not date_part and _DATE_SEGMENT_RE.match(p):
+            date_part = p.upper()
+        elif date_part and p.isalpha() and 2 <= len(p) <= 4 and p.isupper():
+            team_parts.append(p)
+            if len(team_parts) == 2:
+                return f"{date_part}-{team_parts[0]}-{team_parts[1]}"
     return None
 
 
@@ -339,6 +408,54 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
     return result
 
 
+def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
+    """Group markets by sport (same emoji key), sorted by most games first."""
+    sport_map: dict[str, list[dict]] = {}
+    for m in markets:
+        emoji = _sport_emoji(_market_series_ticker(m).upper())
+        sport_map.setdefault(emoji, []).append(m)
+    result = []
+    for emoji, sport_markets in sport_map.items():
+        game_keys = {
+            _extract_game_fingerprint(m.get("event_ticker", "")) or m.get("event_ticker", "")
+            for m in sport_markets
+        }
+        label = _SPORT_EMOJI_LABEL.get(emoji, emoji)
+        result.append({
+            "emoji": emoji,
+            "label": label,
+            "markets": sport_markets,
+            "game_count": len(game_keys),
+        })
+    result.sort(key=lambda x: x["game_count"], reverse=True)
+    return result
+
+
+def _group_markets_by_game(markets: list[dict]) -> list[dict]:
+    """Group markets by game (same matchup across different series), sorted by start time."""
+    from collections import OrderedDict
+    game_map: dict[str, list[dict]] = OrderedDict()
+    for m in markets:
+        et = m.get("event_ticker", "")
+        key = _extract_game_fingerprint(et) or et
+        game_map.setdefault(key, []).append(m)
+    result = []
+    for key, game_markets in game_map.items():
+        sorted_markets = sorted(game_markets, key=lambda m: _earliest_market_time(m) or "9999")
+        first = sorted_markets[0]
+        teams = _teams_from_event_ticker_flexible(first.get("event_ticker", ""))
+        label = f"{teams[0]} @ {teams[1]}" if teams else _clean_market_title(first.get("title") or key)
+        exp = _earliest_market_time(first)
+        result.append({
+            "key": key,
+            "label": label,
+            "time": exp,
+            "time_str": _format_game_time(exp) if exp else "",
+            "markets": sorted_markets,
+            "market_count": len(sorted_markets),
+        })
+    result.sort(key=lambda g: g["time"] or "9999")
+    return result
 
 
 # ── Helper functions ───────────────────────────────────────────────────
@@ -540,6 +657,7 @@ class GamesPageButton(discord.ui.Button["GamesListView"]):
 
 MARKETS_PER_PAGE = 10
 THRESHOLD_PER_PAGE = 20
+GAMES_PER_PAGE = 10
 
 
 def _market_odds_str(m: dict) -> tuple[str, str]:
@@ -570,11 +688,12 @@ def _series_label(series_ticker: str) -> str:
 class MarketListView(discord.ui.View):
     """Paginated list of raw Kalshi markets sorted by soonest expiry."""
 
-    def __init__(self, markets: list[dict], page: int = 0, timeout: float = 180.0, parlay_legs: list[dict] | None = None) -> None:
+    def __init__(self, markets: list[dict], page: int = 0, timeout: float = 180.0, parlay_legs: list[dict] | None = None, game_back: dict | None = None) -> None:
         super().__init__(timeout=timeout)
         self.markets = markets
         self.page = page
         self.parlay_legs = parlay_legs
+        self._game_back = game_back
         self.message: discord.Message | None = None
         self._grouped = _group_markets_by_prop(markets)
         self._rebuild()
@@ -591,11 +710,15 @@ class MarketListView(discord.ui.View):
             self.add_item(MarketPageButton("prev", self.page - 1, row=1))
         if self.page < total_pages - 1:
             self.add_item(MarketPageButton("next", self.page + 1, row=1))
+        parlay_row = 2
+        if self._game_back:
+            self.add_item(BackToGamesButton(self._game_back, row=2))
+            parlay_row = 3
         if self.parlay_legs is not None:
             if self.parlay_legs:
-                self.add_item(ParlayViewSlipButton(self.parlay_legs, row=2))
+                self.add_item(ParlayViewSlipButton(self.parlay_legs, row=parlay_row))
             if len(self.parlay_legs) >= 2:
-                self.add_item(ParlayPlaceFromListButton(self.parlay_legs, row=2))
+                self.add_item(ParlayPlaceFromListButton(self.parlay_legs, row=parlay_row))
 
     def build_embed(self) -> discord.Embed:
         total = len(self._grouped)
@@ -747,6 +870,7 @@ class LiveThresholdView(discord.ui.View):
         self._all_markets = list_view.markets
         self._list_page = list_view.page
         self._parlay_legs = getattr(list_view, 'parlay_legs', None)
+        self._game_back = getattr(list_view, '_game_back', None)
         self.page = page
         self.message: discord.Message | None = None
         self._rebuild()
@@ -769,7 +893,7 @@ class LiveThresholdView(discord.ui.View):
             options.append(discord.SelectOption(label=label, value=ticker, description=desc))
 
         if options:
-            self.add_item(LiveThresholdSelect(options, market_map, self._all_markets, self._list_page, row=0, parlay_legs=self._parlay_legs))
+            self.add_item(LiveThresholdSelect(options, market_map, self._all_markets, self._list_page, row=0, parlay_legs=self._parlay_legs, game_back=self._game_back))
 
         if total_pages > 1:
             if self.page > 0:
@@ -777,7 +901,7 @@ class LiveThresholdView(discord.ui.View):
             if self.page < total_pages - 1:
                 self.add_item(LiveThresholdPageButton("next", self.page + 1, row=1))
 
-        self.add_item(RawMarketBackButton(self._all_markets, self._list_page, row=2, parlay_legs=self._parlay_legs))
+        self.add_item(RawMarketBackButton(self._all_markets, self._list_page, row=2, parlay_legs=self._parlay_legs, game_back=self._game_back))
 
     def build_embed(self) -> discord.Embed:
         total_pages = max(1, (len(self.markets) + THRESHOLD_PER_PAGE - 1) // THRESHOLD_PER_PAGE)
@@ -819,12 +943,14 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
         list_page: int,
         row: int = 0,
         parlay_legs: list[dict] | None = None,
+        game_back: dict | None = None,
     ) -> None:
         super().__init__(placeholder="Select a threshold to bet on...", options=options, row=row)
         self._market_map = market_map
         self._all_markets = all_markets
         self._list_page = list_page
         self._parlay_legs = parlay_legs
+        self._game_back = game_back
 
     async def callback(self, interaction: discord.Interaction) -> None:
         ticker = self.values[0]
@@ -834,7 +960,7 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
             return
         if not await _safe_defer(interaction):
             return
-        list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=self._parlay_legs)
+        list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=self._parlay_legs, game_back=self._game_back)
         if self._parlay_legs is not None:
             next_view = ParlayMarketDetailView(market, list_view)
         else:
@@ -893,7 +1019,7 @@ class RawMarketBetView(discord.ui.View):
         yes_am, no_am = _market_odds_str(market)
         self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
         self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
-        self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1))
+        self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1, game_back=getattr(list_view, '_game_back', None)))
 
     def build_embed(self) -> discord.Embed:
         m       = self.market
@@ -928,18 +1054,291 @@ class RawMarketPickButton(discord.ui.Button["RawMarketBetView"]):
 
 
 class RawMarketBackButton(discord.ui.Button["RawMarketBetView"]):
-    def __init__(self, markets: list[dict], page: int, row: int, parlay_legs: list[dict] | None = None) -> None:
+    def __init__(self, markets: list[dict], page: int, row: int, parlay_legs: list[dict] | None = None, game_back: dict | None = None) -> None:
         super().__init__(label="Back", style=discord.ButtonStyle.secondary,
                          emoji="\u25c0\ufe0f", row=row)
         self._markets = markets
         self._page = page
         self._parlay_legs = parlay_legs
+        self._game_back = game_back
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        list_view = MarketListView(self._markets, self._page, parlay_legs=self._parlay_legs)
+        list_view = MarketListView(self._markets, self._page, parlay_legs=self._parlay_legs, game_back=self._game_back)
         embed = list_view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=list_view)
+        except discord.NotFound:
+            pass
+
+
+class BackToGamesButton(discord.ui.Button["MarketListView"]):
+    """Navigates from a game's market list back to the sport's game list."""
+
+    def __init__(self, game_back: dict, row: int) -> None:
+        super().__init__(label="Games", emoji="\u25c0\ufe0f", style=discord.ButtonStyle.secondary, row=row)
+        self._game_back = game_back
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        gb = self._game_back
+        game_view = GameListView(
+            gb["markets"], gb["emoji"], gb["label"],
+            all_markets=gb.get("all_markets"),
+            page=gb.get("page", 0),
+            parlay_legs=gb.get("parlay_legs"),
+        )
+        embed = game_view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=game_view)
+        except discord.NotFound:
+            pass
+
+
+class GameListView(discord.ui.View):
+    """Shows games within a sport; selecting one opens MarketListView for that game."""
+
+    def __init__(
+        self,
+        sport_markets: list[dict],
+        sport_emoji: str,
+        sport_label: str,
+        all_markets: list[dict] | None = None,
+        page: int = 0,
+        timeout: float = 180.0,
+        parlay_legs: list[dict] | None = None,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.sport_markets = sport_markets
+        self.sport_emoji = sport_emoji
+        self.sport_label = sport_label
+        self.all_markets = all_markets
+        self.page = page
+        self.parlay_legs = parlay_legs
+        self.message: discord.Message | None = None
+        self._games = _group_markets_by_game(sport_markets)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        total_pages = max(1, (len(self._games) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE)
+        start = self.page * GAMES_PER_PAGE
+        page_games = self._games[start:start + GAMES_PER_PAGE]
+        if page_games:
+            self.add_item(GameSelectDropdown(page_games, self, row=0))
+        if self.page > 0:
+            self.add_item(GamePageButton("prev", self.page - 1, row=1))
+        if self.page < total_pages - 1:
+            self.add_item(GamePageButton("next", self.page + 1, row=1))
+        if self.all_markets is not None:
+            self.add_item(BackToSportsButton(self.all_markets, row=2))
+        if self.parlay_legs is not None:
+            parlay_row = 3 if self.all_markets is not None else 2
+            if self.parlay_legs:
+                self.add_item(ParlayViewSlipButton(self.parlay_legs, row=parlay_row))
+            if len(self.parlay_legs) >= 2:
+                self.add_item(ParlayPlaceFromListButton(self.parlay_legs, row=parlay_row))
+
+    def build_embed(self) -> discord.Embed:
+        total_pages = max(1, (len(self._games) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE)
+        start = self.page * GAMES_PER_PAGE
+        page_games = self._games[start:start + GAMES_PER_PAGE]
+        embed = discord.Embed(
+            title=f"{self.sport_emoji} {self.sport_label}",
+            color=discord.Color.blue(),
+        )
+        if not page_games:
+            embed.description = "No games found."
+            return embed
+        lines = []
+        for g in page_games:
+            n = g["market_count"]
+            time_part = f" · {g['time_str']}" if g["time_str"] else ""
+            lines.append(f"**{g['label']}** · {n} market{'s' if n != 1 else ''}{time_part}")
+        embed.description = "\n\n".join(lines)
+        footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
+        embed.set_footer(text=f"{footer}Select a game to see betting options")
+        return embed
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            try:
+                await self.message.delete()
+            except discord.NotFound:
+                pass
+
+
+class GameSelectDropdown(discord.ui.Select["GameListView"]):
+    def __init__(self, page_games: list[dict], game_list_view: "GameListView", row: int = 0) -> None:
+        self._game_list_view = game_list_view
+        self._games_by_key: dict[str, dict] = {}
+        options: list[discord.SelectOption] = []
+        for i, g in enumerate(page_games[:25]):
+            key = f"g:{i}"
+            self._games_by_key[key] = g
+            n = g["market_count"]
+            desc = f"{n} market{'s' if n != 1 else ''}"
+            if g["time_str"]:
+                desc = f"{g['time_str']} · {desc}"
+            options.append(discord.SelectOption(
+                label=g["label"][:100],
+                value=key,
+                description=desc[:100],
+            ))
+        super().__init__(placeholder="Select a game...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        key = self.values[0]
+        game = self._games_by_key.get(key)
+        if not game:
+            await interaction.response.send_message("Game not found.", ephemeral=True)
+            return
+        if not await _safe_defer(interaction):
+            return
+        glv = self._game_list_view
+        game_back = {
+            "markets": glv.sport_markets,
+            "page": glv.page,
+            "emoji": glv.sport_emoji,
+            "label": glv.sport_label,
+            "all_markets": glv.all_markets,
+            "parlay_legs": glv.parlay_legs,
+        }
+        market_view = MarketListView(
+            game["markets"],
+            parlay_legs=glv.parlay_legs,
+            game_back=game_back,
+        )
+        embed = market_view.build_embed()
+        embed.title = f"{glv.sport_emoji} {game['label']}"
+        await interaction.edit_original_response(embed=embed, view=market_view)
+
+
+class GamePageButton(discord.ui.Button["GameListView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class BackToSportsButton(discord.ui.Button["GameListView"]):
+    """Navigates from a sport's game list back to the sport selector."""
+
+    def __init__(self, all_markets: list[dict], row: int) -> None:
+        super().__init__(label="Sports", emoji="\u25c0\ufe0f", style=discord.ButtonStyle.secondary, row=row)
+        self._all_markets = all_markets
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        sport_view = SportSelectorView(self._all_markets)
+        embed = sport_view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=sport_view)
+        except discord.NotFound:
+            pass
+
+
+class SportSelectorView(discord.ui.View):
+    """Top-level sport picker for /bet; selecting a sport opens GameListView."""
+
+    def __init__(self, all_markets: list[dict], page: int = 0, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.all_markets = all_markets
+        self.page = page
+        self.message: discord.Message | None = None
+        self._sports = _group_markets_by_sport(all_markets)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        total_pages = max(1, (len(self._sports) + 25 - 1) // 25)
+        start = self.page * 25
+        page_sports = self._sports[start:start + 25]
+        if page_sports:
+            self.add_item(SportSelectDropdown(page_sports, self, row=0))
+        if self.page > 0:
+            self.add_item(SportPageButton("prev", self.page - 1, row=1))
+        if self.page < total_pages - 1:
+            self.add_item(SportPageButton("next", self.page + 1, row=1))
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="\U0001f4ca Open Markets", color=discord.Color.blue())
+        if not self._sports:
+            embed.description = "No open markets right now."
+            return embed
+        lines = []
+        for s in self._sports:
+            n = s["game_count"]
+            lines.append(f"{s['emoji']} **{s['label']}** · {n} game{'s' if n != 1 else ''}")
+        embed.description = "\n".join(lines)
+        embed.set_footer(text="Select a sport to browse games")
+        return embed
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            try:
+                await self.message.delete()
+            except discord.NotFound:
+                pass
+
+
+class SportSelectDropdown(discord.ui.Select["SportSelectorView"]):
+    def __init__(self, sports: list[dict], sport_view: "SportSelectorView", row: int = 0) -> None:
+        self._sport_view = sport_view
+        self._sports_by_emoji: dict[str, dict] = {s["emoji"]: s for s in sports}
+        options: list[discord.SelectOption] = []
+        for s in sports[:25]:
+            n = s["game_count"]
+            options.append(discord.SelectOption(
+                label=s["label"],
+                value=s["emoji"],
+                description=f"{n} game{'s' if n != 1 else ''}",
+                emoji=s["emoji"],
+            ))
+        super().__init__(placeholder="Select a sport...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        emoji = self.values[0]
+        sport = self._sports_by_emoji.get(emoji)
+        if not sport:
+            await interaction.response.send_message("Sport not found.", ephemeral=True)
+            return
+        if not await _safe_defer(interaction):
+            return
+        game_view = GameListView(
+            sport["markets"], sport["emoji"], sport["label"],
+            all_markets=self._sport_view.all_markets,
+        )
+        embed = game_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=game_view)
+
+
+class SportPageButton(discord.ui.Button["SportSelectorView"]):
+    def __init__(self, direction: str, target_page: int, row: int) -> None:
+        label = "Prev" if direction == "prev" else "Next"
+        emoji = "\u25c0" if direction == "prev" else "\u25b6"
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary, row=row)
+        self.target_page = target_page
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        view.page = self.target_page
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
         except discord.NotFound:
             pass
 
@@ -1038,10 +1437,11 @@ class ParlayMarketDetailView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.market = market
         legs = list_view.parlay_legs or []
+        game_back = getattr(list_view, '_game_back', None)
         yes_am, no_am = _market_odds_str(market)
-        self.add_item(ParlayPickButton("yes", f"YES  {yes_am}", market, list_view.markets, list_view.page, legs, row=0))
-        self.add_item(ParlayPickButton("no",  f"NO   {no_am}",  market, list_view.markets, list_view.page, legs, row=0))
-        self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1, parlay_legs=legs))
+        self.add_item(ParlayPickButton("yes", f"YES  {yes_am}", market, list_view.markets, list_view.page, legs, row=0, game_back=game_back))
+        self.add_item(ParlayPickButton("no",  f"NO   {no_am}",  market, list_view.markets, list_view.page, legs, row=0, game_back=game_back))
+        self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1, parlay_legs=legs, game_back=game_back))
 
     def build_embed(self) -> discord.Embed:
         m = self.market
@@ -1069,6 +1469,7 @@ class ParlayPickButton(discord.ui.Button):
     def __init__(
         self, pick: str, label: str, market: dict,
         all_markets: list[dict], list_page: int, legs: list[dict], row: int,
+        game_back: dict | None = None,
     ) -> None:
         style = discord.ButtonStyle.success if pick == "yes" else discord.ButtonStyle.danger
         super().__init__(label=label, style=style, row=row)
@@ -1077,6 +1478,7 @@ class ParlayPickButton(discord.ui.Button):
         self._all_markets = all_markets
         self._list_page = list_page
         self._legs = legs
+        self._game_back = game_back
 
     async def callback(self, interaction: discord.Interaction) -> None:
         m = self.market
@@ -1114,7 +1516,7 @@ class ParlayPickButton(discord.ui.Button):
             "close_time": close_time,
         }
         new_legs = self._legs + [leg]
-        list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=new_legs)
+        list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=new_legs, game_back=self._game_back)
         embed = list_view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=list_view)
@@ -2103,48 +2505,52 @@ class KalshiCog(commands.Cog):
 
         all_markets = await kalshi_api.get_all_open_markets()
 
-        if search:
-            search_lower = search.lower().strip()
-            series_label_map: dict[str, str] = {}
-            for sk, info in SPORTS.items():
-                label_lower = info.get("label", "").lower()
-                for ticker in info["series"].values():
-                    series_label_map[ticker] = label_lower
-
-            def _st(m: dict) -> str:
-                st = m.get("series_ticker") or ""
-                if not st:
-                    et = m.get("event_ticker") or ""
-                    st = et.split("-")[0] if "-" in et else et
-                return st.lower()
-
-            target_emoji = _SPORT_ALIASES.get(search_lower)
-            log.info("/bet search=%r (target_emoji=%r): %d markets", search, target_emoji, len(all_markets))
-            markets = [
-                m for m in all_markets
-                if search_lower in (m.get("title") or "").lower()
-                or search_lower in (m.get("yes_sub_title") or "").lower()
-                or search_lower in series_label_map.get(_st(m).upper(), "")
-                or search_lower in _st(m)
-                or (target_emoji is not None and _sport_emoji(_st(m).upper()) == target_emoji)
-            ]
-            log.info("/bet search=%r: %d filtered results", search, len(markets))
-            if not markets:
-                await interaction.followup.send(f"No markets found matching **{search}**.")
-                return
-            title = f"{target_emoji} {search.title()} Markets" if target_emoji else f"Search: {search}"
-        else:
-            markets = all_markets
-            title = "\U0001f4ca Open Markets"
-
-        if not markets:
+        if not all_markets:
             await interaction.followup.send("No open sports markets on Kalshi right now.")
             return
 
-        markets.sort(key=lambda m: _earliest_market_time(m) or "9999")
-        view = MarketListView(markets)
+        if not search:
+            # Top-level: show sport picker
+            view = SportSelectorView(all_markets)
+            embed = view.build_embed()
+            msg = await interaction.followup.send(embed=embed, view=view)
+            view.message = msg
+            return
+
+        # Search provided — filter markets then show game list for that sport/keyword
+        search_lower = search.lower().strip()
+        series_label_map: dict[str, str] = {}
+        for sk, info in SPORTS.items():
+            label_lower = info.get("label", "").lower()
+            for ticker in info["series"].values():
+                series_label_map[ticker] = label_lower
+
+        def _st(m: dict) -> str:
+            st = m.get("series_ticker") or ""
+            if not st:
+                et = m.get("event_ticker") or ""
+                st = et.split("-")[0] if "-" in et else et
+            return st.lower()
+
+        target_emoji = _SPORT_ALIASES.get(search_lower)
+        log.info("/bet search=%r (target_emoji=%r): %d markets", search, target_emoji, len(all_markets))
+        markets = [
+            m for m in all_markets
+            if search_lower in (m.get("title") or "").lower()
+            or search_lower in (m.get("yes_sub_title") or "").lower()
+            or search_lower in series_label_map.get(_st(m).upper(), "")
+            or search_lower in _st(m)
+            or (target_emoji is not None and _sport_emoji(_st(m).upper()) == target_emoji)
+        ]
+        log.info("/bet search=%r: %d filtered results", search, len(markets))
+        if not markets:
+            await interaction.followup.send(f"No markets found matching **{search}**.")
+            return
+
+        sport_label = _SPORT_EMOJI_LABEL.get(target_emoji, search.title()) if target_emoji else search.title()
+        sport_emoji_display = target_emoji or "\U0001f50d"
+        view = GameListView(markets, sport_emoji_display, sport_label, all_markets=all_markets)
         embed = view.build_embed()
-        embed.title = title
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
