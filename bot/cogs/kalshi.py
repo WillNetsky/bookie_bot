@@ -10,10 +10,9 @@ from discord.ext import commands, tasks
 from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service, leaderboard_notifier
 from bot.services.kalshi_api import (
-    kalshi_api, SPORTS, FUTURES, KALSHI_TO_ODDS_API,
+    kalshi_api, SPORTS, FUTURES,
     _parse_event_ticker_date
 )
-from bot.services.sports_api import SportsAPI
 from bot.constants import PICK_EMOJI, PICK_LABELS
 from bot.utils import (
     format_matchup, format_game_time, format_pick_label,
@@ -2592,7 +2591,6 @@ class HistoryView(discord.ui.View):
 class KalshiCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.sports_api = SportsAPI()
 
     async def cog_load(self) -> None:
         log.info("KalshiCog loading — refreshing sports...")
@@ -2601,14 +2599,12 @@ class KalshiCog(commands.Cog):
         self.check_kalshi_results.start()
         self.refresh_discovery.start()
         self.refresh_sports_loop.start()
-        self.check_legacy_results.start()
         self.db_maintenance.start()
 
     async def cog_unload(self) -> None:
         self.check_kalshi_results.cancel()
         self.refresh_discovery.cancel()
         self.refresh_sports_loop.cancel()
-        self.check_legacy_results.cancel()
         self.db_maintenance.cancel()
         await kalshi_api.close()
 
@@ -2952,21 +2948,6 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("You have no pending bets. Use `/myhistory` to view past bets.")
             return
 
-        # Fetch live scores for pending bets (uses cached data, skip outrights)
-        live_scores: dict[str, dict] = {}
-        for b in bets:
-            if (b.get("market") or "") == "outrights":
-                continue
-            composite = b["game_id"]
-            if composite in live_scores:
-                continue
-            parts = composite.split("|")
-            event_id = parts[0]
-            sport_key = parts[1] if len(parts) > 1 else None
-            status = await self.sports_api.get_fixture_status(event_id, sport_key)
-            if status:
-                live_scores[composite] = status
-
         embed = discord.Embed(title="Your Active Bets", color=discord.Color.blue())
         now = datetime.now(timezone.utc)
 
@@ -2981,13 +2962,6 @@ class KalshiCog(commands.Cog):
             home = b.get("home_team")
             away = b.get("away_team")
             sport = b.get("sport_title")
-            live = live_scores.get(b["game_id"])
-
-            if not home and live:
-                home = live.get("home_team")
-            if not away and live:
-                away = live.get("away_team")
-
             is_outright = (b.get("market") or "") == "outrights"
 
             if is_outright:
@@ -2997,10 +2971,6 @@ class KalshiCog(commands.Cog):
             else:
                 raw_id = b["game_id"].split("|")[0] if "|" in b["game_id"] else b["game_id"]
                 matchup = f"Game `{raw_id}`"
-
-            score_line = ""
-            if not is_outright and live and live["started"] and live["home_score"] is not None and live["away_score"] is not None:
-                score_line = f"\nScore: **{home}** {live['home_score']} - {live['away_score']} **{away}**"
 
             sport_line = f"{sport} · " if sport and not is_outright else ""
             pick_label = b["pick"] if is_outright else format_pick_label(b)
@@ -3015,7 +2985,6 @@ class KalshiCog(commands.Cog):
                 (
                     f"{sport_line}**{matchup}**\n"
                     f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {format_american(decimal_to_american(b['odds']))}"
-                    f"{score_line}"
                     f"{eta_line}"
                 ),
             ))
@@ -3085,8 +3054,13 @@ class KalshiCog(commands.Cog):
             title = kb.get("title") or kb["market_ticker"]
             pick_label = kb.get("pick_display") or kb["pick"].upper()
 
-            # Determine sort time: prefer stored close_time, fall back to ticker date
+            # Look up market data first (needed for close_time fallback and odds)
+            market = market_map.get(kb["market_ticker"])
+
+            # Determine sort/ETA time: stored close_time → live market close_time → ticker date
             close_dt = _parse_iso_dt(kb.get("close_time"))
+            if close_dt is None and market:
+                close_dt = _parse_iso_dt(_earliest_market_time(market))
             event_ticker = kb.get("event_ticker", "")
             ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
             sort_dt = close_dt or ticker_date
@@ -3095,17 +3069,9 @@ class KalshiCog(commands.Cog):
             if sort_dt and sort_dt <= now:
                 icon = "\U0001f534"  # red — live/closed
                 eta_line = "\n\U0001f534 LIVE"
-            elif sort_dt and (sort_dt - now).total_seconds() < 86400:
-                icon = "\U0001f7e0"  # orange — closing today
-                eta_line = f"\n⏱ {_fmt_eta(sort_dt, now)}"
             else:
-                icon = "\U0001f7e3"  # purple — future
-                eta_line = f"\n⏱ {_fmt_eta(sort_dt, now)}" if sort_dt else (
-                    f"\n{ticker_date.strftime('%-m/%-d')}" if ticker_date else ""
-                )
-
-            # Look up current market odds; fall back to stored odds
-            market = market_map.get(kb["market_ticker"])
+                icon = "\U0001f7e0" if sort_dt and (sort_dt - now).total_seconds() < 86400 else "\U0001f7e3"
+                eta_line = f"\n⏱ {_fmt_eta(sort_dt, now)}" if sort_dt else ""
             display_odds = kb["odds"] if (kb["odds"] or 0) > 0 else None
             if market:
                 is_finalized = (market.get("status") or "") == "finalized"
@@ -3175,97 +3141,6 @@ class KalshiCog(commands.Cog):
             cashout_view.message = msg
         else:
             await interaction.followup.send(embed=embed)
-
-    # ── /livescores ────────────────────────────────────────────────────
-
-    @app_commands.command(name="livescores", description="View live scores for all pending bets")
-    async def livescores(self, interaction: discord.Interaction) -> None:
-        if not await _safe_defer(interaction):
-            return
-
-        from bot.db import models as _models
-        from bot.services.kalshi_api import _parse_event_ticker_date
-
-        embed = discord.Embed(title="\U0001f534 Live Scores", color=discord.Color.red())
-        found_any = False
-        now = datetime.now(timezone.utc)
-
-        # ── Odds-API bets with live scores ──
-        game_ids = await betting_service.get_pending_game_ids()
-        for composite_id in game_ids[:15]:
-            bets_for_game = await betting_service.get_bets_by_game(composite_id)
-            if not bets_for_game:
-                continue
-
-            # Skip outrights
-            if (bets_for_game[0].get("market") or "") == "outrights":
-                continue
-
-            parts = composite_id.split("|")
-            event_id = parts[0]
-            sport_key = parts[1] if len(parts) > 1 else None
-            status = await self.sports_api.get_fixture_status(event_id, sport_key)
-            if not status or not status["started"]:
-                continue
-
-            home = status.get("home_team") or bets_for_game[0].get("home_team", "Home")
-            away = status.get("away_team") or bets_for_game[0].get("away_team", "Away")
-
-            if status["home_score"] is not None and status["away_score"] is not None:
-                score_text = f"**{home}** {status['home_score']} - {status['away_score']} **{away}**"
-                if status["completed"]:
-                    score_text += "  (Final)"
-            else:
-                score_text = f"**{away}** @ **{home}**"
-
-            bet_lines = []
-            for b in bets_for_game:
-                pick_label = format_pick_label(b)
-                potential = round(b["amount"] * b["odds"], 2)
-                bet_lines.append(
-                    f"<@{b['user_id']}> — {pick_label} · ${b['amount']:.2f} → ${potential:.2f}"
-                )
-
-            sport = bets_for_game[0].get("sport_title", "")
-            embed.add_field(
-                name=f"{sport} · {score_text}",
-                value="\n".join(bet_lines),
-                inline=False,
-            )
-            found_any = True
-
-        # ── Kalshi bets on live games ──
-        kalshi_bets = await _models.get_all_pending_kalshi_bets()
-        live_kalshi = []
-        for kb in kalshi_bets:
-            event_ticker = kb.get("event_ticker", "")
-            ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
-            if ticker_date and ticker_date.date() <= now.date():
-                live_kalshi.append(kb)
-
-        if live_kalshi:
-            kalshi_lines = []
-            for kb in live_kalshi[:15]:
-                title = kb.get("title") or kb["market_ticker"]
-                if len(title) > 50:
-                    title = title[:47] + "..."
-                pick_label = kb.get("pick_display") or kb["pick"].upper()
-                potential = round(kb["amount"] * kb["odds"], 2)
-                kalshi_lines.append(
-                    f"<@{kb['user_id']}> — {pick_label} · ${kb['amount']:.2f} → ${potential:.2f}\n{title}"
-                )
-
-            embed.add_field(
-                name=f"\U0001f534 Kalshi — Live ({len(live_kalshi)})",
-                value="\n".join(kalshi_lines),
-                inline=False,
-            )
-            found_any = True
-
-        if not found_any:
-            embed.description = "No pending bets have games in progress right now."
-
-        await interaction.followup.send(embed=embed)
 
     # ── /cancelbet ───────────────────────────────────────────────────────
 
@@ -3461,42 +3336,6 @@ class KalshiCog(commands.Cog):
                 await interaction.response.send_message(msg, ephemeral=True)
         else:
             log.exception("Error in /pendingbets command", exc_info=error)
-
-    # ── /quota (admin) ────────────────────────────────────────────────────
-
-    @app_commands.command(name="quota", description="[Admin] Check API quota usage")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def quota(self, interaction: discord.Interaction) -> None:
-        q = self.sports_api.get_quota()
-        used = q["used"]
-        remaining = q["remaining"]
-        last = q["last"]
-
-        if used is None and remaining is None:
-            embed = discord.Embed(
-                title="API Quota",
-                description="No API calls made yet this session — quota unknown.",
-                color=discord.Color.greyple(),
-            )
-        else:
-            total = (used or 0) + (remaining or 0)
-            embed = discord.Embed(title="API Quota", color=discord.Color.blue())
-            embed.add_field(name="Used", value=str(used or 0), inline=True)
-            embed.add_field(name="Remaining", value=str(remaining or 0), inline=True)
-            embed.add_field(name="Total", value=str(total), inline=True)
-            if last:
-                embed.set_footer(text=f"Last request: {last}")
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @quota.error
-    async def quota_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        if isinstance(error, app_commands.MissingPermissions):
-            msg = "You need administrator permissions to use this command."
-            if interaction.response.is_done():
-                await interaction.followup.send(msg, ephemeral=True)
-            else:
-                await interaction.response.send_message(msg, ephemeral=True)
 
     # ── /vacuum (admin) ───────────────────────────────────────────────────
 
@@ -3803,131 +3642,6 @@ class KalshiCog(commands.Cog):
 
     @db_maintenance.before_loop
     async def before_db_maintenance(self) -> None:
-        await self.bot.wait_until_ready()
-
-    # ── Legacy check_results loop (the-odds-api) ──────────────────────
-
-    # Estimated game durations by sport prefix (hours).
-    SPORT_DURATION: dict[str, float] = {
-        "americanfootball": 3.5,
-        "baseball": 3.0,
-        "basketball": 2.5,
-        "icehockey": 2.5,
-        "soccer": 2.0,
-        "mma": 1.5,
-        "boxing": 1.5,
-    }
-    DEFAULT_SPORT_DURATION = 2.0  # fallback
-
-    @tasks.loop(minutes=30)
-    async def check_legacy_results(self) -> None:
-        """Check scores for legacy games likely near completion."""
-        try:
-            started_games = await betting_service.get_started_pending_games()
-            if not started_games:
-                from bot.db import models
-                pending_single = await models.get_pending_games_with_commence()
-                pending_parlay = await models.get_pending_parlay_games_with_commence()
-                if not pending_single and not pending_parlay:
-                    log.debug("No pending legacy bets remain.")
-                    # self.check_legacy_results.stop() # Could stop it
-                return
-
-            # Skip if quota is critically low (< 50 remaining)
-            quota = self.sports_api.get_quota()
-            if quota["remaining"] is not None and quota["remaining"] < 50:
-                log.warning("API quota low (%s remaining), skipping score check", quota["remaining"])
-                return
-
-            now = datetime.now(timezone.utc)
-
-            # Filter to games likely near completion based on sport duration
-            ready_games: dict[str, str | None] = {}
-            for composite_id, commence_time in started_games.items():
-                parts = composite_id.split("|")
-                sport_key = parts[1] if len(parts) > 1 else None
-
-                if commence_time is None:
-                    ready_games[composite_id] = commence_time
-                    continue
-
-                try:
-                    game_start = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    ready_games[composite_id] = commence_time
-                    continue
-
-                duration = self.DEFAULT_SPORT_DURATION
-                if sport_key:
-                    for prefix, dur in self.SPORT_DURATION.items():
-                        if sport_key.startswith(prefix):
-                            duration = dur
-                            break
-
-                min_elapsed = min(duration * 0.75, 1.5)
-                elapsed_hours = (now - game_start).total_seconds() / 3600
-
-                if elapsed_hours >= min_elapsed:
-                    ready_games[composite_id] = commence_time
-
-            if not ready_games:
-                return
-
-            sport_games: dict[str, list[str]] = {}
-            for composite_id in ready_games:
-                parts = composite_id.split("|")
-                sport_key = parts[1] if len(parts) > 1 else None
-                if not sport_key:
-                    continue
-                sport_games.setdefault(sport_key, []).append(composite_id)
-
-            all_sport_keys = list(sport_games.keys())
-            if len(all_sport_keys) > 8:
-                all_sport_keys.sort()
-                offset = (now.minute // 30) % len(all_sport_keys)
-                rotated = all_sport_keys[offset:] + all_sport_keys[:offset]
-                sport_keys = rotated[:8]
-            else:
-                sport_keys = all_sport_keys
-
-            for sport_key in sport_keys:
-                composites = sport_games[sport_key]
-                scores_map = await self.sports_api.get_scores_by_sport(sport_key)
-                if not scores_map:
-                    continue
-
-                for composite_id in composites:
-                    event_id = composite_id.split("|")[0]
-                    status = scores_map.get(event_id)
-                    if not status or not status["completed"]:
-                        continue
-
-                    home_score = status["home_score"]
-                    away_score = status["away_score"]
-
-                    if home_score is None or away_score is None:
-                        continue
-
-                    winner = "home" if home_score > away_score else "away" if away_score > home_score else "draw"
-
-                    board_before = await leaderboard_notifier.snapshot()
-                    resolved = await betting_service.resolve_game(
-                        composite_id, winner,
-                        home_score=home_score, away_score=away_score,
-                    )
-                    if resolved:
-                        log.info("Resolved %d legacy bets for game %s", len(resolved), event_id)
-                        await self._post_resolution_announcement(
-                            resolved, home_score=home_score, away_score=away_score,
-                        )
-                        for r in resolved:
-                            if r.get("result") == "won" and r.get("payout"):
-                                await leaderboard_notifier.notify_if_passed(r["user_id"], int(r["payout"]), board_before, "sports betting")
-        except Exception:
-            log.exception("Error in check_legacy_results loop")
-
-    @check_legacy_results.before_loop
-    async def before_check_legacy_results(self) -> None:
         await self.bot.wait_until_ready()
 
     # ── Resolution loop ───────────────────────────────────────────────

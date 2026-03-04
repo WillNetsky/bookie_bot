@@ -24,25 +24,6 @@ CACHE_TTL = 1800  # 30 minutes — matches refresh_discovery loop interval
 DISCOVERY_TTL = 1800  # 30 minutes for availability checks
 AGG_MARKETS_CACHE_KEY = "kalshi:all_open_markets:aggregated"  # single stable cache key
 
-# ── Kalshi → Odds-API sport key mapping (for live scores) ─────────────
-KALSHI_TO_ODDS_API = {
-    # Maps Kalshi sport_key (game ticker) → odds-api sport key for live scores
-    "KXNBAGAME": "basketball_nba",
-    "KXNFLGAME": "americanfootball_nfl",
-    "KXMLBGAME": "baseball_mlb",
-    "KXNHLGAME": "icehockey_nhl",
-    "KXNCAAMBGAME": "basketball_ncaab",
-    "KXNCAAWBGAME": "basketball_wncaab",
-    "KXNCAAFGAME": "americanfootball_ncaaf",
-    "KXEPLGAME": "soccer_epl",
-    "KXLALIGAGAME": "soccer_spain_la_liga",
-    "KXBUNDESLIGAGAME": "soccer_germany_bundesliga",
-    "KXSERIEAGAME": "soccer_italy_serie_a",
-    "KXLIGUE1GAME": "soccer_france_ligue_one",
-    "KXUCLGAME": "soccer_uefa_champs_league",
-    "KXMLSGAME": "soccer_usa_mls",
-    "KXUFCFIGHT": "mma_mixed_martial_arts",
-}
 
 # ── Sports series tickers ─────────────────────────────────────────────
 # Dynamically discovered from Kalshi /series endpoint (cached 24h).
