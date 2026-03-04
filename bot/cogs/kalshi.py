@@ -569,10 +569,11 @@ def _series_label(series_ticker: str) -> str:
 class MarketListView(discord.ui.View):
     """Paginated list of raw Kalshi markets sorted by soonest expiry."""
 
-    def __init__(self, markets: list[dict], page: int = 0, timeout: float = 180.0) -> None:
+    def __init__(self, markets: list[dict], page: int = 0, timeout: float = 180.0, parlay_legs: list[dict] | None = None) -> None:
         super().__init__(timeout=timeout)
         self.markets = markets
         self.page = page
+        self.parlay_legs = parlay_legs
         self.message: discord.Message | None = None
         self._grouped = _group_markets_by_prop(markets)
         self._rebuild()
@@ -589,6 +590,11 @@ class MarketListView(discord.ui.View):
             self.add_item(MarketPageButton("prev", self.page - 1, row=1))
         if self.page < total_pages - 1:
             self.add_item(MarketPageButton("next", self.page + 1, row=1))
+        if self.parlay_legs is not None:
+            if self.parlay_legs:
+                self.add_item(ParlayViewSlipButton(self.parlay_legs, row=2))
+            if len(self.parlay_legs) >= 2:
+                self.add_item(ParlayPlaceFromListButton(self.parlay_legs, row=2))
 
     def build_embed(self) -> discord.Embed:
         total = len(self._grouped)
@@ -643,7 +649,11 @@ class MarketListView(discord.ui.View):
                 lines.append(f"{header}\n{time_str} · {subtitle}")
 
         embed.description = "\n\n".join(lines)
-        embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Select a market below to bet")
+        if self.parlay_legs is not None:
+            n = len(self.parlay_legs)
+            embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Parlay: {n} leg{'s' if n != 1 else ''} · Select a market to add")
+        else:
+            embed.set_footer(text=f"Page {self.page + 1}/{total_pages} · Select a market below to bet")
         return embed
 
     async def on_timeout(self) -> None:
@@ -697,6 +707,7 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         value = self.values[0]
+        parlay_legs = self._list_view.parlay_legs
         if not await _safe_defer(interaction):
             return
         if value.startswith("m:"):
@@ -704,9 +715,12 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
             if not market:
                 await interaction.followup.send("Market not found.", ephemeral=True)
                 return
-            bet_view = RawMarketBetView(market, self._list_view)
-            embed = bet_view.build_embed()
-            await interaction.edit_original_response(embed=embed, view=bet_view)
+            if parlay_legs is not None:
+                next_view = ParlayMarketDetailView(market, self._list_view)
+            else:
+                next_view = RawMarketBetView(market, self._list_view)
+            embed = next_view.build_embed()
+            await interaction.edit_original_response(embed=embed, view=next_view)
         elif value.startswith("g:"):
             group_markets = self._group_map.get(value, [])
             if not group_markets:
@@ -731,6 +745,7 @@ class LiveThresholdView(discord.ui.View):
         self.markets = group_markets
         self._all_markets = list_view.markets
         self._list_page = list_view.page
+        self._parlay_legs = getattr(list_view, 'parlay_legs', None)
         self.page = page
         self.message: discord.Message | None = None
         self._rebuild()
@@ -753,7 +768,7 @@ class LiveThresholdView(discord.ui.View):
             options.append(discord.SelectOption(label=label, value=ticker, description=desc))
 
         if options:
-            self.add_item(LiveThresholdSelect(options, market_map, self._all_markets, self._list_page, row=0))
+            self.add_item(LiveThresholdSelect(options, market_map, self._all_markets, self._list_page, row=0, parlay_legs=self._parlay_legs))
 
         if total_pages > 1:
             if self.page > 0:
@@ -761,7 +776,7 @@ class LiveThresholdView(discord.ui.View):
             if self.page < total_pages - 1:
                 self.add_item(LiveThresholdPageButton("next", self.page + 1, row=1))
 
-        self.add_item(RawMarketBackButton(self._all_markets, self._list_page, row=2))
+        self.add_item(RawMarketBackButton(self._all_markets, self._list_page, row=2, parlay_legs=self._parlay_legs))
 
     def build_embed(self) -> discord.Embed:
         total_pages = max(1, (len(self.markets) + THRESHOLD_PER_PAGE - 1) // THRESHOLD_PER_PAGE)
@@ -802,11 +817,13 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
         all_markets: list[dict],
         list_page: int,
         row: int = 0,
+        parlay_legs: list[dict] | None = None,
     ) -> None:
         super().__init__(placeholder="Select a threshold to bet on...", options=options, row=row)
         self._market_map = market_map
         self._all_markets = all_markets
         self._list_page = list_page
+        self._parlay_legs = parlay_legs
 
     async def callback(self, interaction: discord.Interaction) -> None:
         ticker = self.values[0]
@@ -816,10 +833,13 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
             return
         if not await _safe_defer(interaction):
             return
-        list_view = MarketListView(self._all_markets, self._list_page)
-        bet_view = RawMarketBetView(market, list_view)
-        embed = bet_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=bet_view)
+        list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=self._parlay_legs)
+        if self._parlay_legs is not None:
+            next_view = ParlayMarketDetailView(market, list_view)
+        else:
+            next_view = RawMarketBetView(market, list_view)
+        embed = next_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=next_view)
 
 
 class LiveThresholdPageButton(discord.ui.Button["LiveThresholdView"]):
@@ -907,14 +927,15 @@ class RawMarketPickButton(discord.ui.Button["RawMarketBetView"]):
 
 
 class RawMarketBackButton(discord.ui.Button["RawMarketBetView"]):
-    def __init__(self, markets: list[dict], page: int, row: int) -> None:
+    def __init__(self, markets: list[dict], page: int, row: int, parlay_legs: list[dict] | None = None) -> None:
         super().__init__(label="Back", style=discord.ButtonStyle.secondary,
                          emoji="\u25c0\ufe0f", row=row)
         self._markets = markets
         self._page = page
+        self._parlay_legs = parlay_legs
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        list_view = MarketListView(self._markets, self._page)
+        list_view = MarketListView(self._markets, self._page, parlay_legs=self._parlay_legs)
         embed = list_view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=list_view)
@@ -1003,9 +1024,295 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
         await interaction.followup.send(embed=embed)
 
 
-# ── Parlay Views ──────────────────────────────────────────────────────
+# ── Parlay List-Mode Views ────────────────────────────────────────────
+# Used by /parlay when browsing markets via MarketListView.
 
 MAX_PARLAY_LEGS = 10
+
+
+class ParlayMarketDetailView(discord.ui.View):
+    """YES/NO detail view for adding a raw Kalshi market to a parlay."""
+
+    def __init__(self, market: dict, list_view: "MarketListView", timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.market = market
+        legs = list_view.parlay_legs or []
+        yes_am, no_am = _market_odds_str(market)
+        self.add_item(ParlayPickButton("yes", f"YES  {yes_am}", market, list_view.markets, list_view.page, legs, row=0))
+        self.add_item(ParlayPickButton("no",  f"NO   {no_am}",  market, list_view.markets, list_view.page, legs, row=0))
+        self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1, parlay_legs=legs))
+
+    def build_embed(self) -> discord.Embed:
+        m = self.market
+        title   = m.get("title") or "?"
+        yes_sub = m.get("yes_sub_title") or ""
+        exp     = m.get("expected_expiration_time") or m.get("close_time") or ""
+        sport   = _series_label(m.get("series_ticker") or "")
+        time_str = _format_game_time(exp) if exp else "TBD"
+        yes_am, no_am = _market_odds_str(m)
+        embed = discord.Embed(title=title, color=discord.Color.purple())
+        if sport:
+            embed.description = f"_{sport}_"
+        if yes_sub:
+            embed.add_field(name="YES resolves if", value=yes_sub, inline=False)
+        embed.add_field(name="Closes", value=time_str, inline=True)
+        embed.add_field(name="YES",    value=yes_am,   inline=True)
+        embed.add_field(name="NO",     value=no_am,    inline=True)
+        embed.set_footer(text="Pick YES or NO to add to your parlay")
+        return embed
+
+
+class ParlayPickButton(discord.ui.Button):
+    """Adds YES or NO for a market to the parlay slip, then returns to market list."""
+
+    def __init__(
+        self, pick: str, label: str, market: dict,
+        all_markets: list[dict], list_page: int, legs: list[dict], row: int,
+    ) -> None:
+        style = discord.ButtonStyle.success if pick == "yes" else discord.ButtonStyle.danger
+        super().__init__(label=label, style=style, row=row)
+        self.pick = pick
+        self.market = market
+        self._all_markets = all_markets
+        self._list_page = list_page
+        self._legs = legs
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        m = self.market
+        ticker = m.get("ticker", "")
+
+        if any(leg["market_ticker"] == ticker for leg in self._legs):
+            await interaction.response.send_message("This market is already in your parlay.", ephemeral=True)
+            return
+        if len(self._legs) >= MAX_PARLAY_LEGS:
+            await interaction.response.send_message(f"Maximum {MAX_PARLAY_LEGS} legs allowed.", ephemeral=True)
+            return
+
+        yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+        if self.pick == "yes":
+            decimal_odds = round(1.0 / yes_ask, 3) if yes_ask > 0 else 2.0
+        else:
+            no_ask = 1.0 - yes_ask
+            decimal_odds = round(1.0 / no_ask, 3) if no_ask > 0 else 2.0
+
+        american = decimal_to_american(decimal_odds)
+        title   = m.get("title") or "?"
+        yes_sub = m.get("yes_sub_title") or ""
+        pick_display = (f"YES — {yes_sub}" if self.pick == "yes" and yes_sub
+                        else ("YES" if self.pick == "yes" else "NO"))
+        close_time = m.get("close_time") or m.get("expected_expiration_time")
+
+        leg = {
+            "market_ticker": ticker,
+            "event_ticker": m.get("event_ticker", ""),
+            "pick": self.pick,
+            "odds": decimal_odds,
+            "american": american,
+            "title": title,
+            "pick_display": pick_display,
+            "close_time": close_time,
+        }
+        new_legs = self._legs + [leg]
+        list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=new_legs)
+        embed = list_view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=list_view)
+        except discord.NotFound:
+            pass
+
+
+class ParlayViewSlipButton(discord.ui.Button):
+    """Opens the parlay slip from the market list."""
+
+    def __init__(self, legs: list[dict], row: int) -> None:
+        n = len(legs)
+        super().__init__(
+            label=f"View Slip ({n})",
+            style=discord.ButtonStyle.success,
+            emoji="\U0001f4cb",
+            row=row,
+        )
+        self._legs = legs
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        slip_view = ParlaySlipView(self._legs, view.markets, view.page)
+        embed = slip_view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=slip_view)
+        except discord.NotFound:
+            pass
+
+
+class ParlayPlaceFromListButton(discord.ui.Button):
+    """Opens wager modal directly from the market list (2+ legs)."""
+
+    def __init__(self, legs: list[dict], row: int) -> None:
+        super().__init__(
+            label="Place Parlay",
+            style=discord.ButtonStyle.primary,
+            emoji="\U0001f4b0",
+            row=row,
+        )
+        self._legs = legs
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(ParlayAmountModal(self._legs))
+
+
+class ParlaySlipView(discord.ui.View):
+    """Parlay slip: shows legs, combined odds, remove/place controls."""
+
+    def __init__(self, legs: list[dict], all_markets: list[dict], list_page: int, timeout: float = 180.0) -> None:
+        super().__init__(timeout=timeout)
+        self.legs = list(legs)
+        self._all_markets = all_markets
+        self._list_page = list_page
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        if self.legs:
+            self.add_item(ParlayRemoveLegSelect(self.legs, self._all_markets, self._list_page, row=0))
+        if len(self.legs) >= 2:
+            self.add_item(ParlaySlipPlaceButton(self.legs, row=1))
+        self.add_item(RawMarketBackButton(self._all_markets, self._list_page, row=2, parlay_legs=self.legs))
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="Parlay Slip", color=discord.Color.purple())
+        if not self.legs:
+            embed.description = "No legs yet. Go back to add markets."
+            return embed
+
+        total_odds = 1.0
+        for i, leg in enumerate(self.legs, 1):
+            total_odds *= leg["odds"]
+            odds_str = format_american(leg.get("american", 0))
+            embed.add_field(
+                name=f"Leg {i}: {leg['pick_display']}",
+                value=f"{leg.get('title', '?')} — {odds_str} ({leg['odds']:.2f}x)",
+                inline=False,
+            )
+        total_odds = round(total_odds, 4)
+        embed.add_field(
+            name="Combined Odds",
+            value=f"**{total_odds:.2f}x** — $100 wins **${round(100 * total_odds):.2f}**",
+            inline=False,
+        )
+        footer_parts = [f"{len(self.legs)} leg{'s' if len(self.legs) != 1 else ''}"]
+        if len(self.legs) < 2:
+            footer_parts.append("Add at least 2 legs to place")
+        embed.set_footer(text=" · ".join(footer_parts))
+        return embed
+
+
+class ParlayRemoveLegSelect(discord.ui.Select):
+    """Dropdown to remove a leg from the slip."""
+
+    def __init__(self, legs: list[dict], all_markets: list[dict], list_page: int, row: int) -> None:
+        self._all_markets = all_markets
+        self._list_page = list_page
+        self._legs = legs
+        options = []
+        for i, leg in enumerate(legs):
+            label = leg["pick_display"]
+            if len(label) > 94:
+                label = label[:91] + "..."
+            options.append(discord.SelectOption(label=f"Remove: {label}", value=str(i)))
+        super().__init__(placeholder="Remove a leg...", options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        idx = int(self.values[0])
+        view.legs = [leg for i, leg in enumerate(self._legs) if i != idx]
+        view._rebuild()
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class ParlaySlipPlaceButton(discord.ui.Button):
+    """Opens wager modal from the slip view."""
+
+    def __init__(self, legs: list[dict], row: int) -> None:
+        super().__init__(label="Place Parlay", style=discord.ButtonStyle.success, emoji="\U0001f4b0", row=row)
+        self._legs = legs
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        legs = view.legs if view is not None else self._legs
+        await interaction.response.send_modal(ParlayAmountModal(legs))
+
+
+class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
+    amount_input = discord.ui.TextInput(
+        label="Wager amount ($)",
+        placeholder="e.g. 50",
+        min_length=1,
+        max_length=10,
+    )
+
+    def __init__(self, legs: list[dict]) -> None:
+        super().__init__()
+        self.legs = legs
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        raw = self.amount_input.value.strip().lstrip("$")
+        try:
+            amount = int(raw)
+        except ValueError:
+            await interaction.response.send_message("Invalid amount — enter a whole number.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("Bet amount must be positive.", ephemeral=True)
+            return
+
+        if not await _safe_defer(interaction):
+            return
+
+        if len(self.legs) < 2:
+            await interaction.followup.send("Need at least 2 legs for a parlay.", ephemeral=True)
+            return
+
+        parlay_id = await betting_service.place_kalshi_parlay(
+            user_id=interaction.user.id,
+            legs=self.legs,
+            amount=amount,
+        )
+
+        if parlay_id is None:
+            await interaction.followup.send("Insufficient balance!", ephemeral=True)
+            return
+
+        total_odds = 1.0
+        for leg in self.legs:
+            total_odds *= leg["odds"]
+        total_odds = round(total_odds, 4)
+        payout = round(amount * total_odds)
+
+        embed = discord.Embed(title="Parlay Placed!", color=discord.Color.green())
+        embed.add_field(name="Parlay ID",        value=f"#KP{parlay_id}",      inline=True)
+        embed.add_field(name="Legs",             value=str(len(self.legs)),     inline=True)
+        embed.add_field(name="Wager",            value=f"${amount:.2f}",        inline=True)
+        embed.add_field(name="Combined Odds",    value=f"{total_odds:.2f}x",    inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}",        inline=True)
+        for i, leg in enumerate(self.legs, 1):
+            odds_str = format_american(leg.get("american", 0))
+            embed.add_field(
+                name=f"Leg {i}",
+                value=f"{leg['pick_display']} — {odds_str}",
+                inline=False,
+            )
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+# ── Legacy Parlay Views (game-centric flow, kept for reference) ────────
 
 
 class KalshiParlayView(discord.ui.View):
@@ -1903,20 +2210,34 @@ class KalshiCog(commands.Cog):
         if not await _safe_defer(interaction):
             return
 
-        if sport and sport in SPORTS:
-            games = await kalshi_api.get_sport_games(sport)
-        else:
-            games = await kalshi_api.get_all_games()
+        all_markets = await kalshi_api.get_all_open_markets()
 
-        if not games:
-            await interaction.followup.send("No games available right now.")
+        if sport:
+            sport_lower = sport.lower().strip()
+            series_label_map: dict[str, str] = {}
+            for sk, info in SPORTS.items():
+                label_lower = info.get("label", "").lower()
+                for ticker in info["series"].values():
+                    series_label_map[ticker] = label_lower
+            target_emoji = _SPORT_ALIASES.get(sport_lower)
+            all_markets = [
+                m for m in all_markets
+                if sport_lower in (m.get("title") or "").lower()
+                or sport_lower in (m.get("yes_sub_title") or "").lower()
+                or sport_lower in series_label_map.get(_market_series_ticker(m).upper(), "")
+                or sport_lower in _market_series_ticker(m)
+                or (target_emoji is not None
+                    and _sport_emoji(_market_series_ticker(m).upper()) == target_emoji)
+            ]
+
+        if not all_markets:
+            hint = f" Try `/parlay {sport}`" if not sport else " No markets for that sport right now."
+            await interaction.followup.send(f"No markets available right now.{hint}")
             return
 
-        # Sort by commence_time (soonest first)
-        games.sort(key=lambda g: g.get("commence_time", "9999"))
-
-        view = KalshiParlayView(games)
+        view = MarketListView(all_markets, parlay_legs=[])
         embed = view.build_embed()
+        embed.title = "Parlay Builder"
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
