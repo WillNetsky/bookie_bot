@@ -24,10 +24,17 @@ from bot.db.database import cleanup_cache, vacuum_db
 log = logging.getLogger(__name__)
 
 
-async def _safe_defer(interaction: discord.Interaction) -> bool:
-    """Defer an interaction, returning False if it cannot be deferred."""
+async def _safe_defer(interaction: discord.Interaction, *, edit: bool = False) -> bool:
+    """Defer an interaction, returning False if it cannot be deferred.
+
+    Pass edit=True for View component callbacks (buttons/selects) to defer as a
+    message edit rather than a new ephemeral "thinking" response.
+    """
     try:
-        await interaction.response.defer()
+        if edit:
+            await interaction.response.defer(edit_original_response=True)
+        else:
+            await interaction.response.defer()
         return True
     except discord.errors.NotFound:
         # 10062 — interaction expired before we could defer (took > 3s to get here)
@@ -922,7 +929,7 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
     async def callback(self, interaction: discord.Interaction) -> None:
         value = self.values[0]
         parlay_legs = self._list_view.parlay_legs
-        if not await _safe_defer(interaction):
+        if not await _safe_defer(interaction, edit=True):
             return
         if value.startswith("m:"):
             market = self._market_map.get(value)
@@ -1048,7 +1055,7 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
         if not market:
             await interaction.response.send_message("Market not found.", ephemeral=True)
             return
-        if not await _safe_defer(interaction):
+        if not await _safe_defer(interaction, edit=True):
             return
         list_view = MarketListView(self._all_markets, self._list_page, parlay_legs=self._parlay_legs, game_back=self._game_back)
         if self._parlay_legs is not None:
@@ -1281,7 +1288,7 @@ class GameSelectDropdown(discord.ui.Select["GameListView"]):
         if not game:
             await interaction.response.send_message("Game not found.", ephemeral=True)
             return
-        if not await _safe_defer(interaction):
+        if not await _safe_defer(interaction, edit=True):
             return
         glv = self._game_list_view
         game_back = {
@@ -1385,25 +1392,26 @@ class SportSelectorView(discord.ui.View):
 class SportSelectDropdown(discord.ui.Select["SportSelectorView"]):
     def __init__(self, sports: list[dict], sport_view: "SportSelectorView", row: int = 0) -> None:
         self._sport_view = sport_view
-        self._sports_by_emoji: dict[str, dict] = {s["emoji"]: s for s in sports}
+        self._sports_by_idx: dict[str, dict] = {}
         options: list[discord.SelectOption] = []
-        for s in sports[:25]:
+        for i, s in enumerate(sports[:25]):
+            key = str(i)
+            self._sports_by_idx[key] = s
             n = s["game_count"]
             options.append(discord.SelectOption(
                 label=s["label"],
-                value=s["emoji"],
+                value=key,
                 description=f"{n} game{'s' if n != 1 else ''}",
                 emoji=s["emoji"],
             ))
         super().__init__(placeholder="Select a sport...", options=options, row=row)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        emoji = self.values[0]
-        sport = self._sports_by_emoji.get(emoji)
+        sport = self._sports_by_idx.get(self.values[0])
         if not sport:
             await interaction.response.send_message("Sport not found.", ephemeral=True)
             return
-        if not await _safe_defer(interaction):
+        if not await _safe_defer(interaction, edit=True):
             return
         game_view = GameListView(
             sport["markets"], sport["emoji"], sport["label"],
