@@ -908,7 +908,7 @@ class MarketListView(discord.ui.View):
                 header = f"{sport_emoji} **{label}**"
                 if sport:
                     header += f"  _{sport}_"
-                if sport_emoji == "\U0001f3c6" and series_ticker:
+                if series_ticker:
                     header += f"  `{series_ticker}`"
                 # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
                 parts = []
