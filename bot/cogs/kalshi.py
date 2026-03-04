@@ -25,16 +25,9 @@ log = logging.getLogger(__name__)
 
 
 async def _safe_defer(interaction: discord.Interaction, *, edit: bool = False) -> bool:
-    """Defer an interaction, returning False if it cannot be deferred.
-
-    Pass edit=True for View component callbacks (buttons/selects) to defer as a
-    message edit rather than a new ephemeral "thinking" response.
-    """
+    """Defer an interaction, returning False if it cannot be deferred."""
     try:
-        if edit:
-            await interaction.response.defer(edit_original_response=True)
-        else:
-            await interaction.response.defer()
+        await interaction.response.defer()
         return True
     except discord.errors.NotFound:
         # 10062 — interaction expired before we could defer (took > 3s to get here)
