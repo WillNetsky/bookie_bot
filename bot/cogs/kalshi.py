@@ -104,6 +104,10 @@ def _sport_emoji(sport_key: str) -> str:
         or "SUPERLIGA" in sk or "SUPERLEAGUE" in sk or "SUPERLIG" in sk
         or "DIMAYOR" in sk  # Liga DIMAYOR (Colombian soccer)
         or "LIGA" in sk  # LALIGA already above, also catches DIMAYOR, BBVA, etc.
+        or "HNL" in sk      # Croatia HNL
+        or "SCOTTISH" in sk or "SCOTPREM" in sk  # Scottish Premiership / Cup
+        or "GREECE" in sk or "GREEK" in sk or "GRC" in sk  # Super League Greece
+        or "ARGENT" in sk   # Argentina Primera Division
     ):
         return "\u26bd"  # ⚽
     return "\U0001f3c6"  # 🏆 — Other / truly unrecognized
