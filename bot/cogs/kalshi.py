@@ -289,29 +289,30 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
     return None
 
 
-# Esports per-map/set segment: M1, MAP2, SET3, G1, GAME2, etc.
-_MAP_QUAL_RE = re.compile(r'^(?:M|MAP|SET|G|GAME|ROUND|R|Q)\d+$', re.IGNORECASE)
+# Esports per-map/set qualifier segments: M1, MAP2, SET3, GAME1, ROUND2, etc.
+# Deliberately excludes single-letter G/R/Q so team codes like G2 and R6 are kept.
+_MAP_QUAL_RE = re.compile(r'^(?:MAP|SET|GAME|ROUND|M)\d+$', re.IGNORECASE)
 
 
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
-    """Return a stable game key by stripping the series prefix and capping at 3 segments.
+    """Return a stable game key by stripping the series prefix and map qualifiers.
 
-    e.g. KXNBA-26MAR5-LAL-GSW and KXNBAGAMETOTAL-26MAR5-LAL-GSW → '26MAR5-LAL-GSW'
-         KXNBA-26MAR5-LAL-GSW-LEBRONPOINTS → '26MAR5-LAL-GSW'  (player prop trimmed)
+    e.g. KXNBA-26MAR04-LAL-GSW and KXNBAGAMETOTAL-26MAR04-LAL-GSW → '26MAR04-LAL-GSW'
+         KXNBA-26MAR04-LAL-GSW-LEBRONPOINTS → '26MAR04-LAL-GSW'  (player prop trimmed)
+         KXLOL-26MAR04-M1-BLG-JDG (map between date and teams) → '26MAR04-BLG-JDG'
          KXASOCCER-20250304-MACARTHUR-CENTRALCOAST → '20250304-MACARTHUR-CENTRALCOAST'
-         KXLOL-M3-26MAR04-BLG-JDG (map as 2nd segment) → '26MAR04-BLG-JDG'
 
     Returns None only if the ticker has no '-' at all.
     """
     if "-" not in event_ticker:
         return None
-    suffix = event_ticker.split("-", 1)[1]          # drop series prefix
+    suffix = event_ticker.split("-", 1)[1]      # drop series prefix
     parts = suffix.split("-")
-    # Skip any leading map/set/game qualifier segments (M1, MAP2, SET3, G1, etc.)
-    # so per-map esports markets group with their overall match
-    while parts and _MAP_QUAL_RE.match(parts[0]):
-        parts = parts[1:]
-    return "-".join(parts[:3]) if parts else None    # date + up to 2 team segments
+    # Remove map/set/game qualifier segments from anywhere in the suffix
+    # (M1, MAP2, SET3, GAME1, ROUND1, etc.) so per-map markets group with the match.
+    # G2/T1/R6 are intentionally NOT matched — they could be esports team codes.
+    parts = [p for p in parts if not _MAP_QUAL_RE.match(p)]
+    return "-".join(parts[:3]) if parts else None
 
 
 # Matches "Set 1", "Map 2", "Round 3" inside market titles
