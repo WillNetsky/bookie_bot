@@ -202,6 +202,39 @@ def _is_ended(expiration_time: str) -> bool:
         return False
 
 
+def _parse_iso_dt(s: str | None) -> "datetime | None":
+    """Parse an ISO datetime string (with or without Z) into a UTC-aware datetime."""
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def _fmt_eta(dt: "datetime | None", now: datetime, verb: str = "closes") -> str:
+    """Return a human-readable ETA string like 'closes in 2h 15m' or 'LIVE'."""
+    if dt is None:
+        return ""
+    diff = (dt - now).total_seconds()
+    if diff <= 0:
+        return "LIVE"
+    elif diff < 3600:
+        m = int(diff // 60)
+        return f"{verb} in {m}m"
+    elif diff < 86400:
+        h = int(diff // 3600)
+        m = int((diff % 3600) // 60)
+        return f"{verb} in {h}h {m}m" if m else f"{verb} in {h}h"
+    else:
+        d = int(diff // 86400)
+        h = int((diff % 86400) // 3600)
+        return f"{verb} in {d}d {h}h" if h else f"{verb} in {d}d"
+
+
 def _format_game_time(commence_time: str) -> str:
     """Format game time for display. Shows the event date from the ticker."""
     if not commence_time:
@@ -2935,6 +2968,10 @@ class KalshiCog(commands.Cog):
                 live_scores[composite] = status
 
         embed = discord.Embed(title="Your Active Bets", color=discord.Color.blue())
+        now = datetime.now(timezone.utc)
+
+        # Collect all fields as (sort_dt, name, value) so we can sort before rendering.
+        fields: list[tuple[datetime | None, str, str]] = []
 
         for b in bets:
             potential = round(b["amount"] * b["odds"], 2)
@@ -2968,23 +3005,29 @@ class KalshiCog(commands.Cog):
             sport_line = f"{sport} · " if sport and not is_outright else ""
             pick_label = b["pick"] if is_outright else format_pick_label(b)
 
-            embed.add_field(
-                name=f"{icon} Bet #{b['id']} (legacy) · {status_text}",
-                value=(
+            sort_dt = _parse_iso_dt(b.get("commence_time"))
+            eta = _fmt_eta(sort_dt, now, verb="starts") if sort_dt else ""
+            eta_line = f"\n⏱ {eta}" if eta else ""
+
+            fields.append((
+                sort_dt,
+                f"{icon} Bet #{b['id']} (legacy) · {status_text}",
+                (
                     f"{sport_line}**{matchup}**\n"
                     f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {format_american(decimal_to_american(b['odds']))}"
                     f"{score_line}"
+                    f"{eta_line}"
                 ),
-                inline=False,
-            )
+            ))
 
-        # Show pending parlays inline
+        # Pending parlays
         for p in parlays:
             icon = "\U0001f7e1"
             potential = round(p["amount"] * p["total_odds"], 2)
             status_text = f"Pending — potential **${potential:.2f}**"
 
             leg_lines = []
+            leg_dts: list[datetime] = []
             for leg in p.get("legs", []):
                 ls = leg["status"]
                 if ls == "won":
@@ -3006,18 +3049,26 @@ class KalshiCog(commands.Cog):
                     else:
                         pick_label += f" {point:g}"
                 leg_lines.append(f"{leg_icon} {format_matchup(home, away)} — {pick_label} ({format_american(decimal_to_american(leg['odds']))})")
+                leg_dt = _parse_iso_dt(leg.get("commence_time"))
+                if leg_dt:
+                    leg_dts.append(leg_dt)
 
-            embed.add_field(
-                name=f"{icon} Parlay #{p['id']} (legacy) · {status_text}",
-                value=(
+            # Sort key = last leg to start (parlay resolves when all games finish)
+            sort_dt = max(leg_dts) if leg_dts else None
+            eta = _fmt_eta(sort_dt, now, verb="starts") if sort_dt else ""
+            eta_line = f"\n⏱ {eta}" if eta else ""
+
+            fields.append((
+                sort_dt,
+                f"{icon} Parlay #{p['id']} (legacy) · {status_text}",
+                (
                     f"Wager: **${p['amount']:.2f}** · Odds: **{p['total_odds']:.2f}x**\n"
                     + "\n".join(leg_lines)
+                    + eta_line
                 ),
-                inline=False,
-            )
+            ))
 
         # Fetch current Kalshi market prices for cash-out calculation.
-        # Fetch each bet's market individually (60s cache) for fresh prices.
         cashout_pairs: list[tuple[dict, int]] = []
         if kalshi_bets:
             tickers = list({kb["market_ticker"] for kb in kalshi_bets})
@@ -3029,34 +3080,34 @@ class KalshiCog(commands.Cog):
         else:
             market_map = {}
 
-        # Show pending Kalshi bets
-        now = datetime.now(timezone.utc)
+        # Pending Kalshi bets
         for kb in kalshi_bets:
             title = kb.get("title") or kb["market_ticker"]
             pick_label = kb.get("pick_display") or kb["pick"].upper()
 
-            # Determine live/upcoming status from event_ticker date
+            # Determine sort time: prefer stored close_time, fall back to ticker date
+            close_dt = _parse_iso_dt(kb.get("close_time"))
             event_ticker = kb.get("event_ticker", "")
             ticker_date = _parse_event_ticker_date(event_ticker) if event_ticker else None
+            sort_dt = close_dt or ticker_date
 
-            if ticker_date and ticker_date.date() < now.date():
-                icon = "\U0001f534"  # red — likely live/completed
-                time_line = "\n\U0001f534 LIVE"
-            elif ticker_date and ticker_date.date() == now.date():
-                icon = "\U0001f7e0"  # orange — today
-                time_line = "\nToday"
+            # Icon and ETA line
+            if sort_dt and sort_dt <= now:
+                icon = "\U0001f534"  # red — live/closed
+                eta_line = "\n\U0001f534 LIVE"
+            elif sort_dt and (sort_dt - now).total_seconds() < 86400:
+                icon = "\U0001f7e0"  # orange — closing today
+                eta_line = f"\n⏱ {_fmt_eta(sort_dt, now)}"
             else:
                 icon = "\U0001f7e3"  # purple — future
-                time_line = ""
-                if ticker_date:
-                    time_line = f"\n{ticker_date.strftime('%-m/%-d')}"
+                eta_line = f"\n⏱ {_fmt_eta(sort_dt, now)}" if sort_dt else (
+                    f"\n{ticker_date.strftime('%-m/%-d')}" if ticker_date else ""
+                )
 
             # Look up current market odds; fall back to stored odds
             market = market_map.get(kb["market_ticker"])
             display_odds = kb["odds"] if (kb["odds"] or 0) > 0 else None
             if market:
-                # For finalized markets, yes_ask_dollars is at extreme (0.01 or 1.00);
-                # prefer previous_yes_ask_dollars which reflects the pre-settlement price.
                 is_finalized = (market.get("status") or "") == "finalized"
                 if is_finalized:
                     yes_ask_raw = market.get("previous_yes_ask_dollars")
@@ -3073,8 +3124,6 @@ class KalshiCog(commands.Cog):
                     except (ValueError, TypeError):
                         pass
 
-            # Potential payout is locked in at purchase (stored odds), not live odds.
-            # Live display_odds shows how the market has moved since placement.
             stored_odds = kb["odds"] if (kb.get("odds") or 0) > 0 else None
             if stored_odds:
                 potential = round(kb["amount"] * stored_odds, 2)
@@ -3098,16 +3147,23 @@ class KalshiCog(commands.Cog):
                 status_text = "Pending — potential **N/A**"
                 odds_str = "N/A"
 
-            embed.add_field(
-                name=f"{icon} Kalshi #{kb['id']} · {status_text}",
-                value=(
+            fields.append((
+                sort_dt,
+                f"{icon} Kalshi #{kb['id']} · {status_text}",
+                (
                     f"**{title}**\n"
                     f"Pick: **{pick_label}** · ${kb['amount']:.2f} @ {odds_str}"
-                    f"{time_line}"
+                    f"{eta_line}"
                     f"{cashout_line}"
                 ),
-                inline=False,
-            )
+            ))
+
+        # Sort soonest first; None (no known time) sorts last.
+        _FAR_FUTURE = datetime.max.replace(tzinfo=timezone.utc)
+        fields.sort(key=lambda x: x[0] if x[0] is not None else _FAR_FUTURE)
+
+        for _, field_name, field_value in fields:
+            embed.add_field(name=field_name, value=field_value, inline=False)
 
         embed.set_footer(
             text="Use /myhistory to view resolved bets"
