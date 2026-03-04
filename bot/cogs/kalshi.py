@@ -99,6 +99,7 @@ def _sport_emoji(sport_key: str) -> str:
         or "CUP" in sk     # FA Cup, Copa, etc. — all specific cup sports caught above
         or "COPA" in sk or "COPALIB" in sk
         or "SUPERLIGA" in sk or "SUPERLEAGUE" in sk
+        or "LIGA" in sk  # LALIGA already above, also catches DIMAYOR, BBVA, etc.
     ):
         return "\u26bd"  # ⚽
     return "\U0001f3c6"  # 🏆 — Other / truly unrecognized
