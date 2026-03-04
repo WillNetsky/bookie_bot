@@ -80,8 +80,9 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3ae"  # 🎮
     if "BEAST" in sk or "FANATICS" in sk:
         return "\U0001f3ac"  # 🎬
-    # Soccer — anything left with league-like tickers
-    return "\u26bd"  # ⚽
+    if "EPL" in sk or "LALIGA" in sk or "BUNDESLIGA" in sk or "SERIEA" in sk or "LIGUE1" in sk or "MLS" in sk or "UCL" in sk or "UEL" in sk or "WORLDCUP" in sk or "SOCCER" in sk or "NWSL" in sk or "CONCACAF" in sk or "UEFA" in sk:
+        return "\u26bd"  # ⚽
+    return "\U0001f3c6"  # 🏆 — Other / unknown
 
 
 # Maps sport aliases (text or emoji) → the canonical emoji returned by _sport_emoji.
@@ -161,6 +162,7 @@ _SPORT_EMOJI_LABEL: dict[str, str] = {
     "⛳": "Golf",
     "🎮": "Esports",
     "🎬": "Entertainment",
+    "🏆": "Other",
 }
 
 
