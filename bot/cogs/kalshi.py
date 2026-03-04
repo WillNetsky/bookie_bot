@@ -228,12 +228,13 @@ def _teams_from_event_ticker(event_ticker: str) -> tuple[str, str] | None:
     """Extract (away, home) team codes from a hyphen-delimited event ticker.
 
     Works for tickers like "KXNHLGAMETOTAL-26FEB28-COL-ANA" where the last
-    two segments are uppercase team abbreviations.
+    two segments are uppercase team abbreviations.  Length limit is 10 to
+    accommodate esports team names (e.g. OXUJI=5, PHANTOM=7).
     """
     parts = event_ticker.split("-")
     if len(parts) >= 4:
         away, home = parts[-2], parts[-1]
-        if away.isalpha() and home.isalpha() and 2 <= len(away) <= 4 and 2 <= len(home) <= 4:
+        if away.isalpha() and home.isalpha() and 2 <= len(away) <= 10 and 2 <= len(home) <= 10:
             return away, home
     return None
 
