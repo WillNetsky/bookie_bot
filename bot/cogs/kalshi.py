@@ -767,6 +767,25 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         # No game-level markets with team codes — fall back to showing prop groups directly
         game_groups.extend(prop_groups)
 
+    # Final dedup pass: merge groups that resolve to the same matchup label
+    # and start time.  Catches cases where different series use different
+    # event_ticker formats that fingerprint to different keys for the same game.
+    label_time_map: dict[tuple, dict] = {}
+    deduped: list[dict] = []
+    for g in game_groups:
+        sorted_ms = sorted(g["markets"], key=lambda m: _earliest_market_time(m) or "9999")
+        if g["teams"]:
+            norm = "@".join(sorted(g["teams"]))
+        else:
+            norm = _best_game_label(sorted_ms).lower()
+        merge_key = (norm, (g["time"] or "")[:16])  # to-the-minute precision
+        if merge_key in label_time_map:
+            label_time_map[merge_key]["markets"].extend(g["markets"])
+        else:
+            label_time_map[merge_key] = g
+            deduped.append(g)
+    game_groups = deduped
+
     result = []
     for g in game_groups:
         sorted_markets = sorted(g["markets"], key=lambda m: _earliest_market_time(m) or "9999")
