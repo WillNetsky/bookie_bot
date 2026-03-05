@@ -646,6 +646,9 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
                     pass
             if not merged:
                 game_groups.append(prop)
+    else:
+        # No game-level markets with team codes — fall back to showing prop groups directly
+        game_groups.extend(prop_groups)
 
     result = []
     for g in game_groups:
