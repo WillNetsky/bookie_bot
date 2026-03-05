@@ -79,7 +79,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3c1"  # 🏁 — NASCAR
     if "RACE" in sk:
         return "\U0001f697"  # 🚗 — Racing (other)
-    if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk or "LIV" in sk:
+    if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk or "LIV" in sk or "DPWORLDTOUR" in sk:
         return "\u26f3"  # ⛳
     if "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk or "SSHIELD" in sk:
         return "\U0001f3cf"  # 🏏
@@ -120,6 +120,7 @@ def _sport_emoji(sport_key: str) -> str:
         or "SCOTTISH" in sk or "SCOTPREM" in sk  # Scottish Premiership / Cup
         or "GREECE" in sk or "GREEK" in sk or "GRC" in sk  # Super League Greece
         or "ARGENT" in sk or "ARGPREMDIV" in sk  # Argentina Primera Division
+        or "BRASILEIRO" in sk  # Brasileirao (Brazilian soccer)
     ):
         return "\u26bd"  # ⚽
     return "\U0001f3c6"  # 🏆 — Other / truly unrecognized
