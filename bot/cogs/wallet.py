@@ -44,7 +44,7 @@ class Wallet(commands.Cog):
         if bal <= 0:
             view = _StupidPoorView(interaction.user.id)
             await interaction.response.send_message(
-                "💸 You're **Stupid Poor**. You have nothing.",
+                f"💸 You stupid poor! You have nothing {interaction.user.mention}",
                 view=view,
             )
             return
