@@ -600,12 +600,25 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
                 subtitle = f"{len(group_sorted)} thresholds"
             else:
                 # Game outcomes (win/loss/tie, team names, etc.)
-                label = _clean_market_title(game_title)
-                # For player props / non-outcome groups, add team context if not already present
-                if " at " not in label.lower() and " vs " not in label.lower() and " @ " not in label:
-                    teams = _teams_from_event_ticker(key)
-                    if teams:
-                        label = f"{teams[0]} @ {teams[1]} · {label}"
+                # Prefer building the label from yes_sub_title team names rather
+                # than the verbose question-format Kalshi title, e.g.:
+                #   "Will Oxuji win map 2 in the Oxuji vs. Novaq match?"
+                # → "(Map 2) Oxuji Esports vs. Team Novaq"
+                outcome_teams = [
+                    s for s in sub_titles
+                    if s and not re.search(r'\d', s)
+                    and s.lower() not in ("tie", "draw", "yes", "no")
+                ]
+                if len(outcome_teams) >= 2:
+                    qm = _QUALIFIER_RE.search(game_title or "")
+                    qualifier = f"({qm.group(1).capitalize()} {qm.group(2)}) " if qm else ""
+                    label = f"{qualifier}{outcome_teams[0]} vs. {outcome_teams[1]}"
+                else:
+                    label = _clean_market_title(game_title)
+                    if " at " not in label.lower() and " vs " not in label.lower() and " @ " not in label:
+                        teams = _teams_from_event_ticker(key)
+                        if teams:
+                            label = f"{teams[0]} @ {teams[1]} · {label}"
                 subs = [s for s in sub_titles[:3] if s]
                 subtitle = " · ".join(subs) if subs else f"{len(group_sorted)} options"
             result.append({
@@ -1224,13 +1237,22 @@ class MarketListView(discord.ui.View):
                 header = f"**{label}**" if in_game else f"{sport_emoji} **{label}**"
                 if sport:
                     header += f"  _{sport}_"
-                if series_ticker:
+                if series_ticker and not in_game:
                     header += f"  `{series_ticker}`"
                 # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
+                # Use mid-price for consistency with _market_odds_str
                 parts = []
                 for mkt in item["markets"][:3]:
                     sub = mkt.get("yes_sub_title") or ""
-                    price = mkt.get("yes_ask_dollars") or mkt.get("last_price_dollars")
+                    bid = mkt.get("yes_bid_dollars")
+                    ask = mkt.get("yes_ask_dollars")
+                    last = mkt.get("last_price_dollars")
+                    if bid is not None and ask is not None:
+                        price = (float(bid) + float(ask)) / 2
+                    elif ask is not None:
+                        price = ask
+                    else:
+                        price = last
                     try:
                         am = _price_to_american(float(price)) if price is not None else None
                     except (TypeError, ValueError):
@@ -1393,7 +1415,7 @@ class LiveThresholdView(discord.ui.View):
         embed.description = "\n".join(lines)
 
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
-        embed.set_footer(text=f"{footer}Select a threshold to bet")
+        embed.set_footer(text=f"{footer}Select an outcome to bet")
         return embed
 
     async def on_timeout(self) -> None:
@@ -1415,7 +1437,7 @@ class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
         parlay_legs: list[dict] | None = None,
         game_back: dict | None = None,
     ) -> None:
-        super().__init__(placeholder="Select a threshold to bet on...", options=options, row=row)
+        super().__init__(placeholder="Select an outcome to bet on...", options=options, row=row)
         self._market_map = market_map
         self._all_markets = all_markets
         self._list_page = list_page
