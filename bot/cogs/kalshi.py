@@ -686,11 +686,19 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     # (e.g. a Kalshi "multi-game event" where 4 games share one event_ticker).
     groups: list[dict] = []
     for key, group_markets in game_map.items():
-        # Detect multiple distinct matchups by title
-        per_title: dict[str, list[dict]] = {}
-        for m in group_markets:
-            per_title.setdefault(m.get("title") or "", []).append(m)
-        sub_groups = list(per_title.values()) if len(per_title) > 1 else [group_markets]
+        # Sub-split only when ALL markets share the exact same event_ticker:
+        # that means one Kalshi "multi-game event" containing several matchups.
+        # If markets come from different event_tickers (different series for the
+        # same game, e.g. KXNHLGAME + KXNHLSPREAD + KXNHLTOTAL), keep them
+        # together — their titles differ but they're all one game.
+        unique_event_tickers = {m.get("event_ticker", "") for m in group_markets}
+        if len(unique_event_tickers) == 1:
+            per_title: dict[str, list[dict]] = {}
+            for m in group_markets:
+                per_title.setdefault(m.get("title") or "", []).append(m)
+            sub_groups = list(per_title.values()) if len(per_title) > 1 else [group_markets]
+        else:
+            sub_groups = [group_markets]
 
         for i, sub_markets in enumerate(sub_groups):
             sub_key = f"{key}::{i}" if len(sub_groups) > 1 else key
