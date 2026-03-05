@@ -83,8 +83,12 @@ def _sport_emoji(sport_key: str) -> str:
         return "\u26f3"  # ⛳
     if "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "T20" in sk or "ODI" in sk or "SSHIELD" in sk:
         return "\U0001f3cf"  # 🏏
-    if "CS2" in sk or "CSGO" in sk or "VALORANT" in sk or "LOL" in sk or "DOTA" in sk or "OW" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk:
-        return "\U0001f3ae"  # 🎮
+    if "CS2" in sk or "CSGO" in sk:
+        return "\U0001f52b"  # 🔫 — CS2
+    if "LOL" in sk:
+        return "\U0001f9d9"  # 🧙 — League of Legends
+    if "VALORANT" in sk or "DOTA" in sk or "OW" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk:
+        return "\U0001f3ae"  # 🎮 — Esports
     if "BEAST" in sk or "FANATICS" in sk:
         return "\U0001f3ac"  # 🎬
     # Soccer — explicit leagues + generic "LEAGUE"/"CUP" after all non-soccer sports caught
@@ -165,6 +169,12 @@ _SPORT_ALIASES: dict[str, str] = {
     "golf":             "⛳",
     "esports":          "🎮",
     "gaming":           "🎮",
+    "cs2":              "🔫",
+    "csgo":             "🔫",
+    "counter-strike":   "🔫",
+    "counter strike":   "🔫",
+    "lol":              "🧙",
+    "league of legends": "🧙",
     "politics":         "🗳️",
     "election":         "🗳️",
     # ── emoji aliases (direct emoji input) ─────────────────────────────
@@ -186,6 +196,8 @@ _SPORT_ALIASES: dict[str, str] = {
     "🏁": "🏁",
     "🚗": "🚗",
     "⛳": "⛳",
+    "🔫": "🔫",
+    "🧙": "🧙",
     "🎮": "🎮",
     "🗳️": "🗳️",
     "⚽": "⚽",
@@ -212,6 +224,8 @@ _SPORT_EMOJI_LABEL: dict[str, str] = {
     "🏁": "NASCAR",
     "🚗": "Racing",
     "⛳": "Golf",
+    "🔫": "CS2",
+    "🧙": "League of Legends",
     "🎮": "Esports",
     "🗳️": "Politics",
     "🎬": "Entertainment",
