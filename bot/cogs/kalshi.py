@@ -488,6 +488,10 @@ def _group_markets_by_prop(markets: list[dict]) -> list[dict]:
                 "markets": group_sorted,
                 "count": len(group_sorted),
             })
+    # Sort soonest-closing first
+    result.sort(key=lambda item: (
+        _earliest_market_time(item["market"]) if item["type"] == "single" else _earliest_market_time(item["markets"][0])
+    ) or "9999")
     return result
 
 
