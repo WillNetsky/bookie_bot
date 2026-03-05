@@ -1252,11 +1252,12 @@ class KalshiAPI:
 
     # ── Public API methods ────────────────────────────────────────────
 
-    async def get_markets_by_series(self, series_ticker: str, status: str = "open", limit: int = 100) -> list[dict]:
+    async def get_markets_by_series(self, series_ticker: str, status: str = "open", limit: int = 100, ttl: int | None = None) -> list[dict]:
         """Fetch open markets for a given series ticker."""
         data = await self._cached_request(
             f"{BASE_URL}/markets",
             {"series_ticker": series_ticker, "status": status, "limit": limit},
+            ttl=ttl,
             prune_func=self._prune_markets_list
         )
         if not data or "markets" not in data:

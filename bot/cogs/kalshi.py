@@ -1043,11 +1043,29 @@ GAMES_PER_PAGE = 10
 
 
 def _market_odds_str(m: dict) -> tuple[str, str]:
-    """Return (yes_american, no_american) strings for display, or ("?", "?")."""
-    yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
-    if 0 < yes_ask < 1:
-        yes_am = format_american(decimal_to_american(round(1.0 / yes_ask, 3)))
-        no_am  = format_american(decimal_to_american(round(1.0 / (1.0 - yes_ask), 3)))
+    """Return (yes_american, no_american) strings for display using mid-price.
+
+    Mid-price = (bid + ask) / 2 gives a cleaner implied probability than
+    ask-only, which inflates cost by the full spread.  Falls back to ask,
+    then last_price when bid/ask are unavailable.
+    """
+    try:
+        bid = m.get("yes_bid_dollars")
+        ask = m.get("yes_ask_dollars")
+        last = m.get("last_price_dollars")
+        if bid is not None and ask is not None:
+            yes_price = (float(bid) + float(ask)) / 2
+        elif ask is not None:
+            yes_price = float(ask)
+        elif last is not None:
+            yes_price = float(last)
+        else:
+            return "?", "?"
+    except (TypeError, ValueError):
+        return "?", "?"
+    if 0 < yes_price < 1:
+        yes_am = format_american(decimal_to_american(round(1.0 / yes_price, 3)))
+        no_am  = format_american(decimal_to_american(round(1.0 / (1.0 - yes_price), 3)))
         return yes_am, no_am
     return "?", "?"
 
@@ -1630,6 +1648,29 @@ class GameSelectDropdown(discord.ui.Select["GameListView"]):
             return
         if not await _safe_defer(interaction, edit=True):
             return
+
+        # Re-fetch this game's series with a 15s TTL so prices are live.
+        # Filters the fresh results down to markets that share this game's
+        # event-ticker fingerprints, leaving other games in the same series alone.
+        game_markets = game["markets"]
+        series_tickers = list({m.get("series_ticker") for m in game_markets if m.get("series_ticker")})
+        game_fps = {_extract_game_fingerprint(m.get("event_ticker", "")) for m in game_markets}
+        game_fps.discard(None)
+        try:
+            results = await asyncio.gather(
+                *(kalshi_api.get_markets_by_series(st, ttl=15) for st in series_tickers),
+                return_exceptions=True,
+            )
+            fresh = [
+                m for r in results if isinstance(r, list)
+                for m in r
+                if not game_fps or _extract_game_fingerprint(m.get("event_ticker", "")) in game_fps
+            ]
+            if fresh:
+                game_markets = fresh
+        except Exception:
+            pass  # silently use cached data
+
         glv = self._game_list_view
         game_back = {
             "markets": glv.sport_markets,
@@ -1640,7 +1681,7 @@ class GameSelectDropdown(discord.ui.Select["GameListView"]):
             "parlay_legs": glv.parlay_legs,
         }
         market_view = MarketListView(
-            game["markets"],
+            game_markets,
             parlay_legs=glv.parlay_legs,
             game_back=game_back,
         )
