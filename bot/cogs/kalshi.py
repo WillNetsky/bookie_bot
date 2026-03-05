@@ -444,6 +444,16 @@ _LEAGUE_SUFFIX_RE = re.compile(
 )
 
 
+_LEAGUE_DISPLAY_OVERRIDE: dict[str, str] = {
+    "SWISSLEAGUE":  "Swiss League",
+    "NCAAHOCKEY":   "NCAA",
+    "MARMAD":       "March Madness",
+    "WCGROUP":      "World Cup",
+    "DPWORLDTOUR":  "DP World Tour",
+    "BRASILEIRO":   "Brasileirão",
+}
+
+
 def _short_league(series_ticker: str) -> str:
     """Extract a short league label from a series ticker.
 
@@ -458,7 +468,7 @@ def _short_league(series_ticker: str) -> str:
         m = _LEAGUE_SUFFIX_RE.search(sk)
         if m and m.start() > 0:
             sk = sk[:m.start()]
-    return sk
+    return _LEAGUE_DISPLAY_OVERRIDE.get(sk, sk)
 
 
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
@@ -709,6 +719,17 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
                     pass
 
         for prop in prop_groups:
+            # If no market in this group has numeric sub-titles, it looks like a
+            # standalone game-winner (e.g. another game from the same series).
+            # Don't merge it into a different game — keep it as its own entry.
+            has_thresholds = any(
+                _NUMBER_RE.search(m.get("yes_sub_title") or "")
+                for m in prop["markets"]
+            )
+            if not has_thresholds:
+                game_groups.append(prop)
+                continue
+
             merged = False
             if prop["time"] and timed_games:
                 try:
