@@ -45,6 +45,8 @@ def _sport_emoji(sport_key: str) -> str:
     sk = sport_key.upper()
     if "MLB" in sk or "WBC" in sk or "NCAABB" in sk or "COLLEGEBASEBALL" in sk:
         return "\u26be"  # ⚾ — must be before NCAAB (basketball) check
+    if "MARMAD" in sk:
+        return "\U0001f32a\ufe0f"  # 🌪️ — March Madness
     if "NCAAMB" in sk or "NCAAWB" in sk or "NCAAB" in sk:
         return "\U0001f393"  # 🎓 — College Basketball
     if "NBA" in sk or "WNBA" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
@@ -138,6 +140,8 @@ _SPORT_ALIASES: dict[str, str] = {
     "ncaa basketball":  "🎓",
     "ncaamb":           "🎓",
     "ncaab":            "🎓",
+    "march madness":    "🌪️",
+    "marmad":           "🌪️",
     "football":         "🏈",
     "nfl":              "🏈",
     "college football": "🏈",
@@ -179,6 +183,7 @@ _SPORT_ALIASES: dict[str, str] = {
     "politics":         "🗳️",
     "election":         "🗳️",
     # ── emoji aliases (direct emoji input) ─────────────────────────────
+    "🌪️": "🌪️",
     "🎓": "🎓",
     "🏀": "🏀",
     "🏈": "🏈",
@@ -206,6 +211,7 @@ _SPORT_ALIASES: dict[str, str] = {
 
 # Human-readable sport labels keyed by sport emoji (used for sport-selector display).
 _SPORT_EMOJI_LABEL: dict[str, str] = {
+    "🌪️": "March Madness",
     "🎓": "College Basketball",
     "🏀": "Pro Basketball",
     "🏈": "Football",
