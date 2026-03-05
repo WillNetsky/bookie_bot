@@ -437,14 +437,41 @@ async def count_user_resolved_parlays(user_id: int) -> int:
 
 @db_retry()
 async def get_leaderboard(limit: int = 10) -> list[dict]:
+    _PENDING_SQL = """
+        COALESCE((SELECT SUM(amount) FROM bets         WHERE user_id = u.discord_id AND status = 'pending'), 0) +
+        COALESCE((SELECT SUM(amount) FROM parlays      WHERE user_id = u.discord_id AND status = 'pending'), 0) +
+        COALESCE((SELECT SUM(amount) FROM kalshi_bets  WHERE user_id = u.discord_id AND status = 'pending'), 0) +
+        COALESCE((SELECT SUM(amount) FROM kalshi_parlays WHERE user_id = u.discord_id AND status = 'pending'), 0)
+    """
     db = await get_connection()
     try:
         cursor = await db.execute(
-            "SELECT discord_id, balance, voice_minutes FROM users ORDER BY balance DESC LIMIT ?",
+            f"""SELECT discord_id, balance,
+                ({_PENDING_SQL}) AS pending_total,
+                balance + ({_PENDING_SQL}) AS total_value
+            FROM users u
+            ORDER BY total_value DESC LIMIT ?""",
             (limit,),
         )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def has_pending_bets(user_id: int) -> bool:
+    """Return True if the user has any pending bets across all tables."""
+    db = await get_connection()
+    try:
+        for table in ("bets", "parlays", "kalshi_bets", "kalshi_parlays"):
+            cursor = await db.execute(
+                f"SELECT 1 FROM {table} WHERE user_id = ? AND status = 'pending' LIMIT 1",
+                (user_id,),
+            )
+            if await cursor.fetchone():
+                return True
+        return False
     finally:
         await db.close()
 

@@ -59,7 +59,13 @@ class Wallet(commands.Cog):
 
         lines = []
         for i, u in enumerate(top, 1):
-            lines.append(f"**{i}.** <@{u['discord_id']}> — ${u['balance']:.2f}")
+            cash = u["balance"]
+            pending = u.get("pending_total") or 0
+            total = u.get("total_value") or cash
+            line = f"**{i}.** <@{u['discord_id']}> — **${total:.2f}**"
+            if pending > 0:
+                line += f"  (${cash:.2f} cash · ${pending:.2f} in bets)"
+            lines.append(line)
         await interaction.response.send_message(
             "\n".join(lines), allowed_mentions=discord.AllowedMentions.none()
         )

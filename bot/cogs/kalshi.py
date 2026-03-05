@@ -2281,6 +2281,30 @@ class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
 # ── /mybets Cash-Out Views ────────────────────────────────────────────
 
 
+class _StupidPoorChannelView(discord.ui.View):
+    """Posted in the results channel when a user goes broke with no pending bets."""
+
+    def __init__(self, user_id: int) -> None:
+        super().__init__(timeout=None)
+        self.user_id = user_id
+        self.message: discord.Message | None = None
+
+    @discord.ui.button(label="Give me $100", style=discord.ButtonStyle.green)
+    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        from bot.db import models as _m
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't for you.", ephemeral=True)
+            return
+        await _m.get_or_create_user(self.user_id)
+        new_bal = await _m.set_user_balance(self.user_id, 100)
+        button.disabled = True
+        self.stop()
+        await interaction.response.edit_message(
+            content=f"💸 You stupid poor! You have nothing <@{self.user_id}>\n> Fine. You have **${new_bal:.2f}**. Try not to blow it.",
+            view=self,
+        )
+
+
 class _CashOutConfirmView(discord.ui.View):
     """Ephemeral confirm/cancel prompt shown when a user picks a bet to cash out."""
 
@@ -3479,6 +3503,33 @@ class KalshiCog(commands.Cog):
         else:
             log.exception("Error in /resolve command", exc_info=error)
 
+    # ── Broke player check ────────────────────────────────────────────
+
+    async def _check_broke_users(self, user_ids: set[int]) -> None:
+        """Post 'Stupid Poor' to the results channel for any broke users with no pending bets."""
+        from bot.db import models as _m
+        from bot.services.wallet_service import get_balance
+        channel = self.bot.get_channel(BET_RESULTS_CHANNEL_ID)
+        if not channel:
+            return
+        for uid in user_ids:
+            try:
+                bal = await get_balance(uid)
+                if bal > 0:
+                    continue
+                if await _m.has_pending_bets(uid):
+                    continue
+                view = _StupidPoorChannelView(uid)
+                user = self.bot.get_user(uid)
+                mention = f"<@{uid}>"
+                msg = await channel.send(
+                    f"💸 You stupid poor! You have nothing {mention}",
+                    view=view,
+                )
+                view.message = msg
+            except Exception:
+                log.exception("Error in _check_broke_users for user %s", uid)
+
     # ── Resolution announcement ────────────────────────────────────────
 
     async def _post_resolution_announcement(
@@ -3571,6 +3622,10 @@ class KalshiCog(commands.Cog):
             await channel.send(embed=embed)
         except discord.HTTPException:
             log.exception("Failed to send resolution announcement")
+
+        losing_users = {b["user_id"] for b in resolved_bets if b.get("result") == "lost"}
+        if losing_users:
+            await self._check_broke_users(losing_users)
 
         if any(p["result"] == "won" for p in parlay_entries):
             try:
@@ -3754,12 +3809,15 @@ class KalshiCog(commands.Cog):
 
                 bets = await models.get_pending_kalshi_bets_by_market(ticker)
                 board_before = await leaderboard_notifier.snapshot()
+                losing_users: set[int] = set()
                 for bet in bets:
                     won = bet["pick"] == winning_side
                     payout = round(bet["amount"] * bet["odds"], 2) if won else 0
                     await models.resolve_kalshi_bet(bet["id"], won, payout)
                     if won:
                         await leaderboard_notifier.notify_if_passed(bet["user_id"], round(payout), board_before, "sports betting")
+                    else:
+                        losing_users.add(bet["user_id"])
 
                     if channel:
                         result_text = "won" if won else "lost"
@@ -3804,6 +3862,7 @@ class KalshiCog(commands.Cog):
 
                     if "lost" in statuses:
                         await models.update_kalshi_parlay(pid, "lost", payout=0)
+                        losing_users.add(kp["user_id"])
                         if channel:
                             user = self.bot.get_user(kp["user_id"])
                             name = user.display_name if user else f"User {kp['user_id']}"
@@ -3853,6 +3912,8 @@ class KalshiCog(commands.Cog):
                     # else: still pending
 
                 log.info("Resolved Kalshi market %s -> %s", ticker, winning_side)
+                if losing_users:
+                    await self._check_broke_users(losing_users)
 
             except Exception:
                 log.exception("Error checking Kalshi market %s", ticker)
