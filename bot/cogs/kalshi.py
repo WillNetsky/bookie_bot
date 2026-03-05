@@ -378,17 +378,43 @@ def _teams_from_event_ticker(event_ticker: str) -> tuple[str, str] | None:
 
 _DATE_SEGMENT_RE = re.compile(r'^\d{2}[A-Za-z]{3}\d+$')
 
+# Matches a concatenated date+teams blob like '26MAR05UTAWAS' (no separators).
+# Group 1 = date portion, group 2 = team codes (4–9 uppercase letters).
+_CONCAT_DATE_TEAMS_RE = re.compile(r'^(\d{2}[A-Za-z]{3}\d+)([A-Z]{4,9})$')
+
+
+def _split_concat_teams(teams_str: str) -> tuple[str, str] | None:
+    """Split a concatenated team-code string into two codes.
+
+    Handles 3+3 (most leagues: NBA/NHL/etc.) and 2+2 formats.
+    Returns None for unrecognised lengths.
+    """
+    n = len(teams_str)
+    if n == 6:
+        return teams_str[:3], teams_str[3:]
+    if n == 4:
+        return teams_str[:2], teams_str[2:]
+    return None
+
 
 def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | None:
-    """Like _teams_from_event_ticker but handles player-prop suffixes.
-
-    For tickers like KXNBA-26MAR5-LAL-GSW-LEBRONPOINTS the standard function
-    fails because parts[-1] is not a team code. This version scans forward past
-    the date segment and picks the first two 2-4 char alpha team codes found.
+    """Like _teams_from_event_ticker but handles player-prop suffixes and
+    the concatenated date+teams format used by Kalshi NBA/NHL tickers
+    (e.g. KXNBATOTAL-26MAR05UTAWAS where date and teams share one segment).
     """
     teams = _teams_from_event_ticker(event_ticker)
     if teams:
         return teams
+
+    if "-" in event_ticker:
+        suffix = event_ticker.split("-", 1)[1]
+        # Concatenated format: single segment after the series prefix
+        if "-" not in suffix:
+            m = _CONCAT_DATE_TEAMS_RE.match(suffix)
+            if m:
+                return _split_concat_teams(m.group(2))
+
+    # Original fallback: scan for 2-4 char team codes after a date segment
     parts = event_ticker.split("-")
     found: list[str] = []
     past_date = False
@@ -412,10 +438,12 @@ _MAP_QUAL_RE = re.compile(r'^(?:MAP|SET|GAME|ROUND|M)\d+$', re.IGNORECASE)
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
     """Return a stable game key by stripping the series prefix and map qualifiers.
 
-    e.g. KXNBA-26MAR04-LAL-GSW and KXNBAGAMETOTAL-26MAR04-LAL-GSW → '26MAR04-LAL-GSW'
-         KXNBA-26MAR04-LAL-GSW-LEBRONPOINTS → '26MAR04-LAL-GSW'  (player prop trimmed)
-         KXLOL-26MAR04-M1-BLG-JDG (map between date and teams) → '26MAR04-BLG-JDG'
-         KXASOCCER-20250304-MACARTHUR-CENTRALCOAST → '20250304-MACARTHUR-CENTRALCOAST'
+    Handles two ticker formats:
+      Hyphen-separated:   KXNBAGAME-26MAR05-UTA-WAS  → '26MAR05-UTA-WAS'
+      Concatenated:       KXNBATOTAL-26MAR05UTAWAS    → '26MAR05-UTA-WAS'
+
+    Team codes are sorted so that UTAWAS and WASUTA produce the same fingerprint,
+    ensuring all series for the same game group together regardless of team order.
 
     Returns None only if the ticker has no '-' at all.
     """
@@ -423,10 +451,24 @@ def _extract_game_fingerprint(event_ticker: str) -> str | None:
         return None
     suffix = event_ticker.split("-", 1)[1]      # drop series prefix
     parts = suffix.split("-")
-    # Remove map/set/game qualifier segments from anywhere in the suffix
-    # (M1, MAP2, SET3, GAME1, ROUND1, etc.) so per-map markets group with the match.
-    # G2/T1/R6 are intentionally NOT matched — they could be esports team codes.
     parts = [p for p in parts if not _MAP_QUAL_RE.match(p)]
+
+    # Concatenated format: single segment like '26MAR05UTAWAS'
+    if len(parts) == 1:
+        m = _CONCAT_DATE_TEAMS_RE.match(parts[0])
+        if m:
+            date_str = m.group(1)
+            team_pair = _split_concat_teams(m.group(2))
+            if team_pair:
+                t1, t2 = sorted(team_pair)
+                return f"{date_str}-{t1}-{t2}"
+        return parts[0]
+
+    # Hyphen-separated format: normalise team order in positions 1 & 2
+    if len(parts) >= 3 and parts[1].isalpha() and parts[2].isalpha():
+        t1, t2 = sorted([parts[1], parts[2]])
+        return f"{parts[0]}-{t1}-{t2}"
+
     return "-".join(parts[:3]) if parts else None
 
 
@@ -1418,9 +1460,7 @@ class GameListView(discord.ui.View):
         for g in page_games:
             n = g["market_count"]
             time_part = f" · {g['time_str']}" if g["time_str"] else ""
-            # DEBUG: show event_ticker of first market
-            sample_et = g["markets"][0].get("event_ticker", "?") if g["markets"] else "?"
-            lines.append(f"**{g['label']}** · {n} market{'s' if n != 1 else ''}{time_part}\n`{sample_et}`")
+            lines.append(f"**{g['label']}** · {n} market{'s' if n != 1 else ''}{time_part}")
         embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
         embed.set_footer(text=f"{footer}Select a game to see betting options")
