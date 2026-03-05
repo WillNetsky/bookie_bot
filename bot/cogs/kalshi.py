@@ -434,6 +434,32 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
 # Deliberately excludes single-letter G/R/Q so team codes like G2 and R6 are kept.
 _MAP_QUAL_RE = re.compile(r'^(?:MAP|SET|GAME|ROUND|M)\d+$', re.IGNORECASE)
 
+# Suffixes to strip when extracting a short league label from a series ticker.
+_LEAGUE_SUFFIX_RE = re.compile(
+    r'(GAME|GAMES|SPREAD|TOTAL|WINNER|FIGHT|BOUT|MATCH|RACE|ROUND|SET|'
+    r'1HWINNER|2HWINNER|1H|2H|PTS|REB|AST|3PT|2D|FOUL|STL|BLK|TEAMTOTAL|'
+    r'PASSING|RUSHING|RECEIVING|TD|YDS|SACK|INT|MVP|CHAMP|'
+    r'HOCKEY|BASKETBALL|FOOTBALL|SOCCER|TENNIS|GOLF|BOXING|MMA)+$',
+    re.IGNORECASE,
+)
+
+
+def _short_league(series_ticker: str) -> str:
+    """Extract a short league label from a series ticker.
+
+    Examples: KXNHLGAME → NHL, KXNLA → NLA, KXNCAAHOCKEY → NCAA, KXNBASPREAD → NBA
+    """
+    sk = (series_ticker or "").upper()
+    if sk.startswith("KX"):
+        sk = sk[2:]
+    prev = None
+    while prev != sk:
+        prev = sk
+        m = _LEAGUE_SUFFIX_RE.search(sk)
+        if m and m.start() > 0:
+            sk = sk[:m.start()]
+    return sk
+
 
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
     """Return a stable game key by stripping the series prefix and map qualifiers.
@@ -645,18 +671,28 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         key = _extract_game_fingerprint(et) or et
         game_map.setdefault(key, []).append(m)
 
-    # Build intermediate groups, flagging which have team codes
+    # Build intermediate groups, flagging which have team codes.
+    # Sub-split any fingerprint bucket that contains multiple distinct game titles
+    # (e.g. a Kalshi "multi-game event" where 4 games share one event_ticker).
     groups: list[dict] = []
     for key, group_markets in game_map.items():
-        sorted_ms = sorted(group_markets, key=lambda m: _earliest_market_time(m) or "9999")
-        teams = _teams_from_event_ticker_flexible(sorted_ms[0].get("event_ticker", ""))
-        exp = _earliest_market_time(sorted_ms[0])
-        groups.append({
-            "key": key,
-            "teams": teams,
-            "time": exp,
-            "markets": sorted_ms,
-        })
+        # Detect multiple distinct matchups by title
+        per_title: dict[str, list[dict]] = {}
+        for m in group_markets:
+            per_title.setdefault(m.get("title") or "", []).append(m)
+        sub_groups = list(per_title.values()) if len(per_title) > 1 else [group_markets]
+
+        for i, sub_markets in enumerate(sub_groups):
+            sub_key = f"{key}::{i}" if len(sub_groups) > 1 else key
+            sorted_ms = sorted(sub_markets, key=lambda m: _earliest_market_time(m) or "9999")
+            teams = _teams_from_event_ticker_flexible(sorted_ms[0].get("event_ticker", ""))
+            exp = _earliest_market_time(sorted_ms[0])
+            groups.append({
+                "key": sub_key,
+                "teams": teams,
+                "time": exp,
+                "markets": sorted_ms,
+            })
 
     # Merge prop groups (no team codes) into the closest-time game group
     game_groups = [g for g in groups if g["teams"]]
@@ -702,9 +738,11 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         else:
             label = _best_game_label(sorted_markets)
         exp = _earliest_market_time(first)
+        league = _short_league(first.get("series_ticker") or "")
         result.append({
             "key": g["key"],
             "label": label,
+            "league": league,
             "time": exp,
             "time_str": _format_game_time(exp) if exp else "",
             "markets": sorted_markets,
@@ -1508,7 +1546,9 @@ class GameListView(discord.ui.View):
         for g in page_games:
             n = g["market_count"]
             time_part = f" · {g['time_str']}" if g["time_str"] else ""
-            lines.append(f"**{g['label']}** · {n} market{'s' if n != 1 else ''}{time_part}")
+            league = g.get("league", "")
+            league_part = f" · _{league}_" if league else ""
+            lines.append(f"**{g['label']}**{league_part} · {n} market{'s' if n != 1 else ''}{time_part}")
         embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
         embed.set_footer(text=f"{footer}Select a game to see betting options")
@@ -1531,7 +1571,9 @@ class GameSelectDropdown(discord.ui.Select["GameListView"]):
             key = f"g:{i}"
             self._games_by_key[key] = g
             n = g["market_count"]
-            desc = f"{n} market{'s' if n != 1 else ''}"
+            league = g.get("league", "")
+            desc = f"{league} · " if league else ""
+            desc += f"{n} market{'s' if n != 1 else ''}"
             if g["time_str"]:
                 desc = f"{g['time_str']} · {desc}"
             options.append(discord.SelectOption(
