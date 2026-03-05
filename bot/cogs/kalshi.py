@@ -1418,7 +1418,9 @@ class GameListView(discord.ui.View):
         for g in page_games:
             n = g["market_count"]
             time_part = f" · {g['time_str']}" if g["time_str"] else ""
-            lines.append(f"**{g['label']}** · {n} market{'s' if n != 1 else ''}{time_part}")
+            # DEBUG: show event_ticker of first market
+            sample_et = g["markets"][0].get("event_ticker", "?") if g["markets"] else "?"
+            lines.append(f"**{g['label']}** · {n} market{'s' if n != 1 else ''}{time_part}\n`{sample_et}`")
         embed.description = "\n\n".join(lines)
         footer = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
         embed.set_footer(text=f"{footer}Select a game to see betting options")
