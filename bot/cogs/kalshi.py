@@ -65,7 +65,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\u265f\ufe0f"  # ♟️
     if "PICKLE" in sk:
         return "\U0001f3d3"  # 🏓
-    if "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk:
+    if "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk or "AFL" in sk:
         return "\U0001f3c9"  # 🏉
     if "DARTS" in sk:
         return "\U0001f3af"  # 🎯
@@ -148,6 +148,8 @@ _SPORT_ALIASES: dict[str, str] = {
     "chess":            "♟️",
     "pickleball":       "🏓",
     "rugby":            "🏉",
+    "afl":              "🏉",
+    "australian rules": "🏉",
     "darts":            "🎯",
     "formula 1":        "🏎️",
     "formula one":      "🏎️",
@@ -193,7 +195,7 @@ _SPORT_EMOJI_LABEL: dict[str, str] = {
     "🥌": "Curling",
     "♟️": "Chess",
     "🏓": "Pickleball",
-    "🏉": "Rugby",
+    "🏉": "Rugby/AFL",
     "🎯": "Darts",
     "🏎️": "Formula 1",
     "🏁": "NASCAR",
