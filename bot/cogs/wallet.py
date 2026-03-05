@@ -64,7 +64,7 @@ class Wallet(commands.Cog):
             total = u.get("total_value") or cash
             line = f"**{i}.** <@{u['discord_id']}> — **${total:.2f}**"
             if pending > 0:
-                line += f"  (${cash:.2f} cash · ${pending:.2f} in bets)"
+                line += f"  (${cash:.2f} cash · ${pending:.2f} in bet value)"
             lines.append(line)
         await interaction.response.send_message(
             "\n".join(lines), allowed_mentions=discord.AllowedMentions.none()
