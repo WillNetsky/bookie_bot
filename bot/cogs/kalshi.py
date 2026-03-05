@@ -45,7 +45,9 @@ def _sport_emoji(sport_key: str) -> str:
     sk = sport_key.upper()
     if "MLB" in sk or "WBC" in sk or "NCAABB" in sk or "COLLEGEBASEBALL" in sk:
         return "\u26be"  # ⚾ — must be before NCAAB (basketball) check
-    if "NBA" in sk or "WNBA" in sk or "NCAAMB" in sk or "NCAAWB" in sk or "NCAAB" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
+    if "NCAAMB" in sk or "NCAAWB" in sk or "NCAAB" in sk:
+        return "\U0001f393"  # 🎓 — College Basketball
+    if "NBA" in sk or "WNBA" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
         return "\U0001f3c0"  # 🏀
     if "NFL" in sk or "NCAAF" in sk:
         return "\U0001f3c8"  # 🏈
@@ -127,8 +129,10 @@ _SPORT_ALIASES: dict[str, str] = {
     "basketball":       "🏀",
     "nba":              "🏀",
     "wnba":             "🏀",
-    "college basketball": "🏀",
-    "ncaa basketball":  "🏀",
+    "college basketball": "🎓",
+    "ncaa basketball":  "🎓",
+    "ncaamb":           "🎓",
+    "ncaab":            "🎓",
     "football":         "🏈",
     "nfl":              "🏈",
     "college football": "🏈",
@@ -164,6 +168,7 @@ _SPORT_ALIASES: dict[str, str] = {
     "politics":         "🗳️",
     "election":         "🗳️",
     # ── emoji aliases (direct emoji input) ─────────────────────────────
+    "🎓": "🎓",
     "🏀": "🏀",
     "🏈": "🏈",
     "⚾": "⚾",
@@ -188,6 +193,7 @@ _SPORT_ALIASES: dict[str, str] = {
 
 # Human-readable sport labels keyed by sport emoji (used for sport-selector display).
 _SPORT_EMOJI_LABEL: dict[str, str] = {
+    "🎓": "College Basketball",
     "🏀": "Pro Basketball",
     "🏈": "Football",
     "⚾": "Baseball",
