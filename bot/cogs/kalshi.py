@@ -1036,13 +1036,14 @@ class MarketListView(discord.ui.View):
             embed.description = "No open markets right now."
             return embed
 
+        in_game = self._game_back is not None  # suppress redundant sport labels inside a game
         lines = []
         for item in page_items:
             if item["type"] == "single":
                 m = item["market"]
                 title = _clean_market_title(m.get("title") or "?")
                 exp = _earliest_market_time(m)
-                sport = _series_label(m.get("series_ticker") or "")
+                sport = "" if in_game else _series_label(m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 header = f"**{title}**"
                 if sport:
@@ -1055,11 +1056,11 @@ class MarketListView(discord.ui.View):
                 count = item["count"]
                 first_m = item["markets"][0]
                 exp = _earliest_market_time(first_m)
-                sport = _series_label(first_m.get("series_ticker") or "")
+                sport = "" if in_game else _series_label(first_m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 series_ticker = item["markets"][0].get("series_ticker") or ""
                 sport_emoji = _sport_emoji(series_ticker)
-                header = f"{sport_emoji} **{label}**"
+                header = f"**{label}**" if in_game else f"{sport_emoji} **{label}**"
                 if sport:
                     header += f"  _{sport}_"
                 if series_ticker:
