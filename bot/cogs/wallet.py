@@ -14,6 +14,26 @@ _ADMIN_ROLE = "Mayor"
 _ADMIN_MSG  = "You need the Mayor role to use this command."
 
 
+class _StupidPoorView(discord.ui.View):
+    def __init__(self, user_id: int) -> None:
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.button(label="Give me $100", style=discord.ButtonStyle.green)
+    async def claim(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't for you.", ephemeral=True)
+            return
+        await models.get_or_create_user(self.user_id)
+        new_bal = await models.set_user_balance(self.user_id, 100)
+        button.disabled = True
+        self.stop()
+        await interaction.response.edit_message(
+            content=f"Fine. You have **${new_bal:.2f}**. Try not to blow it.",
+            view=self,
+        )
+
+
 class Wallet(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -21,6 +41,13 @@ class Wallet(commands.Cog):
     @app_commands.command(name="balance", description="Check your balance")
     async def balance(self, interaction: discord.Interaction) -> None:
         bal = await wallet_service.get_balance(interaction.user.id)
+        if bal <= 0:
+            view = _StupidPoorView(interaction.user.id)
+            await interaction.response.send_message(
+                "💸 You're **Stupid Poor**. You have nothing.",
+                view=view,
+            )
+            return
         await interaction.response.send_message(f"Your balance: **${bal:.2f}**")
 
     @app_commands.command(name="leaderboard", description="Top 10 richest users")
