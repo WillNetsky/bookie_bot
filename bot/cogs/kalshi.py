@@ -982,6 +982,39 @@ def _price_to_american(price: float) -> str:
     return "?"
 
 
+# (keyword, category_label, sort_priority) — checked in order, first match wins
+_CATEGORY_RULES: list[tuple[str, str, int]] = [
+    ("GAME",       "Game Lines",       1),
+    ("WINNER",     "Game Lines",       1),
+    ("SPREAD",     "Spread",           2),
+    ("TEAMTOTAL",  "Team Total",       4),   # must come before TOTAL
+    ("TOTAL",      "Game Total",       3),
+    ("1H",         "1st Half",         5),
+    ("2H",         "2nd Half",         6),
+    ("PTS",        "Points",          10),
+    ("REB",        "Rebounds",        11),
+    ("AST",        "Assists",         12),
+    ("3PT",        "Three-Pointers",  13),
+    ("2D",         "Double-Double",   14),
+    ("FOUL",       "Fouls",           15),
+    ("STL",        "Steals",          16),
+    ("BLK",        "Blocks",          17),
+    ("PASSING",    "Passing Yards",   10),
+    ("RUSHING",    "Rushing Yards",   11),
+    ("RECEIVING",  "Receiving Yards", 12),
+    ("TD",         "Touchdowns",      13),
+]
+
+
+def _market_category(series_ticker: str) -> tuple[str, int]:
+    """Return (category_label, sort_priority) for a series ticker."""
+    sk = series_ticker.upper()
+    for keyword, label, priority in _CATEGORY_RULES:
+        if keyword in sk:
+            return label, priority
+    return "Other", 99
+
+
 def _series_label(series_ticker: str) -> str:
     """Return a human-readable sport label for a series ticker, or ''."""
     for info in SPORTS.values():
@@ -1001,6 +1034,13 @@ class MarketListView(discord.ui.View):
         self._game_back = game_back
         self.message: discord.Message | None = None
         self._grouped = _group_markets_by_prop(markets)
+        if game_back is not None:
+            def _item_sort_key(item: dict) -> tuple:
+                st = (item["market"].get("series_ticker") or "") if item["type"] == "single" else (item["markets"][0].get("series_ticker") or "")
+                _, priority = _market_category(st)
+                vol = (item["market"].get("volume") or 0) if item["type"] == "single" else sum(m.get("volume") or 0 for m in item["markets"])
+                return (priority, -vol)
+            self._grouped.sort(key=_item_sort_key)
         self._rebuild()
 
     def _rebuild(self) -> None:
@@ -1038,7 +1078,14 @@ class MarketListView(discord.ui.View):
 
         in_game = self._game_back is not None  # suppress redundant sport labels inside a game
         lines = []
+        current_category: str | None = None
         for item in page_items:
+            if in_game:
+                st = (item["market"].get("series_ticker") or "") if item["type"] == "single" else (item["markets"][0].get("series_ticker") or "")
+                cat_label, _ = _market_category(st)
+                if cat_label != current_category:
+                    current_category = cat_label
+                    lines.append(f"**{cat_label}**")
             if item["type"] == "single":
                 m = item["market"]
                 title = _clean_market_title(m.get("title") or "?")

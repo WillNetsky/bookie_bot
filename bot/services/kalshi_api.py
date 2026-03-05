@@ -973,6 +973,7 @@ class KalshiAPI:
             "expected_expiration_time": m.get("expected_expiration_time"),
             "close_time": m.get("close_time"),
             "floor_strike": m.get("floor_strike"),
+            "volume": m.get("volume"),
             # For resolution
             "status": m.get("status"),
             "settlement_value_dollars": m.get("settlement_value_dollars"),
