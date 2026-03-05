@@ -590,25 +590,75 @@ def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
 
 
 def _group_markets_by_game(markets: list[dict]) -> list[dict]:
-    """Group markets by game (same matchup across different series), sorted by start time."""
+    """Group markets by game (same matchup across different series), sorted by start time.
+
+    Two-pass: first group by event-ticker fingerprint, then merge prop-only groups
+    (no team codes in their ticker, e.g. NBA player props) into the nearest-time
+    game group so everything for one game appears under a single entry.
+    """
     from collections import OrderedDict
     game_map: dict[str, list[dict]] = OrderedDict()
     for m in markets:
         et = m.get("event_ticker", "")
         key = _extract_game_fingerprint(et) or et
         game_map.setdefault(key, []).append(m)
+
+    # Build intermediate groups, flagging which have team codes
+    groups: list[dict] = []
+    for key, group_markets in game_map.items():
+        sorted_ms = sorted(group_markets, key=lambda m: _earliest_market_time(m) or "9999")
+        teams = _teams_from_event_ticker_flexible(sorted_ms[0].get("event_ticker", ""))
+        exp = _earliest_market_time(sorted_ms[0])
+        groups.append({
+            "key": key,
+            "teams": teams,
+            "time": exp,
+            "markets": sorted_ms,
+        })
+
+    # Merge prop groups (no team codes) into the closest-time game group
+    game_groups = [g for g in groups if g["teams"]]
+    prop_groups = [g for g in groups if not g["teams"]]
+
+    if prop_groups and game_groups:
+        timed_games: list[tuple[datetime, dict]] = []
+        for g in game_groups:
+            if g["time"]:
+                try:
+                    dt = datetime.fromisoformat(g["time"].replace("Z", "+00:00"))
+                    timed_games.append((dt, g))
+                except (ValueError, TypeError):
+                    pass
+
+        for prop in prop_groups:
+            merged = False
+            if prop["time"] and timed_games:
+                try:
+                    prop_dt = datetime.fromisoformat(prop["time"].replace("Z", "+00:00"))
+                    best_dt, best_game = min(
+                        timed_games,
+                        key=lambda x: abs((x[0] - prop_dt).total_seconds()),
+                    )
+                    if abs((best_dt - prop_dt).total_seconds()) <= 1800:  # within 30 min
+                        best_game["markets"].extend(prop["markets"])
+                        merged = True
+                except (ValueError, TypeError):
+                    pass
+            if not merged:
+                game_groups.append(prop)
+
     result = []
-    for key, game_markets in game_map.items():
-        sorted_markets = sorted(game_markets, key=lambda m: _earliest_market_time(m) or "9999")
+    for g in game_groups:
+        sorted_markets = sorted(g["markets"], key=lambda m: _earliest_market_time(m) or "9999")
         first = sorted_markets[0]
-        teams = _teams_from_event_ticker_flexible(first.get("event_ticker", ""))
+        teams = g["teams"]
         if teams:
             label = f"{teams[0]} @ {teams[1]}"
         else:
             label = _best_game_label(sorted_markets)
         exp = _earliest_market_time(first)
         result.append({
-            "key": key,
+            "key": g["key"],
             "label": label,
             "time": exp,
             "time_str": _format_game_time(exp) if exp else "",
