@@ -410,9 +410,11 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
         suffix = event_ticker.split("-", 1)[1]
         # Concatenated format: single segment after the series prefix
         if "-" not in suffix:
-            m = _CONCAT_DATE_TEAMS_RE.match(suffix)
-            if m:
-                return _split_concat_teams(m.group(2))
+            # Try with and without a trailing map qualifier (e.g. ALWBM2 → ALWB)
+            for candidate in (suffix, _CONCAT_MAP_QUAL_RE.sub("", suffix)):
+                m = _CONCAT_DATE_TEAMS_RE.match(candidate)
+                if m:
+                    return _split_concat_teams(m.group(2))
 
     # Original fallback: scan for 2-4 char team codes after a date segment
     parts = event_ticker.split("-")
@@ -433,6 +435,9 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
 # Esports per-map/set qualifier segments: M1, MAP2, SET3, GAME1, ROUND2, etc.
 # Deliberately excludes single-letter G/R/Q so team codes like G2 and R6 are kept.
 _MAP_QUAL_RE = re.compile(r'^(?:MAP|SET|GAME|ROUND|M)\d+$', re.IGNORECASE)
+
+# Same qualifiers when concatenated onto the END of a team-code block, e.g. ALWBM1 → M1
+_CONCAT_MAP_QUAL_RE = re.compile(r'(?:MAP|SET|ROUND|GAME|M)\d+$', re.IGNORECASE)
 
 # Suffixes to strip when extracting a short league label from a series ticker.
 _LEAGUE_SUFFIX_RE = re.compile(
@@ -489,16 +494,21 @@ def _extract_game_fingerprint(event_ticker: str) -> str | None:
     parts = suffix.split("-")
     parts = [p for p in parts if not _MAP_QUAL_RE.match(p)]
 
-    # Concatenated format: single segment like '26MAR05UTAWAS'
+    # Concatenated format: single segment like '26MAR05UTAWAS' or '26MAR05ALWBM2'
     if len(parts) == 1:
-        m = _CONCAT_DATE_TEAMS_RE.match(parts[0])
-        if m:
-            date_str = m.group(1)
-            team_pair = _split_concat_teams(m.group(2))
-            if team_pair:
-                t1, t2 = sorted(team_pair)
-                return f"{date_str}-{t1}-{t2}"
-        return parts[0]
+        seg = parts[0]
+        # Strip trailing map/set/round qualifier before extracting teams
+        # e.g. '26MAR05ALWBM2' → '26MAR05ALWB' so Map 1 and Map 2 share a fingerprint
+        seg_stripped = _CONCAT_MAP_QUAL_RE.sub("", seg)
+        for candidate in (seg, seg_stripped):
+            m = _CONCAT_DATE_TEAMS_RE.match(candidate)
+            if m:
+                date_str = m.group(1)
+                team_pair = _split_concat_teams(m.group(2))
+                if team_pair:
+                    t1, t2 = sorted(team_pair)
+                    return f"{date_str}-{t1}-{t2}"
+        return seg_stripped if seg_stripped != seg else seg
 
     # Hyphen-separated format: normalise team order in positions 1 & 2
     if len(parts) >= 3 and parts[1].isalpha() and parts[2].isalpha():
