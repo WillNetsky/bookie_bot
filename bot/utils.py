@@ -48,3 +48,14 @@ def decimal_to_american(decimal_odds: float) -> int:
 def format_american(odds: int) -> str:
     """Format American odds with +/- prefix."""
     return f"{odds:+d}" if odds else "?"
+
+
+def format_american_with_prob(odds: int) -> str:
+    """Format American odds with implied probability, e.g. '+150 (40%)'."""
+    if not odds:
+        return "?"
+    if odds > 0:
+        prob = 100 / (odds + 100) * 100
+    else:
+        prob = abs(odds) / (abs(odds) + 100) * 100
+    return f"{odds:+d} ({prob:.0f}%)"

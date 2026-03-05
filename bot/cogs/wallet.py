@@ -48,7 +48,16 @@ class Wallet(commands.Cog):
                 view=view,
             )
             return
-        await interaction.response.send_message(f"Your balance: **${bal:.2f}**")
+        pending = await models.get_user_pending_total(interaction.user.id)
+        if pending > 0:
+            total = bal + pending
+            await interaction.response.send_message(
+                f"💵 Cash: **${bal:.2f}**\n"
+                f"🎰 In bets: **${pending:.2f}**\n"
+                f"📊 Total: **${total:.2f}**"
+            )
+        else:
+            await interaction.response.send_message(f"Your balance: **${bal:.2f}**")
 
     @app_commands.command(name="leaderboard", description="Top 10 richest users")
     async def leaderboard(self, interaction: discord.Interaction) -> None:
@@ -66,8 +75,12 @@ class Wallet(commands.Cog):
             if pending > 0:
                 line += f"  (${cash:.2f} cash · ${pending:.2f} in bet value)"
             lines.append(line)
+        user_rank = await models.get_user_rank(interaction.user.id)
+        content = "\n".join(lines)
+        if user_rank is not None:
+            content += f"\n\nYour rank: **#{user_rank}**"
         await interaction.response.send_message(
-            "\n".join(lines), allowed_mentions=discord.AllowedMentions.none()
+            content, allowed_mentions=discord.AllowedMentions.none()
         )
 
     # ── /setbalance (Mayor only) ───────────────────────────────────────

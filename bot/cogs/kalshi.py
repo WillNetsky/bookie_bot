@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from bot.config import BET_RESULTS_CHANNEL_ID
-from bot.services import betting_service, leaderboard_notifier
+from bot.services import betting_service, leaderboard_notifier, wallet_service
 from bot.services.kalshi_api import (
     kalshi_api, SPORTS, FUTURES,
     _parse_event_ticker_date
@@ -16,7 +16,7 @@ from bot.services.kalshi_api import (
 from bot.constants import PICK_EMOJI, PICK_LABELS
 from bot.utils import (
     format_matchup, format_game_time, format_pick_label,
-    format_american, decimal_to_american
+    format_american, format_american_with_prob, decimal_to_american
 )
 from bot.db.database import cleanup_cache, vacuum_db
 
@@ -1588,17 +1588,22 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
         )
 
         if bet_id is None:
-            await interaction.followup.send("Insufficient balance!", ephemeral=True)
+            bal = await wallet_service.get_balance(interaction.user.id)
+            await interaction.followup.send(
+                f"Insufficient funds — you only have **${bal:.2f}** available.", ephemeral=True
+            )
             return
 
         payout = round(amount * decimal_odds, 2)
+        new_bal = await wallet_service.get_balance(interaction.user.id)
         embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
-        embed.add_field(name="Bet ID",           value=f"#K{bet_id}",             inline=True)
-        embed.add_field(name="Pick",             value=pick_display,               inline=True)
-        embed.add_field(name="Wager",            value=f"${amount:.2f}",           inline=True)
-        embed.add_field(name="Odds",             value=format_american(american),  inline=True)
-        embed.add_field(name="Potential Payout", value=f"${payout:.2f}",           inline=True)
-        embed.add_field(name="Market",           value=title[:1024],               inline=False)
+        embed.add_field(name="Bet ID",           value=f"#K{bet_id}",                          inline=True)
+        embed.add_field(name="Pick",             value=pick_display,                            inline=True)
+        embed.add_field(name="Wager",            value=f"${amount:.2f}",                        inline=True)
+        embed.add_field(name="Odds",             value=format_american_with_prob(american),     inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}",                        inline=True)
+        embed.add_field(name="New Balance",      value=f"${new_bal:.2f}",                       inline=True)
+        embed.add_field(name="Market",           value=title[:1024],                            inline=False)
         await interaction.followup.send(embed=embed)
 
 
@@ -1868,7 +1873,10 @@ class ParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
         )
 
         if parlay_id is None:
-            await interaction.followup.send("Insufficient balance!", ephemeral=True)
+            bal = await wallet_service.get_balance(interaction.user.id)
+            await interaction.followup.send(
+                f"Insufficient funds — you only have **${bal:.2f}** available.", ephemeral=True
+            )
             return
 
         total_odds = 1.0
@@ -2249,7 +2257,10 @@ class KalshiParlayAmountModal(discord.ui.Modal, title="Place Parlay"):
         )
 
         if parlay_id is None:
-            await interaction.followup.send("Insufficient balance!", ephemeral=True)
+            bal = await wallet_service.get_balance(interaction.user.id)
+            await interaction.followup.send(
+                f"Insufficient funds — you only have **${bal:.2f}** available.", ephemeral=True
+            )
             return
 
         total_odds = 1.0
@@ -2987,6 +2998,43 @@ class KalshiCog(commands.Cog):
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
+    # ── /stats ───────────────────────────────────────────────────────────
+
+    @app_commands.command(name="stats", description="View your all-time betting stats")
+    async def stats(self, interaction: discord.Interaction) -> None:
+        if not await _safe_defer(interaction):
+            return
+
+        from bot.db import models as _m
+        s = await betting_service.get_user_stats(interaction.user.id)
+        bal = await wallet_service.get_balance(interaction.user.id)
+        pending = await _m.get_user_pending_total(interaction.user.id)
+
+        total = s.get("total") or 0
+        wins = s.get("wins") or 0
+        losses = s.get("losses") or 0
+        pushes = s.get("pushes") or 0
+        wagered = s.get("total_wagered") or 0
+        payout = s.get("total_payout") or 0
+        profit = payout - wagered
+        win_rate = (wins / total * 100) if total > 0 else 0
+        roi = (profit / wagered * 100) if wagered > 0 else 0
+        profit_sign = "+" if profit >= 0 else ""
+
+        embed = discord.Embed(title="Your Betting Stats", color=discord.Color.blue())
+        embed.add_field(
+            name="Record",
+            value=f"{wins}W — {losses}L — {pushes}P  ({win_rate:.0f}% win rate)",
+            inline=False,
+        )
+        embed.add_field(name="Total Wagered", value=f"${wagered:,.2f}",                  inline=True)
+        embed.add_field(name="Net Profit",    value=f"{profit_sign}${profit:,.2f}",      inline=True)
+        embed.add_field(name="ROI",           value=f"{profit_sign}{roi:.1f}%",          inline=True)
+        embed.add_field(name="Cash",          value=f"${bal:.2f}",                       inline=True)
+        embed.add_field(name="In Bets",       value=f"${pending:.2f}",                   inline=True)
+        embed.add_field(name="Total Value",   value=f"${bal + pending:.2f}",             inline=True)
+        await interaction.followup.send(embed=embed)
+
     # ── /mybets ──────────────────────────────────────────────────────────
 
     @app_commands.command(name="mybets", description="View your active/pending bets")
@@ -3002,7 +3050,16 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("You have no pending bets. Use `/myhistory` to view past bets.")
             return
 
-        embed = discord.Embed(title="Your Active Bets", color=discord.Color.blue())
+        from bot.db import models as _m
+        bal = await wallet_service.get_balance(interaction.user.id)
+        pending_total = await _m.get_user_pending_total(interaction.user.id)
+        total = bal + pending_total
+
+        embed = discord.Embed(
+            title="Your Active Bets",
+            description=f"💵 Cash: **${bal:.2f}** · 🎰 In bets: **${pending_total:.2f}** · Total: **${total:.2f}**",
+            color=discord.Color.blue(),
+        )
         now = datetime.now(timezone.utc)
 
         # Collect all fields as (sort_dt, name, value) so we can sort before rendering.
@@ -3038,7 +3095,7 @@ class KalshiCog(commands.Cog):
                 f"{icon} Bet #{b['id']} (legacy) · {status_text}",
                 (
                     f"{sport_line}**{matchup}**\n"
-                    f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {format_american(decimal_to_american(b['odds']))}"
+                    f"Pick: **{pick_label}** · ${b['amount']:.2f} @ {format_american_with_prob(decimal_to_american(b['odds']))}"
                     f"{eta_line}"
                 ),
             ))
@@ -3162,7 +3219,7 @@ class KalshiCog(commands.Cog):
 
             if potential is not None:
                 status_text = f"Pending — potential **${potential:.2f}**"
-                odds_str = format_american(decimal_to_american(display_odds))
+                odds_str = format_american_with_prob(decimal_to_american(display_odds))
             else:
                 status_text = "Pending — potential **N/A**"
                 odds_str = "N/A"
@@ -3583,9 +3640,10 @@ class KalshiCog(commands.Cog):
                 result_text = "Lost"
 
             pick_label = format_pick_label(bet) if not is_outright else bet["pick"]
+            new_bal = await wallet_service.get_balance(bet["user_id"])
             lines.append(
                 f"{icon} <@{bet['user_id']}> — {pick_label} · "
-                f"${bet['amount']:.2f} @ {bet['odds']}x → {result_text}"
+                f"${bet['amount']:.2f} @ {bet['odds']}x → {result_text} · bal: **${new_bal:.2f}**"
             )
 
         if lines:
@@ -3612,9 +3670,10 @@ class KalshiCog(commands.Cog):
                     leg_icon = "\u2705" if leg.get("status") == "won" else "\u274c" if leg.get("status") == "lost" else "\u23f3"
                     leg_parts.append(f"  {leg_icon} {format_matchup(h, a)} — {pick_label}")
                 legs_text = "\n".join(leg_parts)
+                new_bal = await wallet_service.get_balance(p["user_id"])
                 parlay_lines.append(
                     f"{icon} <@{p['user_id']}> — Parlay #{p['id']} · "
-                    f"${p['amount']:.2f} @ {p.get('total_odds', 0):.2f}x → {result_text}\n{legs_text}"
+                    f"${p['amount']:.2f} @ {p.get('total_odds', 0):.2f}x → {result_text} · bal: **${new_bal:.2f}**\n{legs_text}"
                 )
             embed.add_field(name="Parlays", value="\n".join(parlay_lines), inline=False)
 
@@ -3831,12 +3890,14 @@ class KalshiCog(commands.Cog):
                             title=f"{emoji} Bet #K{bet['id']} — {result_text.upper()}",
                             color=discord.Color.green() if won else discord.Color.red(),
                         )
-                        embed.add_field(name="Bettor", value=name, inline=True)
-                        embed.add_field(name="Market", value=bet_title[:256], inline=False)
-                        embed.add_field(name="Pick", value=pick_display, inline=True)
-                        embed.add_field(name="Wager", value=f"${bet['amount']:.2f}", inline=True)
-                        embed.add_field(name="Payout", value=f"${payout:.2f}", inline=True)
-                        embed.add_field(name="Result", value=f"Market settled **{winning_side.upper()}**", inline=False)
+                        new_bal = await wallet_service.get_balance(bet["user_id"])
+                        embed.add_field(name="Bettor",      value=name,                                    inline=True)
+                        embed.add_field(name="New Balance", value=f"${new_bal:.2f}",                       inline=True)
+                        embed.add_field(name="Market",      value=bet_title[:256],                         inline=False)
+                        embed.add_field(name="Pick",        value=pick_display,                            inline=True)
+                        embed.add_field(name="Wager",       value=f"${bet['amount']:.2f}",                 inline=True)
+                        embed.add_field(name="Payout",      value=f"${payout:.2f}",                        inline=True)
+                        embed.add_field(name="Result",      value=f"Market settled **{winning_side.upper()}**", inline=False)
                         try:
                             await channel.send(embed=embed)
                         except discord.DiscordException:
@@ -3866,6 +3927,7 @@ class KalshiCog(commands.Cog):
                         if channel:
                             user = self.bot.get_user(kp["user_id"])
                             name = user.display_name if user else f"User {kp['user_id']}"
+                            new_bal = await wallet_service.get_balance(kp["user_id"])
                             leg_summary = "\n".join(
                                 f"{'✅' if l['status'] == 'won' else '❌' if l['status'] == 'lost' else '⏳'} {l.get('pick_display') or l['pick']}"
                                 for l in all_legs
@@ -3874,9 +3936,10 @@ class KalshiCog(commands.Cog):
                                 title=f"\U0001f534 Parlay #KP{pid} — LOST",
                                 color=discord.Color.red(),
                             )
-                            embed.add_field(name="Bettor", value=name, inline=True)
-                            embed.add_field(name="Wager", value=f"${kp['amount']:.2f}", inline=True)
-                            embed.add_field(name="Legs", value=leg_summary[:1024], inline=False)
+                            embed.add_field(name="Bettor",      value=name,                   inline=True)
+                            embed.add_field(name="Wager",       value=f"${kp['amount']:.2f}", inline=True)
+                            embed.add_field(name="New Balance", value=f"${new_bal:.2f}",       inline=True)
+                            embed.add_field(name="Legs",        value=leg_summary[:1024],      inline=False)
                             try:
                                 await channel.send(embed=embed)
                             except discord.DiscordException:
@@ -3892,6 +3955,7 @@ class KalshiCog(commands.Cog):
                         if channel:
                             user = self.bot.get_user(kp["user_id"])
                             name = user.display_name if user else f"User {kp['user_id']}"
+                            new_bal = await wallet_service.get_balance(kp["user_id"])
                             leg_summary = "\n".join(
                                 f"✅ {l.get('pick_display') or l['pick']}"
                                 for l in all_legs
@@ -3900,10 +3964,11 @@ class KalshiCog(commands.Cog):
                                 title=f"\U0001f7e2 Parlay #KP{pid} — WON!",
                                 color=discord.Color.green(),
                             )
-                            embed.add_field(name="Bettor", value=name, inline=True)
-                            embed.add_field(name="Wager", value=f"${kp['amount']:.2f}", inline=True)
-                            embed.add_field(name="Payout", value=f"${payout:.2f}", inline=True)
-                            embed.add_field(name="Legs", value=leg_summary[:1024], inline=False)
+                            embed.add_field(name="Bettor",      value=name,                   inline=True)
+                            embed.add_field(name="Wager",       value=f"${kp['amount']:.2f}", inline=True)
+                            embed.add_field(name="Payout",      value=f"${payout:.2f}",        inline=True)
+                            embed.add_field(name="New Balance", value=f"${new_bal:.2f}",       inline=True)
+                            embed.add_field(name="Legs",        value=leg_summary[:1024],      inline=False)
                             try:
                                 await channel.send(embed=embed)
                                 await channel.send("oh shit pullin a kecker")

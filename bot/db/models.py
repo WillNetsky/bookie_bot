@@ -477,6 +477,58 @@ async def has_pending_bets(user_id: int) -> bool:
 
 
 @db_retry()
+async def get_user_pending_total(user_id: int) -> int:
+    """Return the total wagered amount of all pending bets for a user across all tables."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT
+                COALESCE((SELECT SUM(amount) FROM bets          WHERE user_id = ? AND status = 'pending'), 0) +
+                COALESCE((SELECT SUM(amount) FROM parlays        WHERE user_id = ? AND status = 'pending'), 0) +
+                COALESCE((SELECT SUM(amount) FROM kalshi_bets    WHERE user_id = ? AND status = 'pending'), 0) +
+                COALESCE((SELECT SUM(amount) FROM kalshi_parlays WHERE user_id = ? AND status = 'pending'), 0)
+                AS total""",
+            (user_id, user_id, user_id, user_id),
+        )
+        row = await cursor.fetchone()
+        return int(row["total"]) if row else 0
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_user_rank(user_id: int) -> int | None:
+    """Return the user's 1-based leaderboard rank by total value (balance + pending bets).
+
+    Returns None if the user doesn't exist.
+    """
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT COUNT(*) + 1 AS rank FROM users u
+            WHERE (
+                u.balance
+                + COALESCE((SELECT SUM(amount) FROM bets          WHERE user_id = u.discord_id AND status = 'pending'), 0)
+                + COALESCE((SELECT SUM(amount) FROM parlays        WHERE user_id = u.discord_id AND status = 'pending'), 0)
+                + COALESCE((SELECT SUM(amount) FROM kalshi_bets    WHERE user_id = u.discord_id AND status = 'pending'), 0)
+                + COALESCE((SELECT SUM(amount) FROM kalshi_parlays WHERE user_id = u.discord_id AND status = 'pending'), 0)
+            ) > (
+                SELECT u2.balance
+                + COALESCE((SELECT SUM(amount) FROM bets          WHERE user_id = u2.discord_id AND status = 'pending'), 0)
+                + COALESCE((SELECT SUM(amount) FROM parlays        WHERE user_id = u2.discord_id AND status = 'pending'), 0)
+                + COALESCE((SELECT SUM(amount) FROM kalshi_bets    WHERE user_id = u2.discord_id AND status = 'pending'), 0)
+                + COALESCE((SELECT SUM(amount) FROM kalshi_parlays WHERE user_id = u2.discord_id AND status = 'pending'), 0)
+                FROM users u2 WHERE u2.discord_id = ?
+            )""",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return row["rank"] if row else None
+    finally:
+        await db.close()
+
+
+@db_retry()
 async def reset_all_balances(amount: int) -> int:
     """Reset all user balances to the given amount and clear all bets.
 
