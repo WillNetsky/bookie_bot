@@ -576,7 +576,10 @@ def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
                 "markets": sport_markets,
                 "game_count": len(game_keys),
             })
-    result.sort(key=lambda x: x["game_count"], reverse=True)
+    # Sort by soonest-closing market within each sport group
+    result.sort(key=lambda x: min(
+        (_earliest_market_time(m) or "9999") for m in x["markets"]
+    ))
     return result
 
 
