@@ -17,6 +17,20 @@ from bot.config import KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH
 from bot.db.database import DB_PATH, get_connection
 from bot.utils import decimal_to_american
 
+# File that accumulates unknown series tickers for later categorization.
+_UNKNOWN_SERIES_FILE = Path(DB_PATH).parent / "unknown_series.txt"
+_seen_unknown_series: set[str] = set()
+
+def _load_seen_unknown_series() -> None:
+    """Populate _seen_unknown_series from disk so repeats are suppressed across restarts."""
+    if _UNKNOWN_SERIES_FILE.exists():
+        for line in _UNKNOWN_SERIES_FILE.read_text().splitlines():
+            ticker = line.split("|")[0].strip()
+            if ticker:
+                _seen_unknown_series.add(ticker)
+
+_load_seen_unknown_series()
+
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
@@ -882,7 +896,11 @@ class KalshiAPI:
                 else:
                     # Unknown suffix — still include it, use ticker as its own prefix
                     prefix = ticker
-                    log.info("New sports series with unknown suffix: %s (%s)", ticker, title)
+                    if ticker not in _seen_unknown_series:
+                        _seen_unknown_series.add(ticker)
+                        with _UNKNOWN_SERIES_FILE.open("a") as f:
+                            f.write(f"{ticker} | {title}\n")
+                        log.info("New sports series with unknown suffix: %s (%s)", ticker, title)
                 game_tickers[prefix] = {"ticker": ticker, "title": title}
 
         # Build SPORTS dict
