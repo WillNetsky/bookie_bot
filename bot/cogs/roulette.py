@@ -22,11 +22,7 @@ MAX_BETTORS = 10
 
 # Spin animation: seconds between each wheel-strip update.
 # Fast at first (ball flying), then dramatic slow-down as it settles.
-SPIN_DELAYS = [
-    0.18, 0.18, 0.18, 0.2, 0.2,
-    0.25, 0.25, 0.3, 0.35,
-    0.45, 0.6, 0.75, 0.95, 1.15, 1.35,
-]
+SPIN_DELAYS = [0.4, 0.4, 0.5, 0.6, 0.75, 0.95, 1.15]
 
 BET_LABELS = {
     "red": "Red", "black": "Black",
