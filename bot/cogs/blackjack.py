@@ -42,6 +42,14 @@ def _is_bj(hand: list[str]) -> bool:
     return len(hand) == 2 and _value(hand) == 21
 
 
+def _rank(card: str) -> str:
+    return card[:-1]
+
+
+def _can_split(hand: list[str]) -> bool:
+    return len(hand) == 2 and _rank(hand[0]) == _rank(hand[1])
+
+
 def _fmt(hand: list[str], hide_hole: bool = False) -> str:
     if hide_hole and len(hand) >= 2:
         return f"{hand[0]}  ??"
@@ -58,6 +66,7 @@ class _Player:
     doubled: bool = False
     result: str | None = None  # "blackjack" | "win" | "push" | "lose"
     final_balance: int | None = None
+    is_split: bool = False  # True for hands created via split (no re-split, no 3:2)
 
     @property
     def val(self) -> int:
@@ -113,6 +122,7 @@ class _BlackjackView(discord.ui.View):
         self.hit_btn.disabled = not playing
         self.stand_btn.disabled = not playing
         self.double_btn.disabled = not playing
+        self.split_btn.disabled = not playing
         self.restart_btn.disabled = not done
 
     def _build_embed(self) -> discord.Embed:
@@ -241,8 +251,9 @@ class _BlackjackView(discord.ui.View):
             return
 
         p.hand.append(_draw())
-        # Disable double — can't double after hitting
+        # Disable double/split — can't use them after hitting
         self.double_btn.disabled = True
+        self.split_btn.disabled = True
 
         await self._safe_edit(interaction)
         if p.busted:
@@ -321,6 +332,59 @@ class _BlackjackView(discord.ui.View):
         await self._safe_edit(interaction)
         await self._advance()
 
+    @discord.ui.button(label="Split", style=discord.ButtonStyle.secondary)
+    async def split_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if self.phase != "playing":
+            await interaction.response.send_message("Not your turn.", ephemeral=True)
+            return
+        p = self.players[self.current_idx]
+        if interaction.user.id != p.user_id:
+            await interaction.response.send_message("Not your turn.", ephemeral=True)
+            return
+        if not _can_split(p.hand):
+            await interaction.response.send_message(
+                "Can only split a pair (two cards of the same rank).", ephemeral=True
+            )
+            return
+        if p.is_split:
+            await interaction.response.send_message("Cannot re-split.", ephemeral=True)
+            return
+
+        new_bal = await wallet_service.withdraw(p.user_id, p.bet)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(p.user_id)
+            await interaction.response.send_message(
+                f"Not enough to split. Balance: **${bal:,}**", ephemeral=True
+            )
+            return
+
+        # Give each hand one new card; insert split hand after current player
+        split_card = p.hand.pop(1)
+        p.hand.append(_draw())
+        split_player = _Player(
+            user_id=p.user_id,
+            name=p.name + " (split)",
+            bet=p.bet,
+            hand=[split_card, _draw()],
+            is_split=True,
+        )
+        self.players.insert(self.current_idx + 1, split_player)
+
+        # Splitting aces: auto-stand both hands (one card each, standard rule)
+        if _rank(p.hand[0]) == "A":
+            p.stood = True
+            split_player.stood = True
+
+        # Can't double or re-split the current hand after splitting
+        self.double_btn.disabled = True
+        self.split_btn.disabled = True
+
+        await self._safe_edit(interaction)
+        if p.done:
+            await self._advance()
+
     # ── game logic ────────────────────────────────────────────────────────────
 
     async def _deal(self, interaction: discord.Interaction) -> None:
@@ -341,8 +405,9 @@ class _BlackjackView(discord.ui.View):
             await self._safe_edit(interaction)
             await self._dealer_play()
         else:
-            # Double starts enabled (first player always has 2 cards)
+            p0 = self.players[self.current_idx]
             self.double_btn.disabled = False
+            self.split_btn.disabled = not _can_split(p0.hand)
             await self._safe_edit(interaction)
 
     async def _advance(self) -> None:
@@ -355,6 +420,7 @@ class _BlackjackView(discord.ui.View):
         else:
             p = self.players[self.current_idx]
             self.double_btn.disabled = len(p.hand) != 2
+            self.split_btn.disabled = not _can_split(p.hand) or p.is_split
             if self.message:
                 await self.message.edit(embed=self._build_embed(), view=self)
 
@@ -384,8 +450,13 @@ class _BlackjackView(discord.ui.View):
             if p.busted:
                 p.result = "lose"
             elif p.blackjack and not dealer_bj:
-                p.result = "blackjack"
-                await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet + int(p.bet * 1.5), "blackjack")
+                if p.is_split:
+                    # Split blackjack pays even money (not 3:2)
+                    p.result = "win"
+                    await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet * 2, "blackjack")
+                else:
+                    p.result = "blackjack"
+                    await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet + int(p.bet * 1.5), "blackjack")
             elif p.blackjack and dealer_bj:
                 p.result = "push"
                 await wallet_service.deposit(p.user_id, p.bet)
