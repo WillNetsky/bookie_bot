@@ -349,9 +349,15 @@ class _RouletteView(discord.ui.View):
             if _bet_wins(b.bet_type, b.number, self.result):
                 b.result = "win"
                 await leaderboard_notifier.deposit_and_notify(b.user_id, b.win_payout, "roulette")
+                returned = b.win_payout
             else:
                 b.result = "lose"
+                returned = 0.0
             b.final_balance = await wallet_service.get_balance(b.user_id)
+            try:
+                await wallet_service.record_game(b.user_id, "roulette", b.amount, returned, won=b.result == "win")
+            except Exception:
+                pass
 
         if self.message:
             await self.message.edit(embed=self._build_embed(), view=self)

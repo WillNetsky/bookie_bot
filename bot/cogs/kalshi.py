@@ -3354,7 +3354,7 @@ class KalshiCog(commands.Cog):
 
     # ── /stats ───────────────────────────────────────────────────────────
 
-    @app_commands.command(name="stats", description="View your all-time betting stats")
+    @app_commands.command(name="stats", description="View your all-time betting and casino stats")
     async def stats(self, interaction: discord.Interaction) -> None:
         if not await _safe_defer(interaction):
             return
@@ -3363,6 +3363,7 @@ class KalshiCog(commands.Cog):
         s = await betting_service.get_user_stats(interaction.user.id)
         bal = await wallet_service.get_balance(interaction.user.id)
         pending = await _m.get_user_pending_total(interaction.user.id)
+        game_rows = await _m.get_game_stats(interaction.user.id)
 
         total = s.get("total") or 0
         wins = s.get("wins") or 0
@@ -3375,18 +3376,56 @@ class KalshiCog(commands.Cog):
         roi = (profit / wagered * 100) if wagered > 0 else 0
         profit_sign = "+" if profit >= 0 else ""
 
-        embed = discord.Embed(title="Your Betting Stats", color=discord.Color.blue())
+        embed = discord.Embed(title="Your Stats", color=discord.Color.blue())
+
+        # ── Sports / Kalshi betting ──────────────────────────────────────
+        embed.add_field(name="📋 Betting", value="\u200b", inline=False)
         embed.add_field(
             name="Record",
             value=f"{wins}W — {losses}L — {pushes}P  ({win_rate:.0f}% win rate)",
             inline=False,
         )
-        embed.add_field(name="Total Wagered", value=f"${wagered:,.2f}",                  inline=True)
-        embed.add_field(name="Net Profit",    value=f"{profit_sign}${profit:,.2f}",      inline=True)
-        embed.add_field(name="ROI",           value=f"{profit_sign}{roi:.1f}%",          inline=True)
-        embed.add_field(name="Cash",          value=f"${bal:.2f}",                       inline=True)
-        embed.add_field(name="In Bets",       value=f"${pending:.2f}",                   inline=True)
-        embed.add_field(name="Total Value",   value=f"${bal + pending:.2f}",             inline=True)
+        embed.add_field(name="Total Wagered", value=f"${wagered:,.2f}",             inline=True)
+        embed.add_field(name="Net Profit",    value=f"{profit_sign}${profit:,.2f}", inline=True)
+        embed.add_field(name="ROI",           value=f"{profit_sign}{roi:.1f}%",     inline=True)
+        embed.add_field(name="Cash",          value=f"${bal:.2f}",                  inline=True)
+        embed.add_field(name="In Bets",       value=f"${pending:.2f}",              inline=True)
+        embed.add_field(name="Total Value",   value=f"${bal + pending:.2f}",        inline=True)
+
+        # ── Casino games ─────────────────────────────────────────────────
+        if game_rows:
+            embed.add_field(name="🎰 Casino Games", value="\u200b", inline=False)
+            _GAME_EMOJI = {
+                "blackjack": "🃏",
+                "baccarat":  "🎴",
+                "roulette":  "🎡",
+                "craps":     "🎲",
+                "slots":     "🎰",
+            }
+            for row in game_rows:
+                game = row["game"]
+                gp   = row["games_played"]
+                gw   = row["games_won"]
+                gd   = row["games_pushed"]
+                gl   = gp - gw - gd
+                tw   = row["total_wagered"]
+                tr   = row["total_returned"]
+                gprofit = tr - tw
+                gsign   = "+" if gprofit >= 0 else ""
+                wrate   = (gw / gp * 100) if gp > 0 else 0
+
+                record = f"**{gw}W · {gl}L"
+                if gd:
+                    record += f" · {gd}P"
+                record += f"** ({wrate:.0f}%)"
+
+                emoji = _GAME_EMOJI.get(game, "🎮")
+                embed.add_field(
+                    name=f"{emoji} {game.capitalize()}",
+                    value=f"{record}\nWagered ${tw:,.2f} · Profit {gsign}${gprofit:,.2f}",
+                    inline=True,
+                )
+
         await interaction.followup.send(embed=embed)
 
     # ── /mybets ──────────────────────────────────────────────────────────

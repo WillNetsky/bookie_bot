@@ -148,6 +148,17 @@ CREATE TABLE IF NOT EXISTS craps_roll_record (
     display_name TEXT NOT NULL,
     roll_count   INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS game_stats (
+    discord_id     INTEGER NOT NULL,
+    game           TEXT NOT NULL,
+    games_played   INTEGER NOT NULL DEFAULT 0,
+    games_won      INTEGER NOT NULL DEFAULT 0,
+    games_pushed   INTEGER NOT NULL DEFAULT 0,
+    total_wagered  REAL NOT NULL DEFAULT 0,
+    total_returned REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (discord_id, game)
+);
 """
 
 

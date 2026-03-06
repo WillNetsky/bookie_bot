@@ -1051,6 +1051,55 @@ async def get_user_kalshi_bet_stats(user_id: int) -> dict:
         await db.close()
 
 
+# ── Casino game stats ─────────────────────────────────────────────────
+
+
+@db_retry()
+async def update_game_stats(
+    discord_id: int,
+    game: str,
+    wagered: float,
+    returned: float,
+    won: bool,
+    pushed: bool = False,
+) -> None:
+    """Upsert a single game outcome into the per-user, per-game stats table."""
+    db = await get_connection()
+    try:
+        await db.execute(
+            """
+            INSERT INTO game_stats (discord_id, game, games_played, games_won, games_pushed,
+                                    total_wagered, total_returned)
+            VALUES (?, ?, 1, ?, ?, ?, ?)
+            ON CONFLICT(discord_id, game) DO UPDATE SET
+                games_played   = games_played   + 1,
+                games_won      = games_won      + excluded.games_won,
+                games_pushed   = games_pushed   + excluded.games_pushed,
+                total_wagered  = total_wagered  + excluded.total_wagered,
+                total_returned = total_returned + excluded.total_returned
+            """,
+            (discord_id, game, int(won), int(pushed), wagered, returned),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_game_stats(discord_id: int) -> list[dict]:
+    """Return all game stats rows for a user, ordered by game name."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM game_stats WHERE discord_id = ? ORDER BY game",
+            (discord_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
 # ── Craps roll record ─────────────────────────────────────────────────
 
 

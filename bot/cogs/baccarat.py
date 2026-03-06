@@ -293,25 +293,36 @@ class _BaccaratView(discord.ui.View):
             winner = "tie"
 
         for b in self.bettors:
+            returned = 0.0
             if winner == "tie":
                 if b.choice == "tie":
                     b.result = "win"
-                    await leaderboard_notifier.deposit_and_notify(b.user_id, b.amount * 9, "baccarat")
+                    returned = b.amount * 9
+                    await leaderboard_notifier.deposit_and_notify(b.user_id, returned, "baccarat")
                 else:
                     # Player/Banker bets push on tie
                     b.result = "push"
+                    returned = b.amount
                     await wallet_service.deposit(b.user_id, b.amount)
             elif b.choice == winner:
                 b.result = "win"
                 if winner == "banker":
                     # 5% commission on banker wins
-                    payout = b.amount + int(b.amount * 0.95)
+                    returned = b.amount + int(b.amount * 0.95)
                 else:
-                    payout = b.amount * 2
-                await leaderboard_notifier.deposit_and_notify(b.user_id, payout, "baccarat")
+                    returned = b.amount * 2
+                await leaderboard_notifier.deposit_and_notify(b.user_id, returned, "baccarat")
             else:
                 b.result = "lose"
             b.final_balance = await wallet_service.get_balance(b.user_id)
+            try:
+                await wallet_service.record_game(
+                    b.user_id, "baccarat", b.amount, returned,
+                    won=b.result == "win",
+                    pushed=b.result == "push",
+                )
+            except Exception:
+                pass
 
         if self.message:
             await self.message.edit(embed=self._build_embed(), view=self)

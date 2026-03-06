@@ -288,6 +288,13 @@ class _SlotsView(discord.ui.View):
                 self.user.id, self.total_won, "slots"
             )
 
+        try:
+            await wallet_service.record_game(
+                self.user.id, "slots", self.spin_cost, self.total_won, won=self.total_won > 0
+            )
+        except Exception:
+            pass
+
         self.balance = await wallet_service.get_balance(self.user.id)
         self.phase = "done"
         self._update_buttons()

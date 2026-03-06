@@ -457,6 +457,20 @@ class _StreetCrapsView(discord.ui.View):
         for uid in all_uids:
             self.final_balances[uid] = await wallet_service.get_balance(uid)
 
+        try:
+            await wallet_service.record_game(
+                self.shooter.id, "craps", self.wager,
+                self.wager * 2 if shooter_won else 0.0, won=shooter_won,
+            )
+            for uid, amt in self.fades.items():
+                fader_won = not shooter_won
+                await wallet_service.record_game(uid, "craps", amt, amt * 2 if fader_won else 0.0, won=fader_won)
+            for uid, amt in self.backs.items():
+                backer_won = shooter_won
+                await wallet_service.record_game(uid, "craps", amt, amt * 2 if backer_won else 0.0, won=backer_won)
+        except Exception:
+            pass
+
         await interaction.response.edit_message(
             embed=self._build_embed(state), view=self
         )

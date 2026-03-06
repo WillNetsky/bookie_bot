@@ -448,30 +448,43 @@ class _BlackjackView(discord.ui.View):
         dealer_bj = _is_bj(self.dealer_hand)
 
         for p in self.players:
+            returned = 0.0
             if p.busted:
                 p.result = "lose"
             elif p.blackjack and not dealer_bj:
                 if p.is_split:
-                    # Split blackjack pays even money (not 3:2)
                     p.result = "win"
-                    await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet * 2, "blackjack")
+                    returned = p.bet * 2
+                    await leaderboard_notifier.deposit_and_notify(p.user_id, returned, "blackjack")
                 else:
                     p.result = "blackjack"
-                    await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet + int(p.bet * 1.5), "blackjack")
+                    returned = p.bet + int(p.bet * 1.5)
+                    await leaderboard_notifier.deposit_and_notify(p.user_id, returned, "blackjack")
             elif p.blackjack and dealer_bj:
                 p.result = "push"
+                returned = p.bet
                 await wallet_service.deposit(p.user_id, p.bet)
             elif dealer_bj:
                 p.result = "lose"
             elif dealer_val > 21 or p.val > dealer_val:
                 p.result = "win"
-                await leaderboard_notifier.deposit_and_notify(p.user_id, p.bet * 2, "blackjack")
+                returned = p.bet * 2
+                await leaderboard_notifier.deposit_and_notify(p.user_id, returned, "blackjack")
             elif p.val == dealer_val:
                 p.result = "push"
+                returned = p.bet
                 await wallet_service.deposit(p.user_id, p.bet)
             else:
                 p.result = "lose"
             p.final_balance = await wallet_service.get_balance(p.user_id)
+            try:
+                await wallet_service.record_game(
+                    p.user_id, "blackjack", p.bet, returned,
+                    won=p.result in ("win", "blackjack"),
+                    pushed=p.result == "push",
+                )
+            except Exception:
+                pass
 
         if self.message:
             await self.message.edit(embed=self._build_embed(), view=self)
