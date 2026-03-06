@@ -351,6 +351,40 @@ class _StreetCrapsView(discord.ui.View):
         elif self.phase == "rolling":
             await self._do_point_roll(interaction)
 
+    @discord.ui.button(label="Reshoot", style=discord.ButtonStyle.secondary, disabled=True)
+    async def reshoot_btn(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        if interaction.user.id != self.shooter.id:
+            await interaction.response.send_message("Not your dice.", ephemeral=True)
+            return
+
+        new_bal = await wallet_service.withdraw(self.shooter.id, self.wager)
+        if new_bal is None:
+            bal = await wallet_service.get_balance(self.shooter.id)
+            await interaction.response.send_message(
+                f"Not enough to reshoot. Balance: **{fmt_money(bal)}** (need **{fmt_money(self.wager)}**)",
+                ephemeral=True,
+            )
+            return
+
+        self.fades = {}
+        self.backs = {}
+        self.fade_names = {}
+        self.back_names = {}
+        self.roll_log = []
+        self.point = None
+        self.phase = "betting"
+        self.final_balances = {}
+
+        self.fade_btn.disabled = False
+        self.back_btn.disabled = False
+        self.roll_btn.disabled = False
+        self.roll_btn.label = "🎲 Roll"
+        self.reshoot_btn.disabled = True
+
+        await interaction.response.edit_message(embed=self._build_embed("betting"), view=self)
+
     # ── game logic ────────────────────────────────────────────────────
 
     async def _do_comeout(self, interaction: discord.Interaction) -> None:
@@ -404,8 +438,10 @@ class _StreetCrapsView(discord.ui.View):
         comeout_streak: int = 0,
     ) -> None:
         self.phase = "done"
-        self.clear_items()
-        self.stop()
+        self.fade_btn.disabled = True
+        self.back_btn.disabled = True
+        self.roll_btn.disabled = True
+        self.reshoot_btn.disabled = False
 
         if shooter_won:
             await leaderboard_notifier.deposit_and_notify(self.shooter.id, self.wager * 2, "craps")
