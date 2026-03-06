@@ -1,6 +1,18 @@
 from datetime import datetime, timezone
 from bot.constants import TZ_PT, TZ_ET, PICK_LABELS
 
+
+def fmt_money(amount: float) -> str:
+    """Format a dollar amount, showing cents only when non-zero."""
+    if amount == int(amount):
+        return f"${int(amount):,}"
+    return f"${amount:,.2f}"
+
+
+def valid_bet(bet: float) -> bool:
+    """Return True if the bet is positive and has at most 2 decimal places."""
+    return bet > 0 and abs(bet - round(bet, 2)) < 1e-9
+
 def format_game_time(commence_str: str) -> str:
     """Format a commence_time string into PT / ET display."""
     try:
