@@ -374,12 +374,12 @@ def _parse_game_from_markets(
         if days_old > 2:
             return None
 
-    # Use expected_expiration_time as the display time.
-    # Kalshi doesn't expose actual game start times — expiration is the
-    # closest reliable timestamp (when the market settles, shortly after
-    # the game ends).
-    expiration_time = first.get("expected_expiration_time") or first.get("close_time", "")
+    # close_time = when Kalshi closes betting = actual match start.
+    # expected_expiration_time = when the market settles after the game ends.
+    # Prefer close_time for display; fall back to expiration if absent.
     close_time = first.get("close_time", "")
+    expiration_time = first.get("expected_expiration_time") or close_time
+    commence_time = close_time or expiration_time
 
     return {
         "id": event_ticker,
@@ -387,7 +387,7 @@ def _parse_game_from_markets(
         "away_team": away_team,
         "sport_key": sport_key,
         "sport_title": sport_label,
-        "commence_time": expiration_time,
+        "commence_time": commence_time,
         "close_time": close_time,
         "expiration_time": expiration_time,
         "_kalshi_markets": {
@@ -973,6 +973,7 @@ class KalshiAPI:
             "last_price_dollars": m.get("last_price_dollars"),
             "expected_expiration_time": m.get("expected_expiration_time"),
             "close_time": m.get("close_time"),
+            "open_time": m.get("open_time"),
             "floor_strike": m.get("floor_strike"),
             "volume": m.get("volume"),
             # For resolution
@@ -981,10 +982,28 @@ class KalshiAPI:
             "result": m.get("result"),
         }
 
+    _cs2_raw_logged = False
+
     def _prune_markets_list(self, data: dict) -> dict:
         """Pruning function for market list responses."""
         if not data or "markets" not in data:
             return data
+        # One-time debug: log all raw time fields from the first CS2 market
+        if not KalshiAPIClient._cs2_raw_logged:
+            for m in data["markets"]:
+                et = (m.get("event_ticker") or "").upper()
+                if "CS2" in et:
+                    log.info(
+                        "CS2 raw time fields — ticker=%s open_time=%s close_time=%s "
+                        "expected_expiration_time=%s  (all other keys: %s)",
+                        m.get("ticker"),
+                        m.get("open_time"),
+                        m.get("close_time"),
+                        m.get("expected_expiration_time"),
+                        [k for k in m if "time" in k.lower() or "date" in k.lower()],
+                    )
+                    KalshiAPIClient._cs2_raw_logged = True
+                    break
         data["markets"] = [self._prune_market(m) for m in data["markets"]]
         return data
 
