@@ -17,6 +17,7 @@ COGS = [
     "bot.cogs.kalshi",
     "bot.cogs.craps",
     "bot.cogs.blackjack",
+    "bot.cogs.baccarat",
     "bot.cogs.twitch",
 ]
 
