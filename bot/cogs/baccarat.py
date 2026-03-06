@@ -127,8 +127,8 @@ class _BaccaratView(discord.ui.View):
                 inline=True,
             )
             embed.add_field(
-                name=f"Banker ({bval})",
-                value=_fmt_hand(self.banker_hand),
+                name=f"Banker ({bval})" if self.banker_hand else "Banker",
+                value=_fmt_hand(self.banker_hand) if self.banker_hand else "...",
                 inline=True,
             )
             if self.phase == "done":
@@ -244,35 +244,40 @@ class _BaccaratView(discord.ui.View):
     # ── game logic ────────────────────────────────────────────────────────────
 
     async def _deal(self, interaction: discord.Interaction) -> None:
-        player_hand = [_draw(), _draw()]
-        banker_hand = [_draw(), _draw()]
-
-        self.player_hand = player_hand
-        self.banker_hand = banker_hand
         self.phase = "dealing"
         self._update_buttons()
-
-        # Show initial four cards
         await interaction.response.defer()
+
+        # Step 1: Player's 2 cards
+        self.player_hand = [_draw(), _draw()]
+        self.banker_hand = []
+        if self.message:
+            await self.message.edit(embed=self._build_embed(), view=self)
+        await asyncio.sleep(1.5)
+
+        # Step 2: Banker's 2 cards
+        self.banker_hand = [_draw(), _draw()]
         if self.message:
             await self.message.edit(embed=self._build_embed(), view=self)
 
-        pval = _hand_val(player_hand)
-        bval = _hand_val(banker_hand)
+        pval = _hand_val(self.player_hand)
+        bval = _hand_val(self.banker_hand)
         natural = pval >= 8 or bval >= 8
 
         player_third: str | None = None
         if not natural:
+            # Step 3: Player's 3rd card
             if pval <= 5:
                 await asyncio.sleep(1.5)
                 player_third = _draw()
-                player_hand.append(player_third)
+                self.player_hand.append(player_third)
                 if self.message:
                     await self.message.edit(embed=self._build_embed(), view=self)
 
-            if _banker_draws(banker_hand, player_third):
+            # Step 4: Banker's 3rd card
+            if _banker_draws(self.banker_hand, player_third):
                 await asyncio.sleep(1.5)
-                banker_hand.append(_draw())
+                self.banker_hand.append(_draw())
                 if self.message:
                     await self.message.edit(embed=self._build_embed(), view=self)
 
