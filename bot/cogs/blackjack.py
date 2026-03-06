@@ -134,7 +134,7 @@ class _BlackjackView(discord.ui.View):
             "done": discord.Color.dark_grey(),
         }
         embed = discord.Embed(
-            title="🃏 Blackjack",
+            title=f"🃏 Blackjack — {fmt_money(self.bet)}",
             color=colors.get(self.phase, discord.Color.blurple()),
         )
         embed.set_author(
