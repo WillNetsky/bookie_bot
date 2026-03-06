@@ -33,7 +33,7 @@ async def update_balance(discord_id: int, delta: int) -> int:
     try:
         await db.execute(
             "UPDATE users SET balance = balance + ? WHERE discord_id = ?",
-            (int(delta), discord_id),
+            (round(delta, 2), discord_id),
         )
         await db.commit()
         cursor = await db.execute(
@@ -546,6 +546,23 @@ async def reset_all_balances(amount: int) -> int:
         # Reset balances
         cursor = await db.execute(
             "UPDATE users SET balance = ?", (amount,)
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def fix_fractional_balances() -> int:
+    """Round all user balances to 2 decimal places.
+
+    Returns the number of rows updated.
+    """
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            "UPDATE users SET balance = ROUND(balance, 2)"
         )
         await db.commit()
         return cursor.rowcount

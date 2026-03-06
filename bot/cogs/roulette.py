@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.services import wallet_service, leaderboard_notifier
+from bot.utils import fmt_money, valid_bet
 
 log = logging.getLogger(__name__)
 
@@ -92,18 +93,18 @@ def _bet_wins(bet_type: str, number: int | None, result: int) -> bool:
 class _Bettor:
     user_id: int
     name: str
-    amount: int
+    amount: float
     bet_type: str
     number: int | None = None
     result: str | None = None
-    final_balance: int | None = None
+    final_balance: float | None = None
 
     @property
     def label(self) -> str:
         return f"#{self.number}" if self.bet_type == "number" else BET_LABELS[self.bet_type]
 
     @property
-    def win_payout(self) -> int:
+    def win_payout(self) -> float:
         mult = 35 if self.bet_type == "number" else BET_PAYOUTS[self.bet_type]
         return self.amount * (mult + 1)
 
@@ -140,7 +141,7 @@ class _NumberModal(discord.ui.Modal, title="Straight Number Bet"):
 
 
 class _RouletteView(discord.ui.View):
-    def __init__(self, host: discord.User | discord.Member, bet: int) -> None:
+    def __init__(self, host: discord.User | discord.Member, bet: float) -> None:
         super().__init__(timeout=300)
         self.host = host
         self.bet = bet
@@ -178,14 +179,14 @@ class _RouletteView(discord.ui.View):
         embed.set_author(name=self.host.display_name, icon_url=self.host.display_avatar.url)
 
         if self.phase == "betting":
-            embed.description = f"Bet: **${self.bet:,}** — Place your bets, then the host spins."
+            embed.description = f"Bet: **{fmt_money(self.bet)}** — Place your bets, then the host spins."
             bets_val = (
                 "\n".join(f"{b.name} — {b.label}" for b in self.bettors)
                 if self.bettors else "None yet — pick a side!"
             )
             embed.add_field(name="Bets", value=bets_val, inline=False)
             embed.set_footer(
-                text=f"${self.bet:,} per player · Up to {MAX_BETTORS} players · Host spins"
+                text=f"{fmt_money(self.bet)} per player · Up to {MAX_BETTORS} players · Host spins"
             )
 
         elif self.phase == "spinning":
@@ -205,7 +206,7 @@ class _RouletteView(discord.ui.View):
                 lines = []
                 for b in self.bettors:
                     icon = "✅" if b.result == "win" else "❌"
-                    bal_str = f" → **${b.final_balance:,}**" if b.final_balance is not None else ""
+                    bal_str = f" → **{fmt_money(b.final_balance)}**" if b.final_balance is not None else ""
                     lines.append(f"{icon} {b.name} ({b.label}){bal_str}")
                 embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
 
@@ -235,7 +236,7 @@ class _RouletteView(discord.ui.View):
         if new_bal is None:
             bal = await wallet_service.get_balance(uid)
             await interaction.response.send_message(
-                f"Not enough to bet. Balance: **${bal:,}** (need **${self.bet:,}**)", ephemeral=True
+                f"Not enough to bet. Balance: **{fmt_money(bal)}** (need **{fmt_money(self.bet)}**)", ephemeral=True
             )
             return
 
@@ -377,9 +378,11 @@ class Roulette(commands.Cog):
 
     @app_commands.command(name="roulette", description="Spin the roulette wheel")
     @app_commands.describe(bet="Amount to wager")
-    async def roulette(self, interaction: discord.Interaction, bet: int) -> None:
-        if bet <= 0:
-            await interaction.response.send_message("Bet must be positive.", ephemeral=True)
+    async def roulette(self, interaction: discord.Interaction, bet: float) -> None:
+        if not valid_bet(bet):
+            await interaction.response.send_message(
+                "Bet must be a positive amount with at most 2 decimal places.", ephemeral=True
+            )
             return
 
         view = _RouletteView(host=interaction.user, bet=bet)

@@ -6,6 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.services import wallet_service, leaderboard_notifier
+from bot.utils import fmt_money, valid_bet
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
         label="How much to fade?",
         placeholder="100",
         min_length=1,
-        max_length=10,
+        max_length=12,
     )
 
     def __init__(self, view: "_StreetCrapsView") -> None:
@@ -92,12 +93,14 @@ class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
-            amount = int(self.amount_input.value)
+            amount = float(self.amount_input.value)
         except ValueError:
             await interaction.response.send_message("Enter a valid number.", ephemeral=True)
             return
-        if amount <= 0:
-            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+        if not valid_bet(amount):
+            await interaction.response.send_message(
+                "Amount must be positive with at most 2 decimal places.", ephemeral=True
+            )
             return
 
         uid = interaction.user.id
@@ -117,7 +120,7 @@ class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
         if new_bal is None:
             bal = await wallet_service.get_balance(uid)
             await interaction.response.send_message(
-                f"Not enough. Balance: **${bal:,}**", ephemeral=True
+                f"Not enough. Balance: **{fmt_money(bal)}**", ephemeral=True
             )
             return
 
@@ -126,7 +129,7 @@ class _FadeModal(discord.ui.Modal, title="Fade the Shooter"):
         view.fade_names[uid] = interaction.user.display_name
 
         await interaction.response.send_message(
-            f"You're fading **${amount:,}**.", ephemeral=True
+            f"You're fading **{fmt_money(amount)}**.", ephemeral=True
         )
         if view.message:
             await view.message.edit(embed=view._build_embed("betting"), view=view)
@@ -142,7 +145,7 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
         label="How much to back?",
         placeholder="100",
         min_length=1,
-        max_length=10,
+        max_length=12,
     )
 
     def __init__(self, view: "_StreetCrapsView") -> None:
@@ -151,12 +154,14 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         try:
-            amount = int(self.amount_input.value)
+            amount = float(self.amount_input.value)
         except ValueError:
             await interaction.response.send_message("Enter a valid number.", ephemeral=True)
             return
-        if amount <= 0:
-            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+        if not valid_bet(amount):
+            await interaction.response.send_message(
+                "Amount must be positive with at most 2 decimal places.", ephemeral=True
+            )
             return
 
         uid = interaction.user.id
@@ -175,7 +180,7 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
         if new_bal is None:
             bal = await wallet_service.get_balance(uid)
             await interaction.response.send_message(
-                f"Not enough. Balance: **${bal:,}**", ephemeral=True
+                f"Not enough. Balance: **{fmt_money(bal)}**", ephemeral=True
             )
             return
 
@@ -184,7 +189,7 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
         view.back_names[uid] = interaction.user.display_name
 
         await interaction.response.send_message(
-            f"You're backing the shooter for **${amount:,}**.", ephemeral=True
+            f"You're backing the shooter for **{fmt_money(amount)}**.", ephemeral=True
         )
         if view.message:
             await view.message.edit(embed=view._build_embed("betting"), view=view)
@@ -198,12 +203,12 @@ class _BackModal(discord.ui.Modal, title="Back the Shooter"):
 # ── View ─────────────────────────────────────────────────────────────
 
 class _StreetCrapsView(discord.ui.View):
-    def __init__(self, shooter: discord.User | discord.Member, wager: int) -> None:
+    def __init__(self, shooter: discord.User | discord.Member, wager: float) -> None:
         super().__init__(timeout=300)
         self.shooter = shooter
         self.wager = wager
-        self.fades: dict[int, int] = {}
-        self.backs: dict[int, int] = {}
+        self.fades: dict[int, float] = {}
+        self.backs: dict[int, float] = {}
         self.fade_names: dict[int, str] = {}
         self.back_names: dict[int, str] = {}
         self.roll_log: list[str] = []
@@ -245,18 +250,18 @@ class _StreetCrapsView(discord.ui.View):
         if state == "betting":
             fading_str = (
                 "\n".join(
-                    f"{self.fade_names[uid]}  ${self.fades[uid]:,}"
+                    f"{self.fade_names[uid]}  {fmt_money(self.fades[uid])}"
                     for uid in self.fades
                 ) or "open"
             )
             backing_str = (
                 "\n".join(
-                    f"{self.back_names[uid]}  ${self.backs[uid]:,}"
+                    f"{self.back_names[uid]}  {fmt_money(self.backs[uid])}"
                     for uid in self.backs
                 ) or "open"
             )
             embed.description = (
-                f"**{self.shooter.display_name}** is shooting for **${self.wager:,}**"
+                f"**{self.shooter.display_name}** is shooting for **{fmt_money(self.wager)}**"
             )
             embed.add_field(name="Fading", value=fading_str, inline=True)
             embed.add_field(name="Backing", value=backing_str, inline=True)
@@ -270,27 +275,27 @@ class _StreetCrapsView(discord.ui.View):
             # Wager summary
             total_fade = sum(self.fades.values())
             total_back = sum(self.backs.values())
-            embed.add_field(name="Shooter", value=f"${self.wager:,}", inline=True)
+            embed.add_field(name="Shooter", value=fmt_money(self.wager), inline=True)
             if total_fade:
-                embed.add_field(name="Fading", value=f"${total_fade:,}", inline=True)
+                embed.add_field(name="Fading", value=fmt_money(total_fade), inline=True)
             if total_back:
-                embed.add_field(name="Backing", value=f"${total_back:,}", inline=True)
+                embed.add_field(name="Backing", value=fmt_money(total_back), inline=True)
 
             # Payout summary on resolution
             if state in ("natural", "craps", "point_hit", "seven_out"):
                 shooter_won = state in ("natural", "point_hit")
                 lines = []
                 sign = "+" if shooter_won else "-"
-                bal_str = f"  →  ${self.final_balances[self.shooter.id]:,}" if self.shooter.id in self.final_balances else ""
-                lines.append(f"{self.shooter.display_name}  {sign}${self.wager:,}{bal_str}")
+                bal_str = f"  →  {fmt_money(self.final_balances[self.shooter.id])}" if self.shooter.id in self.final_balances else ""
+                lines.append(f"{self.shooter.display_name}  {sign}{fmt_money(self.wager)}{bal_str}")
                 for uid in self.fades:
                     sign = "+" if not shooter_won else "-"
-                    bal_str = f"  →  ${self.final_balances[uid]:,}" if uid in self.final_balances else ""
-                    lines.append(f"{self.fade_names[uid]}  {sign}${self.fades[uid]:,}{bal_str}")
+                    bal_str = f"  →  {fmt_money(self.final_balances[uid])}" if uid in self.final_balances else ""
+                    lines.append(f"{self.fade_names[uid]}  {sign}{fmt_money(self.fades[uid])}{bal_str}")
                 for uid in self.backs:
                     sign = "+" if shooter_won else "-"
-                    bal_str = f"  →  ${self.final_balances[uid]:,}" if uid in self.final_balances else ""
-                    lines.append(f"{self.back_names[uid]}  {sign}${self.backs[uid]:,}{bal_str}")
+                    bal_str = f"  →  {fmt_money(self.final_balances[uid])}" if uid in self.final_balances else ""
+                    lines.append(f"{self.back_names[uid]}  {sign}{fmt_money(self.backs[uid])}{bal_str}")
                 embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
 
             # Footer flavor
@@ -452,10 +457,10 @@ class Craps(commands.Cog):
         description="Start a street craps game — others can fade or back you",
     )
     @app_commands.describe(amount="Amount to shoot for")
-    async def craps(self, interaction: discord.Interaction, amount: int) -> None:
-        if amount <= 0:
+    async def craps(self, interaction: discord.Interaction, amount: float) -> None:
+        if not valid_bet(amount):
             await interaction.response.send_message(
-                "Wager must be at least $1.", ephemeral=True
+                "Wager must be a positive amount with at most 2 decimal places.", ephemeral=True
             )
             return
 
@@ -468,7 +473,7 @@ class Craps(commands.Cog):
         if new_bal is None:
             bal = await wallet_service.get_balance(interaction.user.id)
             await interaction.followup.send(
-                f"Not enough. Balance: **${bal:,}**", ephemeral=True
+                f"Not enough. Balance: **{fmt_money(bal)}**", ephemeral=True
             )
             return
 

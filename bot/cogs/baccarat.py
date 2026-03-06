@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.services import wallet_service, leaderboard_notifier
+from bot.utils import fmt_money, valid_bet
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def _banker_draws(banker_hand: list[str], player_third: str | None) -> bool:
 class _Bettor:
     user_id: int
     name: str
-    amount: int
+    amount: float
     choice: str  # "player" | "banker" | "tie"
     result: str | None = None  # "win" | "lose" | "push"
     final_balance: int | None = None
@@ -74,7 +75,7 @@ class _Bettor:
 
 
 class _BaccaratView(discord.ui.View):
-    def __init__(self, host: discord.User | discord.Member, bet: int) -> None:
+    def __init__(self, host: discord.User | discord.Member, bet: float) -> None:
         super().__init__(timeout=300)
         self.host = host
         self.bet = bet
@@ -106,7 +107,7 @@ class _BaccaratView(discord.ui.View):
         embed.set_author(name=self.host.display_name, icon_url=self.host.display_avatar.url)
 
         if self.phase == "betting":
-            embed.description = f"Bet: **${self.bet:,}** — Choose your side, then the host deals."
+            embed.description = f"Bet: **{fmt_money(self.bet)}** — Choose your side, then the host deals."
             for choice in ("player", "banker", "tie"):
                 names = [b.name for b in self.bettors if b.choice == choice]
                 if names:
@@ -117,7 +118,7 @@ class _BaccaratView(discord.ui.View):
                     )
             if not self.bettors:
                 embed.add_field(name="Players", value="None yet — pick a side!", inline=False)
-            embed.set_footer(text=f"Bet: ${self.bet:,} · Up to {MAX_BETTORS} players · Host presses Deal to start")
+            embed.set_footer(text=f"Bet: {fmt_money(self.bet)} · Up to {MAX_BETTORS} players · Host presses Deal to start")
         else:
             pval = _hand_val(self.player_hand)
             bval = _hand_val(self.banker_hand)
@@ -144,7 +145,7 @@ class _BaccaratView(discord.ui.View):
                     lines = []
                     for b in self.bettors:
                         icon = "✅" if b.result == "win" else ("🔁" if b.result == "push" else "❌")
-                        bal_str = f" → **${b.final_balance:,}**" if b.final_balance is not None else ""
+                        bal_str = f" → **{fmt_money(b.final_balance)}**" if b.final_balance is not None else ""
                         lines.append(f"{icon} {b.name} ({CHOICE_LABEL[b.choice]}){bal_str}")
                     embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
 
@@ -186,7 +187,7 @@ class _BaccaratView(discord.ui.View):
         if new_bal is None:
             bal = await wallet_service.get_balance(uid)
             await interaction.response.send_message(
-                f"Not enough to join. Balance: **${bal:,}** (need **${self.bet:,}**)", ephemeral=True
+                f"Not enough to join. Balance: **{fmt_money(bal)}** (need **{fmt_money(self.bet)}**)", ephemeral=True
             )
             return
 
@@ -340,9 +341,11 @@ class Baccarat(commands.Cog):
         description="Open a baccarat table — bet on Player, Banker, or Tie",
     )
     @app_commands.describe(bet="Amount to wager")
-    async def baccarat(self, interaction: discord.Interaction, bet: int) -> None:
-        if bet <= 0:
-            await interaction.response.send_message("Bet must be positive.", ephemeral=True)
+    async def baccarat(self, interaction: discord.Interaction, bet: float) -> None:
+        if not valid_bet(bet):
+            await interaction.response.send_message(
+                "Bet must be a positive amount with at most 2 decimal places.", ephemeral=True
+            )
             return
 
         view = _BaccaratView(host=interaction.user, bet=bet)

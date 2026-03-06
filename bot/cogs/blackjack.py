@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.services import wallet_service, leaderboard_notifier
+from bot.utils import fmt_money, valid_bet
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _fmt(hand: list[str], hide_hole: bool = False) -> str:
 class _Player:
     user_id: int
     name: str
-    bet: int
+    bet: float
     hand: list[str] = field(default_factory=list)
     stood: bool = False
     doubled: bool = False
@@ -184,16 +185,16 @@ class _BlackjackView(discord.ui.View):
                     lines.append(f"{_fmt(p.hand)} ({p.val})")
                 else:
                     lines.append("—")
-                lines.append(f"Bet: **${p.bet:,}**")
+                lines.append(f"Bet: **{fmt_money(p.bet)}**")
                 if status:
                     lines.append(status)
                 if self.phase == "done" and p.final_balance is not None:
-                    lines.append(f"Balance: **${p.final_balance:,}**")
+                    lines.append(f"Balance: **{fmt_money(p.final_balance)}**")
 
                 embed.add_field(name=label, value="\n".join(lines), inline=True)
 
         if self.phase == "joining":
-            embed.set_footer(text=f"Bet: ${self.bet:,} · Up to {MAX_PLAYERS} players · Host presses Deal to start")
+            embed.set_footer(text=f"Bet: {fmt_money(self.bet)} · Up to {MAX_PLAYERS} players · Host presses Deal to start")
 
         return embed
 
@@ -219,7 +220,7 @@ class _BlackjackView(discord.ui.View):
         if new_bal is None:
             bal = await wallet_service.get_balance(uid)
             await interaction.response.send_message(
-                f"Not enough to join. Balance: **${bal:,}** (need **${self.bet:,}**)", ephemeral=True
+                f"Not enough to join. Balance: **{fmt_money(bal)}** (need **{fmt_money(self.bet)}**)", ephemeral=True
             )
             return
 
@@ -287,7 +288,7 @@ class _BlackjackView(discord.ui.View):
         if new_bal is None:
             bal = await wallet_service.get_balance(self.host.id)
             await interaction.response.send_message(
-                f"Not enough to restart. Balance: **${bal:,}** (need **${self.bet:,}**)",
+                f"Not enough to restart. Balance: **{fmt_money(bal)}** (need **{fmt_money(self.bet)}**)",
                 ephemeral=True,
             )
             return
@@ -320,7 +321,7 @@ class _BlackjackView(discord.ui.View):
         if new_bal is None:
             bal = await wallet_service.get_balance(p.user_id)
             await interaction.response.send_message(
-                f"Not enough to double. Balance: **${bal:,}**", ephemeral=True
+                f"Not enough to double. Balance: **{fmt_money(bal)}**", ephemeral=True
             )
             return
 
@@ -356,7 +357,7 @@ class _BlackjackView(discord.ui.View):
         if new_bal is None:
             bal = await wallet_service.get_balance(p.user_id)
             await interaction.response.send_message(
-                f"Not enough to split. Balance: **${bal:,}**", ephemeral=True
+                f"Not enough to split. Balance: **{fmt_money(bal)}**", ephemeral=True
             )
             return
 
@@ -504,9 +505,11 @@ class Blackjack(commands.Cog):
         description="Open a blackjack table — others can join before the deal",
     )
     @app_commands.describe(bet="Amount everyone at the table bets")
-    async def blackjack(self, interaction: discord.Interaction, bet: int) -> None:
-        if bet <= 0:
-            await interaction.response.send_message("Bet must be positive.", ephemeral=True)
+    async def blackjack(self, interaction: discord.Interaction, bet: float) -> None:
+        if not valid_bet(bet):
+            await interaction.response.send_message(
+                "Bet must be a positive amount with at most 2 decimal places.", ephemeral=True
+            )
             return
 
         # Charge the host immediately
@@ -514,7 +517,7 @@ class Blackjack(commands.Cog):
         if new_bal is None:
             bal = await wallet_service.get_balance(interaction.user.id)
             await interaction.response.send_message(
-                f"Not enough to start. Balance: **${bal:,}** (need **${bet:,}**)", ephemeral=True
+                f"Not enough to start. Balance: **{fmt_money(bal)}** (need **{fmt_money(bet)}**)", ephemeral=True
             )
             return
 

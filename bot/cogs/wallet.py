@@ -218,6 +218,28 @@ class Wallet(commands.Cog):
         else:
             log.exception("Error in /devalue command", exc_info=error)
 
+    # ── /fixbalances (Mayor only) ──────────────────────────────────────
+
+    @app_commands.command(
+        name="fixbalances",
+        description="[Mayor] Round all fractional balances to 2 decimal places",
+    )
+    @app_commands.checks.has_role(_ADMIN_ROLE)
+    async def fixbalances(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        count = await models.fix_fractional_balances()
+        log.info("Mayor %s fixed fractional balances (%d rows)", interaction.user, count)
+        await interaction.followup.send(
+            f"Fixed fractional balances for **{count}** user(s).", ephemeral=True
+        )
+
+    @fixbalances.error
+    async def fixbalances_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        if isinstance(error, app_commands.MissingRole):
+            await _deny(interaction, _ADMIN_MSG)
+        else:
+            log.exception("Error in /fixbalances command", exc_info=error)
+
 
 async def _deny(interaction: discord.Interaction, msg: str) -> None:
     if interaction.response.is_done():
