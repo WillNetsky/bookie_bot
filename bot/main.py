@@ -52,6 +52,19 @@ class BookieBot(commands.Bot):
 
         leaderboard_notifier.init(self)
 
+        # Warm up the markets cache on startup so the first /games command is fast
+        # and the 30-minute refresh cycle is anchored to bot start time.
+        async def _warmup_markets() -> None:
+            from bot.services.kalshi_api import KalshiAPIClient
+            try:
+                client = KalshiAPIClient()
+                await client.get_all_open_sports_markets()
+                log.info("Kalshi markets cache warmed up.")
+            except Exception:
+                log.exception("Failed to warm up Kalshi markets cache.")
+
+        self.loop.create_task(_warmup_markets())
+
         @self.tree.error
         async def on_tree_error(
             interaction: discord.Interaction,
