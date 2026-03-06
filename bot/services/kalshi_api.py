@@ -966,6 +966,7 @@ class KalshiAPI:
             "event_ticker": event_ticker,
             "series_ticker": series_ticker,
             "title": m.get("title"),
+            "subtitle": m.get("subtitle"),
             "yes_sub_title": m.get("yes_sub_title"),
             "yes_ask_dollars": m.get("yes_ask_dollars"),
             "yes_bid_dollars": m.get("yes_bid_dollars"),

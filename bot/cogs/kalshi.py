@@ -1217,28 +1217,39 @@ class MarketListView(discord.ui.View):
                 m = item["market"]
                 title = _clean_market_title(m.get("title") or "?")
                 exp = _earliest_market_time(m)
-                sport = "" if in_game else _series_label(m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
-                header = f"**{title}**"
-                if sport:
-                    header += f"  _{sport}_"
+                series_ticker = m.get("series_ticker") or ""
+                sport_emoji = _sport_emoji(series_ticker)
+                league = "" if in_game else _short_league(series_ticker)
+                et = m.get("event_ticker") or ""
+                teams = _teams_from_event_ticker_flexible(et)
+                # Show Kalshi subtitle (game context) only for player props where
+                # teams can't be derived from event_ticker (they'd be in label already)
+                game_ctx = (m.get("subtitle") or "") if (not in_game and not teams) else ""
+                header = f"**{title}**" if in_game else f"{sport_emoji} **{title}**"
+                if league:
+                    header += f" — {league}"
                 yes_am, no_am = _market_odds_str(m)
                 odds_str = f"YES {yes_am} / NO {no_am}"
-                lines.append(f"{header}\n{time_str} · {odds_str}")
+                body = f"{game_ctx} · {time_str}" if game_ctx else time_str
+                lines.append(f"{header}\n{body} · {odds_str}")
             else:
                 label = item["label"]
                 count = item["count"]
                 first_m = item["markets"][0]
                 exp = _earliest_market_time(first_m)
-                sport = "" if in_game else _series_label(first_m.get("series_ticker") or "")
                 time_str = _format_game_time(exp) if exp else "TBD"
                 series_ticker = item["markets"][0].get("series_ticker") or ""
                 sport_emoji = _sport_emoji(series_ticker)
+                league = "" if in_game else _short_league(series_ticker)
+                et = first_m.get("event_ticker") or ""
+                teams = _teams_from_event_ticker_flexible(et)
+                # Show Kalshi subtitle (game context) only for player props where
+                # teams can't be derived from event_ticker (they'd be in label already)
+                game_ctx = (first_m.get("subtitle") or "") if (not in_game and not teams) else ""
                 header = f"**{label}**" if in_game else f"{sport_emoji} **{label}**"
-                if sport:
-                    header += f"  _{sport}_"
-                if series_ticker and not in_game:
-                    header += f"  `{series_ticker}`"
+                if league:
+                    header += f" — {league}"
                 # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
                 # Use mid-price for consistency with _market_odds_str
                 parts = []
@@ -1261,8 +1272,9 @@ class MarketListView(discord.ui.View):
                         parts.append(f"{sub} {am}")
                     elif sub:
                         parts.append(sub)
-                subtitle = " · ".join(parts) if parts else item.get("subtitle", f"{count} options")
-                lines.append(f"{header}\n{time_str} · {subtitle}")
+                odds_str = " · ".join(parts) if parts else f"{count} options"
+                body = f"{game_ctx} · {time_str}" if game_ctx else time_str
+                lines.append(f"{header}\n{body} · {odds_str}")
 
         embed.description = "\n\n".join(lines)
         if self.parlay_legs is not None:
