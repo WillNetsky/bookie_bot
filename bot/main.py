@@ -19,6 +19,7 @@ COGS = [
     "bot.cogs.blackjack",
     "bot.cogs.baccarat",
     "bot.cogs.roulette",
+    "bot.cogs.slots",
     "bot.cogs.twitch",
 ]
 
