@@ -15,7 +15,7 @@ from bot.services.kalshi_api import (
 )
 from bot.constants import PICK_EMOJI, PICK_LABELS
 from bot.utils import (
-    format_matchup, format_game_time, format_pick_label,
+    format_matchup, format_game_time, format_game_time_with_label, format_pick_label,
     format_american, format_american_with_prob, decimal_to_american
 )
 from bot.db.database import cleanup_cache, vacuum_db
@@ -290,11 +290,9 @@ def _fmt_eta(dt: "datetime | None", now: datetime, verb: str = "closes") -> str:
         return f"{verb} in {d}d {h}h" if h else f"{verb} in {d}d"
 
 
-def _format_game_time(commence_time: str) -> str:
-    """Format game time for display. Shows the event date from the ticker."""
-    if not commence_time:
-        return "TBD"
-    return format_game_time(commence_time)
+def _format_game_time(commence_time: str, sport_key: str = "") -> str:
+    """Format game time for display with a contextual label."""
+    return format_game_time_with_label(commence_time, sport_key)
 
 
 def _earliest_market_time(m: dict) -> str:
@@ -1022,7 +1020,7 @@ class GamesListView(discord.ui.View):
                     detail += f"\n{' · '.join(time_parts)}"
                 lines.append(f"{score_str}\n{detail}")
             else:
-                time_str = _format_game_time(g.get("commence_time", ""))
+                time_str = _format_game_time(g.get("commence_time", ""), g.get("sport_key", ""))
                 lines.append(f"**{away}** @ **{home}**\n{sport} · {time_str}")
 
         embed.description = "\n\n".join(lines)
@@ -2345,7 +2343,7 @@ class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
             label = format_matchup(home, away)
             if len(label) > 100:
                 label = label[:97] + "..."
-            desc = _format_game_time(g.get("commence_time", ""))
+            desc = _format_game_time(g.get("commence_time", ""), g.get("sport_key", ""))
             if len(desc) > 100:
                 desc = desc[:100]
             self.games_map[game_id] = g
@@ -2374,7 +2372,7 @@ class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
 
         # Build bet type selection for this game
         bet_view = KalshiParlayBetTypeView(game, parsed, view)
-        time_str = _format_game_time(game.get("commence_time", ""))
+        time_str = _format_game_time(game.get("commence_time", ""), game.get("sport_key", ""))
         embed = discord.Embed(
             title="Add Parlay Leg",
             description=f"**{format_matchup(home, away)}**\n{time_str}\n\nPick a bet type:",

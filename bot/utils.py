@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from bot.constants import TZ_PT, TZ_ET, PICK_LABELS
+from datetime import datetime, timedelta, timezone
+from bot.constants import TZ_PT, TZ_ET, PICK_LABELS, SPORT_START_OFFSETS
 
 
 def fmt_money(amount: float) -> str:
@@ -27,6 +27,29 @@ def format_game_time(commence_str: str) -> str:
         return f"{pt_str} / {et_str}"
     except (ValueError, TypeError):
         return "TBD"
+
+
+def format_game_time_with_label(commence_str: str, sport_key: str = "") -> str:
+    """Format a game time with a contextual label.
+
+    When we know the start-time offset for a sport (via SPORT_START_OFFSETS),
+    subtract it from the expiration time and return "Starts ~<time>".
+    Otherwise return "Closes <time>" since we only know when the market ends.
+    """
+    if not commence_str:
+        return "TBD"
+    try:
+        exp_dt = datetime.fromisoformat(commence_str.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return "TBD"
+
+    sk = (sport_key or "").lower()
+    offset_hours = next((v for k, v in SPORT_START_OFFSETS.items() if k in sk), None)
+
+    if offset_hours is not None:
+        start_dt = exp_dt - timedelta(hours=offset_hours)
+        return f"Starts ~{format_game_time(start_dt.isoformat())}"
+    return f"Closes {format_game_time(commence_str)}"
 
 
 def format_pick_label(bet: dict) -> str:
