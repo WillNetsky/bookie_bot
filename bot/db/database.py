@@ -141,6 +141,13 @@ CREATE TABLE IF NOT EXISTS twitch_watches (
     channel_id  INTEGER NOT NULL,
     PRIMARY KEY (stream_name, guild_id)
 );
+
+CREATE TABLE IF NOT EXISTS craps_roll_record (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    discord_id   INTEGER NOT NULL,
+    display_name TEXT NOT NULL,
+    roll_count   INTEGER NOT NULL
+);
 """
 
 

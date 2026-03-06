@@ -1051,6 +1051,36 @@ async def get_user_kalshi_bet_stats(user_id: int) -> dict:
         await db.close()
 
 
+# ── Craps roll record ─────────────────────────────────────────────────
+
+
+@db_retry()
+async def get_craps_roll_record() -> dict | None:
+    """Return the current roll record, or None if no game has been played."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute("SELECT * FROM craps_roll_record WHERE id = 1")
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def set_craps_roll_record(discord_id: int, display_name: str, roll_count: int) -> None:
+    """Insert or replace the craps roll record."""
+    db = await get_connection()
+    try:
+        await db.execute(
+            "INSERT OR REPLACE INTO craps_roll_record (id, discord_id, display_name, roll_count)"
+            " VALUES (1, ?, ?, ?)",
+            (discord_id, display_name, roll_count),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
 # ── Twitch watches ────────────────────────────────────────────────────
 
 

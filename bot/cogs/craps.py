@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from bot.db import models as db_models
 from bot.services import wallet_service, leaderboard_notifier
 from bot.utils import fmt_money, valid_bet
 
@@ -465,6 +466,29 @@ class _StreetCrapsView(discord.ui.View):
                 await interaction.channel.send("oh damn pullin an RC!")
             except Exception:
                 pass
+
+        # Check roll record
+        roll_count = len(self.roll_log)
+        try:
+            record = await db_models.get_craps_roll_record()
+            if record is None or roll_count > record["roll_count"]:
+                await db_models.set_craps_roll_record(
+                    self.shooter.id, self.shooter.display_name, roll_count
+                )
+                if record is None:
+                    msg = (
+                        f"🎲 **First roll record set!** {self.shooter.display_name} "
+                        f"went **{roll_count} roll{'s' if roll_count != 1 else ''}** in a single game!"
+                    )
+                else:
+                    msg = (
+                        f"🎲 **New roll record!** {self.shooter.display_name} went "
+                        f"**{roll_count} rolls** in one game, beating "
+                        f"{record['display_name']}'s record of {record['roll_count']}!"
+                    )
+                await interaction.channel.send(msg)
+        except Exception:
+            log.exception("Failed to check/update craps roll record")
 
     async def on_timeout(self) -> None:
         if self.phase != "done":
