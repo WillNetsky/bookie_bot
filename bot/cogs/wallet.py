@@ -41,7 +41,7 @@ class Wallet(commands.Cog):
     @app_commands.command(name="balance", description="Check your balance")
     async def balance(self, interaction: discord.Interaction) -> None:
         bal = await wallet_service.get_balance(interaction.user.id)
-        if bal <= 0:
+        if round(bal, 2) <= 0:
             view = _StupidPoorView(interaction.user.id)
             await interaction.response.send_message(
                 f"💸 You stupid poor! You have nothing {interaction.user.mention}",
