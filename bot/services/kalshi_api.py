@@ -1159,6 +1159,20 @@ class KalshiAPI:
                 page_markets = page_data["markets"]
                 log.debug("Kalshi markets page: %d raw markets", len(page_markets))
                 for m in page_markets:
+                    # One-time debug: log all raw time fields from the first CS2 market
+                    if not KalshiAPIClient._cs2_raw_logged:
+                        et_check = (m.get("event_ticker") or "").upper()
+                        if "CS2" in et_check:
+                            log.info(
+                                "CS2 raw time fields — ticker=%s open_time=%s close_time=%s "
+                                "expected_expiration_time=%s  (time/date keys: %s)",
+                                m.get("ticker"),
+                                m.get("open_time"),
+                                m.get("close_time"),
+                                m.get("expected_expiration_time"),
+                                [k for k in m if "time" in k.lower() or "date" in k.lower()],
+                            )
+                            KalshiAPIClient._cs2_raw_logged = True
                     # Use same series_ticker fallback as _prune_market so markets
                     # that omit series_ticker but have event_ticker still match.
                     st = m.get("series_ticker")
