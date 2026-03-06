@@ -48,14 +48,28 @@ def _color(n: int) -> str:
 
 
 def _wheel_strip(center_idx: int) -> str:
-    """7-number window centred on center_idx, center entry bolded."""
-    parts = []
+    """
+    7-number monospace window.  Each slot is 3 chars right-aligned + 1-char
+    separator = 4 chars per slot.  Center slot occupies chars 12-14; the ▲
+    and colour letter both land on col 14 (units digit / sole digit).
+
+    Example output (centre = 32):
+        3  26   0  32  15  19   4
+                      ▲
+          R   B   G   R   R   R   B
+    """
+    nums, clrs = [], []
     for offset in range(-3, 4):
         idx = (center_idx + offset) % len(WHEEL)
         n = WHEEL[idx]
-        entry = f"{_color(n)}{n}"
-        parts.append(f"**{entry}**" if offset == 0 else entry)
-    return "  ".join(parts)
+        nums.append(f"{n:3d}")
+        c = "G" if n == 0 else ("R" if n in RED else "B")
+        clrs.append(f"{c:>3}")
+
+    num_row = " ".join(nums)
+    clr_row = " ".join(clrs)
+    pointer = " " * 14 + "▲"
+    return f"```\n{num_row}\n{pointer}\n{clr_row}\n```"
 
 
 def _bet_wins(bet_type: str, number: int | None, result: int) -> bool:
