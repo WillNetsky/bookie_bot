@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import random
 from dataclasses import dataclass, field
@@ -80,7 +81,7 @@ class _BaccaratView(discord.ui.View):
         self.bettors: list[_Bettor] = []
         self.player_hand: list[str] = []
         self.banker_hand: list[str] = []
-        self.phase = "betting"  # betting | done
+        self.phase = "betting"  # betting | dealing | done
         self.message: discord.PartialMessage | None = None
         self._update_buttons()
 
@@ -96,8 +97,12 @@ class _BaccaratView(discord.ui.View):
         self.play_again_btn.disabled = not done
 
     def _build_embed(self) -> discord.Embed:
-        color = discord.Color.gold() if self.phase == "betting" else discord.Color.dark_grey()
-        embed = discord.Embed(title="🎴 Baccarat", color=color)
+        colors = {
+            "betting": discord.Color.gold(),
+            "dealing": discord.Color.blurple(),
+            "done": discord.Color.dark_grey(),
+        }
+        embed = discord.Embed(title="🎴 Baccarat", color=colors.get(self.phase, discord.Color.blurple()))
         embed.set_author(name=self.host.display_name, icon_url=self.host.display_avatar.url)
 
         if self.phase == "betting":
@@ -126,21 +131,22 @@ class _BaccaratView(discord.ui.View):
                 value=_fmt_hand(self.banker_hand),
                 inline=True,
             )
-            if pval > bval:
-                outcome = "Player wins!"
-            elif bval > pval:
-                outcome = "Banker wins!"
-            else:
-                outcome = "Tie!"
-            embed.add_field(name="Result", value=outcome, inline=False)
+            if self.phase == "done":
+                if pval > bval:
+                    outcome = "Player wins!"
+                elif bval > pval:
+                    outcome = "Banker wins!"
+                else:
+                    outcome = "Tie!"
+                embed.add_field(name="Result", value=outcome, inline=False)
 
-            if self.bettors:
-                lines = []
-                for b in self.bettors:
-                    icon = "✅" if b.result == "win" else ("🔁" if b.result == "push" else "❌")
-                    bal_str = f" → **${b.final_balance:,}**" if b.final_balance is not None else ""
-                    lines.append(f"{icon} {b.name} ({CHOICE_LABEL[b.choice]}){bal_str}")
-                embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
+                if self.bettors:
+                    lines = []
+                    for b in self.bettors:
+                        icon = "✅" if b.result == "win" else ("🔁" if b.result == "push" else "❌")
+                        bal_str = f" → **${b.final_balance:,}**" if b.final_balance is not None else ""
+                        lines.append(f"{icon} {b.name} ({CHOICE_LABEL[b.choice]}){bal_str}")
+                    embed.add_field(name="Payouts", value="\n".join(lines), inline=False)
 
         return embed
 
@@ -241,6 +247,16 @@ class _BaccaratView(discord.ui.View):
         player_hand = [_draw(), _draw()]
         banker_hand = [_draw(), _draw()]
 
+        self.player_hand = player_hand
+        self.banker_hand = banker_hand
+        self.phase = "dealing"
+        self._update_buttons()
+
+        # Show initial four cards
+        await interaction.response.defer()
+        if self.message:
+            await self.message.edit(embed=self._build_embed(), view=self)
+
         pval = _hand_val(player_hand)
         bval = _hand_val(banker_hand)
         natural = pval >= 8 or bval >= 8
@@ -248,18 +264,20 @@ class _BaccaratView(discord.ui.View):
         player_third: str | None = None
         if not natural:
             if pval <= 5:
+                await asyncio.sleep(1.5)
                 player_third = _draw()
                 player_hand.append(player_third)
-            if _banker_draws(banker_hand, player_third):
-                banker_hand.append(_draw())
+                if self.message:
+                    await self.message.edit(embed=self._build_embed(), view=self)
 
-        self.player_hand = player_hand
-        self.banker_hand = banker_hand
+            if _banker_draws(banker_hand, player_third):
+                await asyncio.sleep(1.5)
+                banker_hand.append(_draw())
+                if self.message:
+                    await self.message.edit(embed=self._build_embed(), view=self)
+
         self.phase = "done"
         self._update_buttons()
-
-        # Defer so we can do wallet operations before editing
-        await interaction.response.defer()
         await self._resolve()
 
     async def _resolve(self) -> None:
