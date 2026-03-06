@@ -23,10 +23,10 @@ MAX_BETTORS = 10
 # Spin animation: seconds between each wheel-strip update.
 # Fast at first (ball flying), then dramatic slow-down as it settles.
 SPIN_DELAYS = [
-    # Fast spin — indeterminate number of ticks before slowdown
-    0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3,
+    # Fast spin — each value is a guaranteed frame duration (edit time + sleep)
+    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
     # Deceleration
-    0.45, 0.6, 0.8, 1.0, 1.25,
+    0.65, 0.85, 1.1, 1.4,
 ]
 
 BET_LABELS = {
@@ -328,9 +328,13 @@ class _RouletteView(discord.ui.View):
 
         for frame, delay in enumerate(SPIN_DELAYS):
             self.spin_idx = (start_idx + frame) % len(WHEEL)
+            t0 = asyncio.get_event_loop().time()
             if self.message:
                 await self.message.edit(embed=self._build_embed(), view=self)
-            await asyncio.sleep(delay)
+            elapsed = asyncio.get_event_loop().time() - t0
+            remaining = delay - elapsed
+            if remaining > 0:
+                await asyncio.sleep(remaining)
 
         # Final frame: land on result
         self.spin_idx = result_idx
