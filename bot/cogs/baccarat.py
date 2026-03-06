@@ -248,17 +248,20 @@ class _BaccaratView(discord.ui.View):
         self._update_buttons()
         await interaction.response.defer()
 
-        # Step 1: Player's 2 cards
-        self.player_hand = [_draw(), _draw()]
-        self.banker_hand = []
-        if self.message:
-            await self.message.edit(embed=self._build_embed(), view=self)
-        await asyncio.sleep(1.5)
+        async def deal_card(hand: list[str]) -> None:
+            hand.append(_draw())
+            if self.message:
+                await self.message.edit(embed=self._build_embed(), view=self)
+            await asyncio.sleep(0.5)
 
-        # Step 2: Banker's 2 cards
-        self.banker_hand = [_draw(), _draw()]
-        if self.message:
-            await self.message.edit(embed=self._build_embed(), view=self)
+        self.player_hand = []
+        self.banker_hand = []
+
+        # Player card 1, Player card 2, Banker card 1, Banker card 2
+        await deal_card(self.player_hand)
+        await deal_card(self.player_hand)
+        await deal_card(self.banker_hand)
+        await deal_card(self.banker_hand)
 
         pval = _hand_val(self.player_hand)
         bval = _hand_val(self.banker_hand)
@@ -266,20 +269,12 @@ class _BaccaratView(discord.ui.View):
 
         player_third: str | None = None
         if not natural:
-            # Step 3: Player's 3rd card
             if pval <= 5:
-                await asyncio.sleep(1.5)
-                player_third = _draw()
-                self.player_hand.append(player_third)
-                if self.message:
-                    await self.message.edit(embed=self._build_embed(), view=self)
+                await deal_card(self.player_hand)
+                player_third = self.player_hand[-1]
 
-            # Step 4: Banker's 3rd card
             if _banker_draws(self.banker_hand, player_third):
-                await asyncio.sleep(1.5)
-                self.banker_hand.append(_draw())
-                if self.message:
-                    await self.message.edit(embed=self._build_embed(), view=self)
+                await deal_card(self.banker_hand)
 
         self.phase = "done"
         self._update_buttons()
