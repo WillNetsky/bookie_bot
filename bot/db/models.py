@@ -33,7 +33,7 @@ async def update_balance(discord_id: int, delta: int) -> int:
     try:
         await db.execute(
             "UPDATE users SET balance = balance + ? WHERE discord_id = ?",
-            (delta, discord_id),
+            (int(delta), discord_id),
         )
         await db.commit()
         cursor = await db.execute(
