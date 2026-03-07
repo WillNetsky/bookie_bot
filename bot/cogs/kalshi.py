@@ -101,8 +101,9 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3ae"  # 🎮 — Esports
     if "BEAST" in sk or "FANATICS" in sk or "EUROVISION" in sk:
         return "\U0001f3ac"  # 🎬
-    # World Cup — must come before soccer block to avoid WORLDCUP/CUP matching soccer
-    if sk.startswith("WC") or "WORLDCUP" in sk:
+    # World Cup — strip KX prefix then check; must come before soccer block (CUP match)
+    sk_base = sk[2:] if sk.startswith("KX") else sk
+    if sk_base.startswith("WC") or "WORLDCUP" in sk:
         return "\U0001f30d"  # 🌍
     # Soccer — explicit leagues + generic "LEAGUE"/"CUP" after all non-soccer sports caught
     if (
