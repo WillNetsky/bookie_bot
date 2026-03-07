@@ -181,6 +181,7 @@ MIGRATIONS = [
     "ALTER TABLE parlay_legs ADD COLUMN commence_time TEXT",
     "ALTER TABLE kalshi_bets ADD COLUMN pick_display TEXT",
     "ALTER TABLE kalshi_series ADD COLUMN subcategory TEXT",
+    "ALTER TABLE users ADD COLUMN bankruptcy_count INTEGER NOT NULL DEFAULT 0",
     # kalshi_parlays and kalshi_parlay_legs created in schema above
 ]
 

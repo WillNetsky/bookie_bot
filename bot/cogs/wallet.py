@@ -25,13 +25,22 @@ class _StupidPoorView(discord.ui.View):
             await interaction.response.send_message("This isn't for you.", ephemeral=True)
             return
         await models.get_or_create_user(self.user_id)
-        new_bal = await models.set_user_balance(self.user_id, 100)
+        new_bal, count = await models.record_bankruptcy(self.user_id)
         button.disabled = True
         self.stop()
-        await interaction.response.edit_message(
-            content=f"Fine. You have **${new_bal:.2f}**. Try not to blow it.",
-            view=self,
-        )
+        if count == 1:
+            msg = f"Fine. Here's **${new_bal:.0f}**. First time going broke — embarrassing."
+        elif count == 2:
+            msg = f"Again? **${new_bal:.0f}**. That's twice now."
+        elif count == 3:
+            msg = f"Third time. **${new_bal:.0f}**. Are you okay?"
+        elif count < 6:
+            msg = f"Bankruptcy #{count}. **${new_bal:.0f}**. Maybe try a different strategy."
+        elif count < 10:
+            msg = f"#{count}. **${new_bal:.0f}**. This is getting sad."
+        else:
+            msg = f"#{count}. **${new_bal:.0f}**. You are beyond help."
+        await interaction.response.edit_message(content=msg, view=self)
 
 
 class Wallet(commands.Cog):

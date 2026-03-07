@@ -47,6 +47,26 @@ async def update_balance(discord_id: int, delta: int) -> int:
 
 @db_retry()
 @db_retry()
+async def record_bankruptcy(discord_id: int) -> tuple[int, int]:
+    """Set balance to $100 and increment bankruptcy_count. Returns (new_balance, new_count)."""
+    db = await get_connection()
+    try:
+        await db.execute(
+            "UPDATE users SET balance = 100, bankruptcy_count = bankruptcy_count + 1 WHERE discord_id = ?",
+            (discord_id,),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT balance, bankruptcy_count FROM users WHERE discord_id = ?", (discord_id,)
+        )
+        row = await cursor.fetchone()
+        return row["balance"], row["bankruptcy_count"]
+    finally:
+        await db.close()
+
+
+@db_retry()
+@db_retry()
 async def add_voice_minutes(discord_id: int, minutes: int) -> None:
     db = await get_connection()
     try:
