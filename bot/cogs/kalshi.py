@@ -55,11 +55,12 @@ def _sport_emoji(sport_key: str) -> str:
         or "BIG10REG" in sk or "BIG12REG" in sk or "PAC12REG" in sk
         or "BIGTENREG" in sk or "BIGTWELVEREG" in sk
         or "AACMBKT" in sk or "SUNBELTREG" in sk or "MWCREG" in sk
+        or "MWREG" in sk  # Mountain West Regular Season
     ):
         return "\U0001f393"  # 🎓 — College Basketball
     if "NBA" in sk or "WNBA" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
         return "\U0001f3c0"  # 🏀
-    if "NFL" in sk or "NCAAF" in sk:
+    if "NFL" in sk or "NCAAF" in sk or "STARTINGQB" in sk or "QB" in sk:
         return "\U0001f3c8"  # 🏈
     if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk or "NLA" in sk or "NLB" in sk or "KXNL" in sk:
         return "\U0001f3d2"  # 🏒
@@ -69,7 +70,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f94d"  # 🥍
     if "CRICKET" in sk or "IPL" in sk or "WPL" in sk:
         return "\U0001f3cf"  # 🏏
-    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "UNITEDCUP" in sk or "SIXKINGS" in sk or "CHALLENGER" in sk:
+    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "UNITEDCUP" in sk or "SIXKINGS" in sk or "CHALLENGER" in sk or "GRANDSLAM" in sk:
         return "\U0001f3be"  # 🎾
     if "CURL" in sk:
         return "\U0001f94c"  # 🥌
@@ -87,7 +88,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3ce\ufe0f"  # 🏎️ — Formula 1
     if "NASCAR" in sk:
         return "\U0001f3c1"  # 🏁 — NASCAR
-    if "RACE" in sk:
+    if "INDYCAR" in sk or "RACE" in sk:
         return "\U0001f697"  # 🚗 — Racing (other)
     if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk or "LIV" in sk or "DPWORLDTOUR" in sk:
         return "\u26f3"  # ⛳
@@ -140,6 +141,7 @@ def _sport_emoji(sport_key: str) -> str:
         or "BELGIAN" in sk  # Belgian Pro League
         or "EGYPL" in sk or "EGYSUPERL" in sk  # Egyptian Premier League
         or "URYPD" in sk  # Uruguayan Primera División
+        or "PFAPOY" in sk  # PFA Player of the Year (soccer award)
         or "VENFUT" in sk  # Venezuelan football (VENFUTVE, etc.)
         or "APFDDH" in sk  # Paraguayan APF league
         or "USL" in sk  # USL Championship (US soccer)
@@ -717,7 +719,9 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     game_map: dict[str, list[dict]] = OrderedDict()
     for m in markets:
         et = m.get("event_ticker", "")
-        key = _extract_game_fingerprint(et) or et
+        # Fall back to the unique market ticker so markets with no event_ticker
+        # don't all collapse into one giant group under key "".
+        key = _extract_game_fingerprint(et) or et or m.get("ticker") or ""
         game_map.setdefault(key, []).append(m)
 
     # Build intermediate groups, flagging which have team codes.
