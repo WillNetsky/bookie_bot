@@ -49,7 +49,13 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f30d"  # 🌍 — World Cup
     if "MARMAD" in sk:
         return "\U0001f32a\ufe0f"  # 🌪️ — March Madness
-    if "NCAAMB" in sk or "NCAAWB" in sk or "NCAAB" in sk:
+    if (
+        "NCAAMB" in sk or "NCAAWB" in sk or "NCAAB" in sk
+        or "BIGEAST" in sk or "ACCREG" in sk or "SECREG" in sk
+        or "BIG10REG" in sk or "BIG12REG" in sk or "PAC12REG" in sk
+        or "BIGTENREG" in sk or "BIGTWELVEREG" in sk
+        or "AACMBKT" in sk or "SUNBELTREG" in sk or "MWCREG" in sk
+    ):
         return "\U0001f393"  # 🎓 — College Basketball
     if "NBA" in sk or "WNBA" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
         return "\U0001f3c0"  # 🏀
@@ -93,7 +99,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f9d9"  # 🧙 — League of Legends
     if "VALORANT" in sk or "DOTA" in sk or "OW" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk:
         return "\U0001f3ae"  # 🎮 — Esports
-    if "BEAST" in sk or "FANATICS" in sk:
+    if "BEAST" in sk or "FANATICS" in sk or "EUROVISION" in sk:
         return "\U0001f3ac"  # 🎬
     # World Cup — must come before soccer block to avoid WORLDCUP/CUP matching soccer
     if sk.startswith("WC") or "WORLDCUP" in sk:
