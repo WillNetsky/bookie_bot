@@ -95,6 +95,9 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f3ae"  # 🎮 — Esports
     if "BEAST" in sk or "FANATICS" in sk:
         return "\U0001f3ac"  # 🎬
+    # World Cup — must come before soccer block to avoid WORLDCUP/CUP matching soccer
+    if sk.startswith("WC") or "WORLDCUP" in sk:
+        return "\U0001f30d"  # 🌍
     # Soccer — explicit leagues + generic "LEAGUE"/"CUP" after all non-soccer sports caught
     if (
         "EPL" in sk or "PREMIER" in sk
@@ -104,7 +107,7 @@ def _sport_emoji(sport_key: str) -> str:
         or "MLS" in sk or "NWSL" in sk
         or "UCL" in sk or "UEL" in sk or "UECL" in sk
         or "UEFA" in sk or "CONCACAF" in sk
-        or "WORLDCUP" in sk or "EUROCUP" in sk
+        or "EUROCUP" in sk
         or "EREDIVISIE" in sk or "EREDIV" in sk
         or "CHAMPIONSHIP" in sk
         or "ALEAGUE" in sk or "JLEAGUE" in sk or "KLEAGUE" in sk
