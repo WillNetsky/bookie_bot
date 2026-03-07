@@ -129,6 +129,10 @@ def _sport_emoji(sport_key: str) -> str:
         or "THAIL" in sk  # Thai League (THAIL1, THAIL2, etc.)
         or "BELGIAN" in sk  # Belgian Pro League
         or "EGYPL" in sk or "EGYSUPERL" in sk  # Egyptian Premier League
+        or "URYPD" in sk  # Uruguayan Primera División
+        or "VENFUT" in sk  # Venezuelan football (VENFUTVE, etc.)
+        or "APFDDH" in sk  # Paraguayan APF league
+        or "USL" in sk  # USL Championship (US soccer)
     ):
         return "\u26bd"  # ⚽
     return "\U0001f3c6"  # 🏆 — Other / truly unrecognized
