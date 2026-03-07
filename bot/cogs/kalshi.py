@@ -825,11 +825,13 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         else:
             label = _best_game_label(sorted_markets)
         exp = _earliest_market_time(first)
-        league = _short_league(first.get("series_ticker") or "")
+        raw_ticker = first.get("series_ticker") or ""
+        league = _short_league(raw_ticker)
         result.append({
             "key": g["key"],
             "label": label,
             "league": league,
+            "series_ticker": raw_ticker,
             "time": exp,
             "time_str": _format_game_time(exp) if exp else "",
             "markets": sorted_markets,
@@ -1669,10 +1671,11 @@ class GameListView(discord.ui.View):
             embed.description = "No games found."
             return embed
         lines = []
+        is_other = self.sport_emoji == "\U0001f3c6"
         for g in page_games:
             n = g["market_count"]
             time_part = f" · {g['time_str']}" if g["time_str"] else ""
-            league = g.get("league", "")
+            league = g.get("series_ticker", "") if is_other else g.get("league", "")
             league_part = f" · _{league}_" if league else ""
             lines.append(f"**{g['label']}**{league_part} · {n} market{'s' if n != 1 else ''}{time_part}")
         embed.description = "\n\n".join(lines)
