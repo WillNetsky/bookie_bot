@@ -125,6 +125,10 @@ def _sport_emoji(sport_key: str) -> str:
         or "GREECE" in sk or "GREEK" in sk or "GRC" in sk  # Super League Greece
         or "ARGENT" in sk or "ARGPREMDIV" in sk  # Argentina Primera Division
         or "BRASILEIRO" in sk  # Brasileirao (Brazilian soccer)
+        or "CHNSL" in sk or "CHNSUPER" in sk  # Chinese Super League
+        or "THAIL" in sk  # Thai League (THAIL1, THAIL2, etc.)
+        or "BELGIAN" in sk  # Belgian Pro League
+        or "EGYPL" in sk or "EGYSUPERL" in sk  # Egyptian Premier League
     ):
         return "\u26bd"  # ⚽
     return "\U0001f3c6"  # 🏆 — Other / truly unrecognized
