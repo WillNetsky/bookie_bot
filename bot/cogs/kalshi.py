@@ -823,11 +823,7 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     for g in game_groups:
         sorted_markets = sorted(g["markets"], key=lambda m: _earliest_market_time(m) or "9999")
         first = sorted_markets[0]
-        teams = g["teams"]
-        if teams:
-            label = f"{teams[0]} @ {teams[1]}"
-        else:
-            label = _best_game_label(sorted_markets)
+        label = _best_game_label(sorted_markets)
         exp = _earliest_market_time(first)
         raw_ticker = first.get("series_ticker") or ""
         league = _short_league(raw_ticker)
@@ -1134,6 +1130,7 @@ def _price_to_american(price: float) -> str:
 # (keyword, category_label, sort_priority) — checked in order, first match wins
 _CATEGORY_RULES: list[tuple[str, str, int]] = [
     ("GAME",       "Game Lines",       1),
+    ("FIGHT",      "Fight Lines",      1),
     ("WINNER",     "Game Lines",       1),
     ("SPREAD",     "Spread",           2),
     ("TEAMTOTAL",  "Team Total",       4),   # must come before TOTAL
