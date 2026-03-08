@@ -4140,9 +4140,9 @@ class KalshiCog(commands.Cog):
             await interaction.followup.send("No open markets right now.")
             return
 
-        view = MarketListView(closing_soon)
+        view = SportSelectorView(closing_soon)
         embed = view.build_embed()
-        embed.title = "\U0001f534 Open Markets"
+        embed.title = "\U0001f534 Live Markets"
         msg = await interaction.followup.send(embed=embed, view=view)
         view.message = msg
 
