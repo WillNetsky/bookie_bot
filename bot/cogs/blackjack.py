@@ -106,11 +106,11 @@ class _BlackjackView(discord.ui.View):
     async def _safe_edit(self, interaction: discord.Interaction) -> None:
         """Edit via the button interaction if still valid, else fall back to direct message edit."""
         try:
-            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+            await interaction.response.edit_message(content=self._build_content(), embed=self._build_embed(), view=self)
         except discord.NotFound:
             if self.message:
                 try:
-                    await self.message.edit(embed=self._build_embed(), view=self)
+                    await self.message.edit(content=self._build_content(), embed=self._build_embed(), view=self)
                 except discord.HTTPException:
                     pass
 
@@ -125,6 +125,24 @@ class _BlackjackView(discord.ui.View):
         self.double_btn.disabled = not playing
         self.split_btn.disabled = not playing
         self.restart_btn.disabled = not done
+
+    def _build_content(self) -> str:
+        """Plain-text fallback for users with embeds disabled."""
+        lines = [f"**🃏 Blackjack — {fmt_money(self.bet)}**"]
+        if self.phase == "joining":
+            joined = ", ".join(p.name for p in self.players) or "none"
+            lines.append(f"Waiting for players · Joined: {joined}")
+        elif self.dealer_hand:
+            hide = self.phase == "playing"
+            dealer_str = _fmt(self.dealer_hand, hide_hole=hide)
+            val_str = f" ({_value(self.dealer_hand)})" if not hide else ""
+            lines.append(f"Dealer: {dealer_str}{val_str}")
+            for i, p in enumerate(self.players):
+                arrow = " ←" if self.phase == "playing" and i == self.current_idx and not p.done else ""
+                hand_str = _fmt(p.hand) if p.hand else "—"
+                val = f" ({p.val})" if p.hand else ""
+                lines.append(f"{p.name}{arrow}: {hand_str}{val} · bet {fmt_money(p.bet)}")
+        return "\n".join(lines)
 
     def _build_embed(self) -> discord.Embed:
         colors = {
@@ -225,7 +243,7 @@ class _BlackjackView(discord.ui.View):
             return
 
         self.players.append(_Player(user_id=uid, name=interaction.user.display_name, bet=self.bet))
-        await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        await interaction.response.edit_message(content=self._build_content(), embed=self._build_embed(), view=self)
 
     @discord.ui.button(label="Deal", style=discord.ButtonStyle.primary)
     async def deal_btn(
@@ -423,20 +441,20 @@ class _BlackjackView(discord.ui.View):
             self.double_btn.disabled = len(p.hand) != 2
             self.split_btn.disabled = not _can_split(p.hand) or p.is_split
             if self.message:
-                await self.message.edit(embed=self._build_embed(), view=self)
+                await self.message.edit(content=self._build_content(), embed=self._build_embed(), view=self)
 
     async def _dealer_play(self) -> None:
         self.phase = "dealer"
         self._update_buttons()
         # Reveal hole card
         if self.message:
-            await self.message.edit(embed=self._build_embed(), view=self)
+            await self.message.edit(content=self._build_content(), embed=self._build_embed(), view=self)
 
         while _value(self.dealer_hand) < 17:
             await asyncio.sleep(1.5)
             self.dealer_hand.append(_draw())
             if self.message:
-                await self.message.edit(embed=self._build_embed(), view=self)
+                await self.message.edit(content=self._build_content(), embed=self._build_embed(), view=self)
 
         await self._resolve()
 
@@ -487,7 +505,7 @@ class _BlackjackView(discord.ui.View):
                 pass
 
         if self.message:
-            await self.message.edit(embed=self._build_embed(), view=self)
+            await self.message.edit(content=self._build_content(), embed=self._build_embed(), view=self)
 
     async def on_timeout(self) -> None:
         if self.phase == "joining":
@@ -536,7 +554,7 @@ class Blackjack(commands.Cog):
 
         view = _BlackjackView(host=interaction.user, bet=bet)
         view.players.append(_Player(user_id=interaction.user.id, name=interaction.user.display_name, bet=bet))
-        await interaction.response.send_message(embed=view._build_embed(), view=view)
+        await interaction.response.send_message(content=view._build_content(), embed=view._build_embed(), view=view)
         original = await interaction.original_response()
         view.message = interaction.channel.get_partial_message(original.id)
 
