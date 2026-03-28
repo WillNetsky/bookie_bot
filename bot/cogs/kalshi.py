@@ -810,12 +810,14 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
             if prop["time"] and timed_games:
                 try:
                     prop_dt = datetime.fromisoformat(prop["time"].replace("Z", "+00:00"))
-                    best_dt, best_game = min(
-                        timed_games,
-                        key=lambda x: abs((x[0] - prop_dt).total_seconds()),
-                    )
-                    if abs((best_dt - prop_dt).total_seconds()) <= 1800:  # within 30 min
-                        best_game["markets"].extend(prop["markets"])
+                    nearby = [
+                        (dt, g) for dt, g in timed_games
+                        if abs((dt - prop_dt).total_seconds()) <= 1800
+                    ]
+                    # Only merge when exactly one game is within the window — if multiple
+                    # games start at the same time we can't tell which game owns these props.
+                    if len(nearby) == 1:
+                        nearby[0][1]["markets"].extend(prop["markets"])
                         merged = True
                 except (ValueError, TypeError):
                     pass
