@@ -754,13 +754,21 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     # (e.g. a Kalshi "multi-game event" where 4 games share one event_ticker).
     groups: list[dict] = []
     for key, group_markets in game_map.items():
-        # Sub-split only when ALL markets share the exact same event_ticker:
-        # that means one Kalshi "multi-game event" containing several matchups.
-        # If markets come from different event_tickers (different series for the
-        # same game, e.g. KXNHLGAME + KXNHLSPREAD + KXNHLTOTAL), keep them
-        # together — their titles differ but they're all one game.
+        # Sub-split when:
+        #   (a) ALL markets share the exact same event_ticker — one Kalshi
+        #       "multi-game event" containing several matchups, OR
+        #   (b) none of the event_tickers carry team codes — date-only tickers
+        #       like KXMLBGAME-26MAR28 / KXMLBGAMESPREAD-26MAR28 are day-level
+        #       series that can hold markets for multiple different games; we
+        #       can't keep them together or they'll show as one giant game entry.
+        # When there ARE multiple distinct tickers that each carry team codes it
+        # means different series (KXNHLGAME + KXNHLSPREAD + KXNHLTOTAL) for the
+        # same matchup — keep them together.
         unique_event_tickers = {m.get("event_ticker", "") for m in group_markets}
-        if len(unique_event_tickers) == 1:
+        any_has_teams = any(
+            _teams_from_event_ticker_flexible(et) for et in unique_event_tickers
+        )
+        if len(unique_event_tickers) == 1 or not any_has_teams:
             per_title: dict[str, list[dict]] = {}
             for m in group_markets:
                 per_title.setdefault(m.get("title") or "", []).append(m)
@@ -794,6 +802,23 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
                 except (ValueError, TypeError):
                     pass
 
+        # Build a team-name index: game → set of team name tokens extracted from
+        # yes_sub_title strings in that game's markets (e.g. {"Tampa", "Bay", "Rays"}).
+        # Used to match prop markets (which have no event_ticker team codes) to
+        # the right game when multiple games share the same start time.
+        def _name_tokens(text: str) -> set[str]:
+            return {w.lower() for w in re.split(r'\W+', text) if len(w) >= 3}
+
+        game_name_tokens: list[tuple[dict, set[str]]] = []
+        for g in game_groups:
+            tokens: set[str] = set()
+            for m in g["markets"]:
+                for field in ("yes_sub_title", "no_sub_title", "title"):
+                    val = m.get(field) or ""
+                    if val:
+                        tokens |= _name_tokens(val)
+            game_name_tokens.append((g, tokens))
+
         for prop in prop_groups:
             # If no market in this group has numeric sub-titles, it looks like a
             # standalone game-winner (e.g. another game from the same series).
@@ -806,8 +831,31 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
                 game_groups.append(prop)
                 continue
 
+            # Collect tokens from this prop's markets
+            prop_tokens: set[str] = set()
+            for m in prop["markets"]:
+                for field in ("title", "yes_sub_title", "no_sub_title"):
+                    val = m.get(field) or ""
+                    if val:
+                        prop_tokens |= _name_tokens(val)
+
             merged = False
-            if prop["time"] and timed_games:
+
+            # Pass 1: team-name match — find game(s) that share tokens with the prop.
+            # Ignore very short / common words already filtered by _name_tokens (len>=3).
+            # Only merge if exactly one game matches (ambiguous → fall through to time).
+            if prop_tokens and game_name_tokens:
+                matches = [
+                    g for g, g_tokens in game_name_tokens
+                    if prop_tokens & g_tokens
+                ]
+                if len(matches) == 1:
+                    matches[0]["markets"].extend(prop["markets"])
+                    merged = True
+
+            # Pass 2: time-based fallback — only when a single game starts within
+            # 30 minutes of this prop group.
+            if not merged and prop["time"] and timed_games:
                 try:
                     prop_dt = datetime.fromisoformat(prop["time"].replace("Z", "+00:00"))
                     nearby = [
