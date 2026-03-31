@@ -176,8 +176,6 @@ bot/
 
 - [x] **Migrate off the-odds-api** — all primary betting migrated to Kalshi, legacy integration removed
 
-
-
 #### Up Next
 
 - [ ] **More ways to earn** — posting rewards, `/play` mini-games, daily login bonus, etc.

@@ -35,10 +35,3 @@ PICK_LABELS = {
 # Timezone helpers
 TZ_ET = timezone(timedelta(hours=-5))
 TZ_PT = timezone(timedelta(hours=-8))
-
-# Known offsets (hours before expiration_time) to estimate actual game start.
-# Kalshi only exposes market close/expiration, not true start times.
-# Add entries here as patterns are confirmed (keys are substrings of sport_key).
-SPORT_START_OFFSETS: dict[str, int] = {
-    "cs2": 4,  # CS2 matches observed to start ~4h before market expiration
-}
