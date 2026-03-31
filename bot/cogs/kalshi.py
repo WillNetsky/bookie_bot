@@ -663,12 +663,18 @@ def _is_mlb_market(m: dict) -> bool:
     return "MLB" in sk
 
 
+def _is_nhl_market(m: dict) -> bool:
+    sk = _market_series_ticker(m).upper()
+    return "NHL" in sk
+
+
 def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
     """Group markets by sport (same emoji key), sorted by most games first.
 
     NBA and WNBA are split out from the rest of basketball and shown as their
     own "NBA" group; remaining basketball leagues appear as "International Basketball".
     MLB is split out from the rest of baseball; remaining leagues appear as "College Baseball".
+    NHL is split out from the rest of hockey; remaining leagues appear as "International Hockey".
     """
     sport_map: dict[str, list[dict]] = {}
     for m in markets:
@@ -701,6 +707,25 @@ def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
             for sub_markets, sub_label in (
                 (mlb_markets, "MLB"),
                 (other_markets, "College Baseball"),
+            ):
+                if not sub_markets:
+                    continue
+                game_keys = {
+                    _extract_game_fingerprint(m.get("event_ticker", "")) or m.get("event_ticker", "")
+                    for m in sub_markets
+                }
+                result.append({
+                    "emoji": emoji,
+                    "label": sub_label,
+                    "markets": sub_markets,
+                    "game_count": len(game_keys),
+                })
+        elif emoji == "🏒":
+            nhl_markets = [m for m in sport_markets if _is_nhl_market(m)]
+            other_markets = [m for m in sport_markets if not _is_nhl_market(m)]
+            for sub_markets, sub_label in (
+                (nhl_markets, "NHL"),
+                (other_markets, "International Hockey"),
             ):
                 if not sub_markets:
                     continue
