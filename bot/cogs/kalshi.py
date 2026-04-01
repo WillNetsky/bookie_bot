@@ -404,13 +404,16 @@ _CONCAT_DATE_TEAMS_RE = re.compile(r'^(\d{2}[A-Za-z]{3}\d+)([A-Z]{4,9})$')
 def _split_concat_teams(teams_str: str) -> tuple[str, str] | None:
     """Split a concatenated team-code string into two codes.
 
-    Handles 3+3 (most leagues: NBA/NHL/etc.) and 2+2 formats.
+    Handles 3+3 (most leagues: NBA/NHL/etc.), 2+2, and 2+3 formats.
+    The 2+3 split covers MLB teams with 2-char codes (TB, SF, SD, KC, NY, LA).
     Returns None for unrecognised lengths.
     """
     n = len(teams_str)
     if n == 6:
         return teams_str[:3], teams_str[3:]
     if n == 4:
+        return teams_str[:2], teams_str[2:]
+    if n == 5:
         return teams_str[:2], teams_str[2:]
     return None
 
@@ -552,6 +555,11 @@ def _extract_game_fingerprint(event_ticker: str) -> str | None:
                 if team_pair:
                     t1, t2 = sorted(team_pair)
                     return f"{date_str}-{t1}-{t2}"
+                # Teams can't be split (e.g. 5-char blob like "TBDET"), but we
+                # can still return a stable game-level key by dropping the
+                # player/outcome suffix.  All threshold markets for the same
+                # game share parts[0] so they land in one fingerprint bucket.
+                return parts[0]
 
     # Hyphen-separated format: normalise team order in positions 1 & 2
     if len(parts) >= 3 and parts[1].isalpha() and parts[2].isalpha():
