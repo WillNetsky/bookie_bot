@@ -55,10 +55,9 @@ class BookieBot(commands.Bot):
         # Warm up the markets cache on startup so the first /games command is fast
         # and the 30-minute refresh cycle is anchored to bot start time.
         async def _warmup_markets() -> None:
-            from bot.services.kalshi_api import KalshiAPIClient
+            from bot.services.kalshi_api import kalshi_api
             try:
-                client = KalshiAPIClient()
-                await client.get_all_open_sports_markets()
+                await kalshi_api.get_all_open_sports_markets()
                 log.info("Kalshi markets cache warmed up.")
             except Exception:
                 log.exception("Failed to warm up Kalshi markets cache.")
@@ -71,10 +70,11 @@ class BookieBot(commands.Bot):
             error: app_commands.AppCommandError,
         ) -> None:
             cause = error.original if isinstance(error, app_commands.CommandInvokeError) else error
-            if isinstance(cause, discord.NotFound) and cause.code == 10062:
+            if isinstance(cause, discord.NotFound) and cause.code in (10062, 10008):
                 log.warning(
-                    "Interaction expired before bot could respond in '%s' — likely event loop was busy",
+                    "Interaction no longer valid in '%s' (code %s) — likely mid-reconnect or expired",
                     interaction.command.name if interaction.command else "unknown",
+                    cause.code,
                 )
                 return
             if isinstance(cause, discord.HTTPException) and cause.status == 429:
