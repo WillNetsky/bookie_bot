@@ -417,8 +417,9 @@ def _split_concat_teams(teams_str: str) -> tuple[str, str] | None:
 
 def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | None:
     """Like _teams_from_event_ticker but handles player-prop suffixes and
-    the concatenated date+teams format used by Kalshi NBA/NHL tickers
-    (e.g. KXNBATOTAL-26MAR05UTAWAS where date and teams share one segment).
+    the concatenated date+teams format used by Kalshi NBA/NHL/MLB tickers
+    (e.g. KXNBATOTAL-26MAR05UTAWAS where date and teams share one segment,
+    or KXMLBGAME-26MAR311840PITCIN-PIT where a per-outcome code follows).
     """
     teams = _teams_from_event_ticker(event_ticker)
     if teams:
@@ -430,6 +431,15 @@ def _teams_from_event_ticker_flexible(event_ticker: str) -> tuple[str, str] | No
         if "-" not in suffix:
             # Try with and without a trailing map qualifier (e.g. ALWBM2 → ALWB)
             for candidate in (suffix, _CONCAT_MAP_QUAL_RE.sub("", suffix)):
+                m = _CONCAT_DATE_TEAMS_RE.match(candidate)
+                if m:
+                    return _split_concat_teams(m.group(2))
+        else:
+            # Two-part suffix: first segment is concatenated date+teams, second is
+            # a per-outcome or per-player code (e.g. "26MAR311840PITCIN-PIT" or
+            # "26MAR312140LAACHC-LAANFORTES33"). Extract teams from the first part.
+            first_seg = suffix.split("-", 1)[0]
+            for candidate in (first_seg, _CONCAT_MAP_QUAL_RE.sub("", first_seg)):
                 m = _CONCAT_DATE_TEAMS_RE.match(candidate)
                 if m:
                     return _split_concat_teams(m.group(2))
@@ -497,9 +507,11 @@ def _short_league(series_ticker: str) -> str:
 def _extract_game_fingerprint(event_ticker: str) -> str | None:
     """Return a stable game key by stripping the series prefix and map qualifiers.
 
-    Handles two ticker formats:
-      Hyphen-separated:   KXNBAGAME-26MAR05-UTA-WAS  → '26MAR05-UTA-WAS'
-      Concatenated:       KXNBATOTAL-26MAR05UTAWAS    → '26MAR05-UTA-WAS'
+    Handles three ticker formats:
+      Hyphen-separated:   KXNBAGAME-26MAR05-UTA-WAS         → '26MAR05-UTA-WAS'
+      Concatenated:       KXNBATOTAL-26MAR05UTAWAS           → '26MAR05-UTA-WAS'
+      Concat + suffix:    KXMLBGAME-26MAR311840PITCIN-PIT    → '26MAR311840-CIN-PIT'
+                          KXMLBHRR-26MAR312140LAACHC-NFORTES → '26MAR312140-CHC-LAA'
 
     Team codes are sorted so that UTAWAS and WASUTA produce the same fingerprint,
     ensuring all series for the same game group together regardless of team order.
@@ -527,6 +539,19 @@ def _extract_game_fingerprint(event_ticker: str) -> str | None:
                     t1, t2 = sorted(team_pair)
                     return f"{date_str}-{t1}-{t2}"
         return seg_stripped if seg_stripped != seg else seg
+
+    # Concatenated game segment + per-outcome or per-player suffix:
+    # e.g. "26MAR311840PITCIN-PIT" or "26MAR312140LAACHC-LAANFORTES33".
+    # Extract teams from the first part, ignoring the suffix.
+    if len(parts) == 2:
+        for candidate in (parts[0], _CONCAT_MAP_QUAL_RE.sub("", parts[0])):
+            m = _CONCAT_DATE_TEAMS_RE.match(candidate)
+            if m:
+                date_str = m.group(1)
+                team_pair = _split_concat_teams(m.group(2))
+                if team_pair:
+                    t1, t2 = sorted(team_pair)
+                    return f"{date_str}-{t1}-{t2}"
 
     # Hyphen-separated format: normalise team order in positions 1 & 2
     if len(parts) >= 3 and parts[1].isalpha() and parts[2].isalpha():
