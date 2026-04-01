@@ -878,20 +878,30 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
                     matches[0]["markets"].extend(prop["markets"])
                     merged = True
 
-            # Pass 2: time-based fallback — only when a single game starts within
-            # 30 minutes of this prop group.
+            # Pass 2: time-based fallback.
+            # 2a — tight window (≤5 min): prefer exact start-time match so player
+            #      props with the same commence_time as their game merge correctly
+            #      even when another game falls within the broader 30-min window.
+            # 2b — 30-min fuzzy window: catches props whose Kalshi time drifts
+            #      slightly from the game's listed start time.
             if not merged and prop["time"] and timed_games:
                 try:
                     prop_dt = datetime.fromisoformat(prop["time"].replace("Z", "+00:00"))
-                    nearby = [
+                    tight = [
                         (dt, g) for dt, g in timed_games
-                        if abs((dt - prop_dt).total_seconds()) <= 1800
+                        if abs((dt - prop_dt).total_seconds()) <= 300
                     ]
-                    # Only merge when exactly one game is within the window — if multiple
-                    # games start at the same time we can't tell which game owns these props.
-                    if len(nearby) == 1:
-                        nearby[0][1]["markets"].extend(prop["markets"])
+                    if len(tight) == 1:
+                        tight[0][1]["markets"].extend(prop["markets"])
                         merged = True
+                    elif not tight:
+                        nearby = [
+                            (dt, g) for dt, g in timed_games
+                            if abs((dt - prop_dt).total_seconds()) <= 1800
+                        ]
+                        if len(nearby) == 1:
+                            nearby[0][1]["markets"].extend(prop["markets"])
+                            merged = True
                 except (ValueError, TypeError):
                     pass
             if not merged:
