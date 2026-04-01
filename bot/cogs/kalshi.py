@@ -804,21 +804,18 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     # (e.g. a Kalshi "multi-game event" where 4 games share one event_ticker).
     groups: list[dict] = []
     for key, group_markets in game_map.items():
-        # Sub-split when:
-        #   (a) ALL markets share the exact same event_ticker — one Kalshi
-        #       "multi-game event" containing several matchups, OR
-        #   (b) none of the event_tickers carry team codes — date-only tickers
-        #       like KXMLBGAME-26MAR28 / KXMLBGAMESPREAD-26MAR28 are day-level
-        #       series that can hold markets for multiple different games; we
-        #       can't keep them together or they'll show as one giant game entry.
-        # When there ARE multiple distinct tickers that each carry team codes it
-        # means different series (KXNHLGAME + KXNHLSPREAD + KXNHLTOTAL) for the
-        # same matchup — keep them together.
+        # Sub-split when none of the event_tickers carry team codes — date-only
+        # tickers like KXMLBGAME-26MAR28 / KXMLBGAMESPREAD-26MAR28 are day-level
+        # series that can hold markets for multiple different games; we can't keep
+        # them together or they'll show as one giant game entry.
+        # When any ticker carries team codes the fingerprint already scoped the
+        # bucket to one specific game, so keep everything together regardless of
+        # how many distinct event_tickers landed here.
         unique_event_tickers = {m.get("event_ticker", "") for m in group_markets}
         any_has_teams = any(
             _teams_from_event_ticker_flexible(et) for et in unique_event_tickers
         )
-        if len(unique_event_tickers) == 1 or not any_has_teams:
+        if not any_has_teams:
             per_title: dict[str, list[dict]] = {}
             for m in group_markets:
                 per_title.setdefault(m.get("title") or "", []).append(m)
