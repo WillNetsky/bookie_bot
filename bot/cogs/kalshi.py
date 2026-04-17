@@ -965,7 +965,8 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
         first = sorted_markets[0]
         label = _best_game_label(sorted_markets)
         exp = _earliest_market_time(first)
-        raw_ticker = first.get("series_ticker") or ""
+        primary = next((m for m in sorted_markets if _is_moneyline_market(m)), first)
+        raw_ticker = primary.get("series_ticker") or ""
         league = _short_league(raw_ticker)
         result.append({
             "key": g["key"],
@@ -981,14 +982,48 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     return result
 
 
+_WINNER_SUFFIX_RE = re.compile(r'\s+winner\s*\??\s*$', re.IGNORECASE)
+
+
+def _is_moneyline_market(m: dict) -> bool:
+    """Return True if the market looks like a game-winner (moneyline) market.
+
+    Detected by a "Winner?" suffix on the raw title, which Kalshi uses
+    consistently for head-to-head matchup markets across sports.
+    """
+    return bool(_WINNER_SUFFIX_RE.search(m.get("title") or ""))
+
+
 def _best_game_label(markets: list[dict]) -> str:
     """Build the cleanest possible game label from a group of related markets.
 
     Strategy (in order):
+    0. If any moneyline markets exist, label from them — team names from
+       yes_sub_title, or the cleaned moneyline title. Prop/threshold markets
+       often share the same group but have misleading titles ("Total Runs?").
     1. Use yes_sub_title values as team names (most reliable — e.g. "JD Gaming", "BLG")
     2. Extract the "X vs. Y" portion out of verbose market titles
     3. Fall back to the shortest title, stripped of leading map/set qualifiers
     """
+    # 0. Prefer moneyline markets if present in the group
+    moneyline_ms = [m for m in markets if _is_moneyline_market(m)]
+    if moneyline_ms:
+        seen: set[str] = set()
+        teams: list[str] = []
+        for m in moneyline_ms:
+            s = (m.get("yes_sub_title") or "").strip()
+            if s and not re.search(r'\d', s) and s.lower() not in ("tie", "draw", "yes", "no") and s not in seen:
+                seen.add(s)
+                teams.append(s)
+            if len(teams) == 2:
+                break
+        if len(teams) == 2:
+            return f"{teams[0]} vs. {teams[1]}"
+        for raw in sorted((m.get("title") or "" for m in moneyline_ms), key=len):
+            cleaned = _clean_market_title(raw)
+            if cleaned:
+                return cleaned
+
     # 1. Collect unique non-numeric yes_sub_title values as team names
     seen: set[str] = set()
     teams: list[str] = []
