@@ -1102,7 +1102,7 @@ class KalshiAPI:
         # Stale-while-revalidate: if we have any old data, serve it immediately
         # and kick off a background refresh. This makes the first post-restart load
         # instant instead of blocking for 5-10s on a full paginated fetch.
-        if stale_data and not (self._prewarm_task and not self._prewarm_task.done()):
+        if stale_data:
             result = [m for m in json.loads(stale_data) if _is_market_active(m) and _is_market_bettable(m)]
             if result:
                 log.debug("Serving stale markets immediately, refreshing in background")
