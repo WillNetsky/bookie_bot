@@ -475,7 +475,8 @@ _LEAGUE_SUFFIX_RE = re.compile(
     r'(GAME|GAMES|SPREAD|TOTAL|WINNER|FIGHT|BOUT|MATCH|RACE|ROUND|SET|'
     r'1HWINNER|2HWINNER|1H|2H|PTS|REB|AST|3PT|2D|FOUL|STL|BLK|TEAMTOTAL|'
     r'PASSING|RUSHING|RECEIVING|TD|YDS|SACK|INT|MVP|CHAMP|'
-    r'HOCKEY|BASKETBALL|FOOTBALL|SOCCER|TENNIS|GOLF|BOXING|MMA)+$',
+    r'HOCKEY|BASKETBALL|FOOTBALL|SOCCER|TENNIS|GOLF|BOXING|MMA|'
+    r'F\d+|RFI|HRR|KS)+$',
     re.IGNORECASE,
 )
 
@@ -984,6 +985,19 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
 
 _WINNER_SUFFIX_RE = re.compile(r'\s+winner\s*\??\s*$', re.IGNORECASE)
 
+# Trailing qualifiers that sometimes appear AFTER team name B in Kalshi titles,
+# e.g. "NYM vs CHC first 5 innings Winner?", "LAL vs BOS 1H Winner?".
+# Stripping these lets us reduce a "X vs Y QUALIFIER" title down to "X vs Y".
+_TITLE_SUFFIX_NOISE_RE = re.compile(
+    r'\s+(?:'
+    r'match|game|series|Map\s+\d+|CS2|League of Legends|Dota\s*2?|Valorant|R6|COD|'
+    r'first\s+\d+\s+innings?|first\s+inning|runs?\s+first\s+inning|'
+    r'[12](?:st|nd)\s+half|[12]H|[12]Q|F\d+|RFI|HRR|KS|'
+    r'total\s+runs?|home\s+runs?|hits?'
+    r')\b.*$',
+    re.IGNORECASE,
+)
+
 
 def _is_moneyline_market(m: dict) -> bool:
     """Return True if the market looks like a game-winner (moneyline) market.
@@ -994,13 +1008,39 @@ def _is_moneyline_market(m: dict) -> bool:
     return bool(_WINNER_SUFFIX_RE.search(m.get("title") or ""))
 
 
+def _extract_matchup(title: str) -> str | None:
+    """Pull a bare 'X vs. Y' matchup out of a verbose Kalshi title.
+
+    Handles leading filler ("Will X win the", "in the") and trailing
+    qualifiers after team B (e.g. "first 5 innings", "1H", "F5", game
+    names for esports). Returns None if no "vs"/"at" separator is found.
+    """
+    for sep in (" vs. ", " vs ", " at "):
+        if sep not in title:
+            continue
+        idx = title.index(sep)
+        before = title[:idx]
+        after = title[idx + len(sep):]
+        for filler in (" in the ", " in ", " the "):
+            pos = before.rfind(filler)
+            if pos != -1:
+                before = before[pos + len(filler):]
+                break
+        after = _TITLE_SUFFIX_NOISE_RE.sub("", after).strip()
+        before = before.strip()
+        if before and after:
+            return f"{before}{sep}{after}"
+    return None
+
+
 def _best_game_label(markets: list[dict]) -> str:
     """Build the cleanest possible game label from a group of related markets.
 
     Strategy (in order):
     0. If any moneyline markets exist, label from them — team names from
-       yes_sub_title, or the cleaned moneyline title. Prop/threshold markets
-       often share the same group but have misleading titles ("Total Runs?").
+       yes_sub_title, or a bare matchup extracted from the moneyline title.
+       Prop/threshold markets often share the same group but have misleading
+       titles ("Total Runs?").
     1. Use yes_sub_title values as team names (most reliable — e.g. "JD Gaming", "BLG")
     2. Extract the "X vs. Y" portion out of verbose market titles
     3. Fall back to the shortest title, stripped of leading map/set qualifiers
@@ -1021,8 +1061,12 @@ def _best_game_label(markets: list[dict]) -> str:
             return f"{teams[0]} vs. {teams[1]}"
         for raw in sorted((m.get("title") or "" for m in moneyline_ms), key=len):
             cleaned = _clean_market_title(raw)
-            if cleaned:
-                return cleaned
+            if not cleaned:
+                continue
+            matchup = _extract_matchup(cleaned)
+            if matchup:
+                return matchup
+            return cleaned
 
     # 1. Collect unique non-numeric yes_sub_title values as team names
     seen: set[str] = set()
@@ -1040,22 +1084,9 @@ def _best_game_label(markets: list[dict]) -> str:
     # 2. Find "X vs. Y" or "X at Y" in market titles and extract just the matchup
     titles = sorted([m.get("title") or "" for m in markets if m.get("title")], key=len)
     for t in titles:
-        for sep in (" vs. ", " vs ", " at "):
-            if sep not in t:
-                continue
-            idx = t.index(sep)
-            before = t[:idx]
-            after = t[idx + len(sep):]
-            # Strip leading filler ("Will X win the", "in the", etc.)
-            for filler in (" in the ", " in ", " the "):
-                pos = before.rfind(filler)
-                if pos != -1:
-                    before = before[pos + len(filler):]
-                    break
-            # Strip trailing game-name / map noise from team_b
-            after = re.sub(r'\s+(?:match|game|series|Map\s+\d+|CS2|League of Legends|Dota\s*2?|Valorant|R6|COD).*$', '', after, flags=re.IGNORECASE).strip()
-            if before.strip() and after:
-                return f"{before.strip()}{sep}{after}"
+        matchup = _extract_matchup(t)
+        if matchup:
+            return matchup
 
     # 3. Last resort: shortest title, removing any leading (Map X) / (Set X) qualifier
     if titles:
