@@ -1206,3 +1206,191 @@ async def get_all_twitch_watches() -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         await db.close()
+
+
+# ── Dashboard read queries (cross-user, read-only) ─────────────────────
+
+
+@db_retry()
+async def get_all_active_kalshi_bets(limit: int = 200) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT id, user_id, market_ticker, event_ticker, pick, pick_display,
+                      amount, odds, title, close_time, created_at
+               FROM kalshi_bets
+               WHERE status = 'pending'
+               ORDER BY COALESCE(close_time, '9999') ASC, created_at DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_all_active_kalshi_parlays_with_legs(limit: int = 100) -> list[dict]:
+    """Return pending kalshi parlays, each with its legs nested under 'legs'."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT id, user_id, amount, total_odds, created_at
+               FROM kalshi_parlays
+               WHERE status = 'pending'
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        parlays = [dict(r) for r in await cursor.fetchall()]
+        if not parlays:
+            return []
+        ids = tuple(p["id"] for p in parlays)
+        placeholders = ",".join("?" * len(ids))
+        cursor = await db.execute(
+            f"""SELECT id, parlay_id, market_ticker, event_ticker, pick, pick_display,
+                       odds, status, title, close_time
+                FROM kalshi_parlay_legs
+                WHERE parlay_id IN ({placeholders})
+                ORDER BY id ASC""",
+            ids,
+        )
+        legs_by_parlay: dict[int, list[dict]] = {}
+        for r in await cursor.fetchall():
+            d = dict(r)
+            legs_by_parlay.setdefault(d["parlay_id"], []).append(d)
+        for p in parlays:
+            p["legs"] = legs_by_parlay.get(p["id"], [])
+        return parlays
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_recent_resolved_kalshi_bets(limit: int = 50) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT id, user_id, market_ticker, event_ticker, pick, pick_display,
+                      amount, odds, status, payout, title, close_time, created_at
+               FROM kalshi_bets
+               WHERE status != 'pending'
+               ORDER BY id DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_recent_resolved_kalshi_parlays_with_legs(limit: int = 30) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT id, user_id, amount, total_odds, status, payout, created_at
+               FROM kalshi_parlays
+               WHERE status != 'pending'
+               ORDER BY id DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        parlays = [dict(r) for r in await cursor.fetchall()]
+        if not parlays:
+            return []
+        ids = tuple(p["id"] for p in parlays)
+        placeholders = ",".join("?" * len(ids))
+        cursor = await db.execute(
+            f"""SELECT id, parlay_id, market_ticker, event_ticker, pick, pick_display,
+                       odds, status, title, close_time
+                FROM kalshi_parlay_legs
+                WHERE parlay_id IN ({placeholders})
+                ORDER BY id ASC""",
+            ids,
+        )
+        legs_by_parlay: dict[int, list[dict]] = {}
+        for r in await cursor.fetchall():
+            d = dict(r)
+            legs_by_parlay.setdefault(d["parlay_id"], []).append(d)
+        for p in parlays:
+            p["legs"] = legs_by_parlay.get(p["id"], [])
+        return parlays
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_money_supply_summary() -> dict:
+    """Aggregate money state across the economy: held balances + locked-in pending wagers."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT
+                COALESCE(SUM(balance), 0) AS held,
+                COUNT(*) AS user_count
+               FROM users"""
+        )
+        u = await cursor.fetchone()
+        cursor = await db.execute(
+            """SELECT
+                COALESCE((SELECT SUM(amount) FROM bets           WHERE status = 'pending'), 0) +
+                COALESCE((SELECT SUM(amount) FROM parlays        WHERE status = 'pending'), 0) +
+                COALESCE((SELECT SUM(amount) FROM kalshi_bets    WHERE status = 'pending'), 0) +
+                COALESCE((SELECT SUM(amount) FROM kalshi_parlays WHERE status = 'pending'), 0)
+                AS locked"""
+        )
+        l = await cursor.fetchone()
+        held = int(u["held"] or 0)
+        locked = int(l["locked"] or 0)
+        return {
+            "held": held,
+            "locked": locked,
+            "total": held + locked,
+            "user_count": int(u["user_count"] or 0),
+        }
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_voice_minutes_leaderboard(limit: int = 50) -> list[dict]:
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT discord_id, voice_minutes, balance, bankruptcy_count
+               FROM users
+               WHERE voice_minutes > 0
+               ORDER BY voice_minutes DESC
+               LIMIT ?""",
+            (limit,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+
+
+@db_retry()
+async def get_full_leaderboard(limit: int = 100) -> list[dict]:
+    """Same shape as get_leaderboard but also returns bankruptcy_count."""
+    _PENDING_SQL = """
+        COALESCE((SELECT SUM(amount) FROM bets         WHERE user_id = u.discord_id AND status = 'pending'), 0) +
+        COALESCE((SELECT SUM(amount) FROM parlays      WHERE user_id = u.discord_id AND status = 'pending'), 0) +
+        COALESCE((SELECT SUM(amount) FROM kalshi_bets  WHERE user_id = u.discord_id AND status = 'pending'), 0) +
+        COALESCE((SELECT SUM(amount) FROM kalshi_parlays WHERE user_id = u.discord_id AND status = 'pending'), 0)
+    """
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            f"""SELECT discord_id, balance, bankruptcy_count, voice_minutes,
+                ({_PENDING_SQL}) AS pending_total,
+                balance + ({_PENDING_SQL}) AS total_value
+            FROM users u
+            ORDER BY total_value DESC
+            LIMIT ?""",
+            (limit,),
+        )
+        return [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()

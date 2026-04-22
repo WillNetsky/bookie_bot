@@ -25,3 +25,9 @@ BET_RESULTS_CHANNEL_ID = 1315299663464890449
 # Twitch stream notification credentials
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET", "")
+
+# Local-network read-only dashboard (aiohttp). Default: enabled, bound to all
+# interfaces on :8080. Disable by setting DASHBOARD_ENABLED=0.
+DASHBOARD_ENABLED = os.getenv("DASHBOARD_ENABLED", "1") not in ("0", "false", "False", "")
+DASHBOARD_BIND = os.getenv("DASHBOARD_BIND", "0.0.0.0")
+DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", "8080"))

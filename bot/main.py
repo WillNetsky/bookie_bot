@@ -21,6 +21,7 @@ COGS = [
     "bot.cogs.roulette",
     "bot.cogs.slots",
     "bot.cogs.twitch",
+    "bot.cogs.dashboard",
 ]
 
 
