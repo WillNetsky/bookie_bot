@@ -655,7 +655,12 @@ class KalshiAPI:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            # Don't advertise brotli — the installed `brotli` package's process()
+            # signature doesn't match aiohttp 3.13's expectations, so any
+            # br-encoded response from Kalshi blows up with ContentEncodingError.
+            self._session = aiohttp.ClientSession(
+                headers={"Accept-Encoding": "gzip, deflate"},
+            )
         return self._session
 
     async def _auth_headers(self, method: str, url: str) -> dict[str, str]:
@@ -876,6 +881,7 @@ class KalshiAPI:
 
             if not is_derivative:
                 # Determine prefix by stripping known game suffixes
+                known_suffix = True
                 if t.endswith("GAMES"):
                     prefix = ticker[:-5]
                 elif t.endswith("GAME"):
@@ -895,12 +901,22 @@ class KalshiAPI:
                 else:
                     # Unknown suffix — still include it, use ticker as its own prefix
                     prefix = ticker
+                    known_suffix = False
                     if ticker not in _seen_unknown_series:
                         _seen_unknown_series.add(ticker)
                         with _UNKNOWN_SERIES_FILE.open("a") as f:
                             f.write(f"{ticker} | {title}\n")
                         log.info("New sports series with unknown suffix: %s (%s)", ticker, title)
-                game_tickers[prefix] = {"ticker": ticker, "title": title}
+                # Don't let an unknown-suffix ticker (e.g. KXCS2 tournament series)
+                # clobber a known-suffix one (KXCS2GAME) that strips to the same prefix.
+                existing = game_tickers.get(prefix)
+                if existing and existing.get("known_suffix") and not known_suffix:
+                    continue
+                game_tickers[prefix] = {
+                    "ticker": ticker,
+                    "title": title,
+                    "known_suffix": known_suffix,
+                }
 
         # Build SPORTS dict
         new_sports: dict[str, dict] = {}
@@ -1112,10 +1128,13 @@ class KalshiAPI:
                 self.schedule_markets_prewarm()
                 return result
 
-        # Cache miss/stale — paginate all open Kalshi markets in one pass and
-        # filter to sports series client-side.  This is 1-2 API calls instead of
-        # one call per series (60+), which avoids 429 storms on cold start.
-        log.debug("Cache MISS all_open_markets — fetching via pagination")
+        # Cache miss/stale — paginate /events?status=open&with_nested_markets=true.
+        # Kalshi's unfiltered /markets endpoint now returns 100k+ open markets
+        # (mostly KXMVECROSSCATEGORY and KXMVESPORTSMULTIGAMEEXTENDED multi-game
+        # parlay products) and we'd never reach the long tail (CS2, LoL, etc.).
+        # The /events endpoint is naturally bounded — ~7k events / 60k markets
+        # in 30-40 pages, vs 100+ pages of raw markets.
+        log.debug("Cache MISS all_open_markets — fetching via /events")
 
         # Lock prevents two concurrent callers from both starting a full fetch.
         async with self._markets_fetch_lock:
@@ -1138,12 +1157,16 @@ class KalshiAPI:
                 return []
 
             session = await self._get_session()
-            url = f"{BASE_URL}/markets"
+            url = f"{BASE_URL}/events"
             all_markets: list[dict] = []
-            page_cursor = None
+            page_cursor: str | None = None
 
             while True:
-                params: dict = {"status": "open", "limit": 1000}
+                params: dict = {
+                    "status": "open",
+                    "with_nested_markets": "true",
+                    "limit": 200,
+                }
                 if page_cursor:
                     params["cursor"] = page_cursor
 
@@ -1156,47 +1179,36 @@ class KalshiAPI:
                                 if resp.status == 429:
                                     if attempt < MAX_RETRIES:
                                         wait = RETRY_BACKOFF * (2 ** attempt)
-                                        log.info("Kalshi 429 (markets page), retrying in %.1fs...", wait)
+                                        log.info("Kalshi 429 (events page), retrying in %.1fs...", wait)
                                         await asyncio.sleep(wait)
                                         continue
-                                    log.warning("Kalshi markets 429 after %d retries", MAX_RETRIES)
+                                    log.warning("Kalshi events 429 after %d retries", MAX_RETRIES)
                                     break
                                 if resp.status != 200:
-                                    log.warning("Kalshi markets returned %s", resp.status)
+                                    log.warning("Kalshi events returned %s", resp.status)
                                     break
                                 page_data = await resp.json()
                                 break
                         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                            log.warning("Kalshi markets request failed: %s", e)
+                            log.warning("Kalshi events request failed: %s", e)
                             break
 
-                if not page_data or "markets" not in page_data:
+                if not page_data or "events" not in page_data:
                     break
 
-                page_markets = page_data["markets"]
-                log.debug("Kalshi markets page: %d raw markets", len(page_markets))
-                for m in page_markets:
-                    # One-time debug: log all raw time fields from the first CS2 market
-                    if not type(self)._cs2_raw_logged:
-                        et_check = (m.get("event_ticker") or "").upper()
-                        if "CS2" in et_check:
-                            log.info(
-                                "CS2 raw time fields — ticker=%s open_time=%s close_time=%s "
-                                "expected_expiration_time=%s  (time/date keys: %s)",
-                                m.get("ticker"),
-                                m.get("open_time"),
-                                m.get("close_time"),
-                                m.get("expected_expiration_time"),
-                                [k for k in m if "time" in k.lower() or "date" in k.lower()],
-                            )
-                            type(self)._cs2_raw_logged = True
-                    # Use same series_ticker fallback as _prune_market so markets
-                    # that omit series_ticker but have event_ticker still match.
-                    st = m.get("series_ticker")
+                for event in page_data["events"]:
+                    st = event.get("series_ticker")
                     if not st:
-                        et = m.get("event_ticker", "")
+                        et = event.get("event_ticker", "")
                         st = et.split("-")[0] if "-" in et else et
-                    if st in sports_series:
+                    if st not in sports_series:
+                        continue
+                    for m in event.get("markets") or []:
+                        if not (_is_market_active(m) and _is_market_bettable(m)):
+                            continue
+                        # /events sometimes omits series_ticker on nested markets — backfill
+                        if not m.get("series_ticker"):
+                            m["series_ticker"] = st
                         all_markets.append(self._prune_market(m))
 
                 page_cursor = page_data.get("cursor")
@@ -1204,8 +1216,6 @@ class KalshiAPI:
                     break
 
             log.info("Fetched %d open sports markets from Kalshi (%d series)", len(all_markets), len(sports_series))
-            all_markets = [m for m in all_markets if _is_market_active(m) and _is_market_bettable(m)]
-            log.debug("After expiry filter: %d sports markets", len(all_markets))
 
             if not all_markets:
                 if stale_data:
