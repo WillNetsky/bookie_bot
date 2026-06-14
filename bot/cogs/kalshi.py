@@ -13,6 +13,7 @@ from bot.services.kalshi_api import (
     kalshi_api, SPORTS, FUTURES,
     _parse_event_ticker_date
 )
+from bot.services import kalshi_taxonomy as tax
 from bot.constants import PICK_EMOJI, PICK_LABELS
 from bot.utils import (
     format_matchup, format_game_time, format_game_time_with_label, format_pick_label,
@@ -1210,6 +1211,52 @@ def _group_futures_by_event(markets: list[dict]) -> list[dict]:
     return result
 
 
+# ── Bet-type taxonomy (level-2 category navigation) ────────────────────
+# Each market is classified into one of four categories — Games, Player Props,
+# Futures, Specials — by bot.services.kalshi_taxonomy. This drives the
+# CategoryView menu so the old flat per-sport "Futures" dump is broken into
+# navigable buckets. See kalshi_taxonomy.py for the rule table.
+
+
+def _classify_market(m: dict) -> "tax.SeriesClass":
+    """Classify a single market into the bet-type taxonomy."""
+    return tax.classify(
+        _market_series_ticker(m).upper(),
+        event_ticker=m.get("event_ticker", ""),
+        title=m.get("title", ""),
+    )
+
+
+def _partition_by_bet_type(markets: list[dict]) -> dict[str, list[dict]]:
+    """Split a sport's markets into {bet_type: [markets]} buckets.
+
+    Returns only buckets that contain markets, keyed by the taxonomy bet_type
+    constants (tax.GAME / tax.PROP / tax.FUTURES / tax.SPECIAL).
+    """
+    buckets: dict[str, list[dict]] = {}
+    for m in markets:
+        bt = _classify_market(m).bet_type
+        buckets.setdefault(bt, []).append(m)
+    return buckets
+
+
+def _group_futures_by_subtype(markets: list[dict]) -> dict[str, list[dict]]:
+    """Group futures-bucket markets by their taxonomy subtype, preserving the
+    canonical display order from tax.FUTURES_SUBTYPE_ORDER."""
+    by_sub: dict[str, list[dict]] = {}
+    for m in markets:
+        sub = _classify_market(m).subtype
+        by_sub.setdefault(sub, []).append(m)
+    ordered: dict[str, list[dict]] = {}
+    for sub in tax.FUTURES_SUBTYPE_ORDER:
+        if sub in by_sub:
+            ordered[sub] = by_sub.pop(sub)
+    # Any subtype not in the canonical order (shouldn't happen) goes last.
+    for sub, ms in by_sub.items():
+        ordered[sub] = ms
+    return ordered
+
+
 # ── Helper functions ───────────────────────────────────────────────────
 
 
@@ -1928,9 +1975,12 @@ class BackToGamesButton(discord.ui.Button["MarketListView"]):
         if gb.get("source") == "futures":
             view = FuturesListView(
                 gb["markets"], gb["emoji"], gb["label"],
-                game_back=gb["parent_game_back"],
+                game_back=gb.get("parent_game_back"),
                 page=gb.get("page", 0),
                 parlay_legs=gb.get("parlay_legs"),
+                category_back=gb.get("category_back"),
+                title_label=gb.get("title_label"),
+                title_emoji=gb.get("title_emoji") or "\U0001f3c6",
             )
         else:
             view = GameListView(
@@ -1938,6 +1988,7 @@ class BackToGamesButton(discord.ui.Button["MarketListView"]):
                 all_markets=gb.get("all_markets"),
                 page=gb.get("page", 0),
                 parlay_legs=gb.get("parlay_legs"),
+                category_back=gb.get("category_back"),
             )
         embed = view.build_embed()
         try:
@@ -1958,6 +2009,7 @@ class GameListView(discord.ui.View):
         page: int = 0,
         timeout: float = 180.0,
         parlay_legs: list[dict] | None = None,
+        category_back: dict | None = None,
     ) -> None:
         super().__init__(timeout=timeout)
         self.sport_markets = sport_markets
@@ -1966,9 +2018,17 @@ class GameListView(discord.ui.View):
         self.all_markets = all_markets
         self.page = page
         self.parlay_legs = parlay_legs
+        self.category_back = category_back
         self.message: discord.Message | None = None
-        game_markets = [m for m in sport_markets if not _is_futures_market(m)]
-        self._futures_markets = [m for m in sport_markets if _is_futures_market(m)]
+        if category_back is not None:
+            # Reached via the category menu: this list is already scoped to
+            # game-bucket markets, and futures live in their own category, so
+            # we don't split out / show a Futures button here.
+            game_markets = sport_markets
+            self._futures_markets = []
+        else:
+            game_markets = [m for m in sport_markets if not _is_futures_market(m)]
+            self._futures_markets = [m for m in sport_markets if _is_futures_market(m)]
         self._games = _group_markets_by_game(game_markets)
         self._rebuild()
 
@@ -1987,12 +2047,14 @@ class GameListView(discord.ui.View):
             self.add_item(GamePageButton("prev", self.page - 1, row=1))
         if self.page < total_pages - 1:
             self.add_item(GamePageButton("next", self.page + 1, row=1))
-        if self.all_markets is not None:
+        if self.category_back is not None:
+            self.add_item(BackToCategoryButton(self.category_back, row=2))
+        elif self.all_markets is not None:
             self.add_item(BackToSportsButton(self.all_markets, row=2))
         if self._futures_markets:
             self.add_item(FuturesButton(self, row=2))
         if self.parlay_legs is not None:
-            parlay_row = 3 if self.all_markets is not None else 2
+            parlay_row = 3 if (self.all_markets is not None or self.category_back is not None) else 2
             if self.parlay_legs:
                 self.add_item(ParlayViewSlipButton(self.parlay_legs, row=parlay_row))
             if len(self.parlay_legs) >= 2:
@@ -2094,6 +2156,7 @@ class GameSelectDropdown(discord.ui.Select["GameListView"]):
             "label": glv.sport_label,
             "all_markets": glv.all_markets,
             "parlay_legs": glv.parlay_legs,
+            "category_back": glv.category_back,
         }
         market_view = MarketListView(
             game_markets,
@@ -2157,17 +2220,27 @@ class FuturesButton(discord.ui.Button["GameListView"]):
 
 
 class FuturesListView(discord.ui.View):
-    """Shows futures events for a sport; selecting one opens MarketListView."""
+    """Generic event-list view: shows event groups (futures / props / specials)
+    for a sport; selecting one opens MarketListView.
+
+    Reached two ways:
+      * legacy futures button — pass ``game_back`` (back goes to the game list);
+      * the category menu — pass ``category_back`` plus ``title_label`` /
+        ``title_emoji`` (back goes to the CategoryView).
+    """
 
     def __init__(
         self,
         futures_markets: list[dict],
         sport_emoji: str,
         sport_label: str,
-        game_back: dict,
+        game_back: dict | None = None,
         page: int = 0,
         timeout: float = 180.0,
         parlay_legs: list[dict] | None = None,
+        category_back: dict | None = None,
+        title_label: str | None = None,
+        title_emoji: str = "\U0001f3c6",
     ) -> None:
         super().__init__(timeout=timeout)
         self.futures_markets = futures_markets
@@ -2176,6 +2249,9 @@ class FuturesListView(discord.ui.View):
         self.game_back = game_back
         self.page = page
         self.parlay_legs = parlay_legs
+        self.category_back = category_back
+        self.title_label = title_label
+        self.title_emoji = title_emoji
         self.message: discord.Message | None = None
         self._events = _group_futures_by_event(futures_markets)
         self._rebuild()
@@ -2191,7 +2267,10 @@ class FuturesListView(discord.ui.View):
             self.add_item(FuturesPageButton("prev", self.page - 1, row=1))
         if self.page < total_pages - 1:
             self.add_item(FuturesPageButton("next", self.page + 1, row=1))
-        self.add_item(BackToGamesFromFuturesButton(self.game_back, row=2))
+        if self.category_back is not None:
+            self.add_item(BackToCategoryButton(self.category_back, row=2))
+        elif self.game_back is not None:
+            self.add_item(BackToGamesFromFuturesButton(self.game_back, row=2))
         if self.parlay_legs is not None:
             parlay_row = 3
             if self.parlay_legs:
@@ -2203,12 +2282,13 @@ class FuturesListView(discord.ui.View):
         total_pages = max(1, (len(self._events) + GAMES_PER_PAGE - 1) // GAMES_PER_PAGE)
         start = self.page * GAMES_PER_PAGE
         page_events = self._events[start:start + GAMES_PER_PAGE]
+        title = self.title_label or f"{self.sport_label} Futures"
         embed = discord.Embed(
-            title=f"\U0001f3c6 {self.sport_label} Futures",
+            title=f"{self.title_emoji} {title}",
             color=discord.Color.gold(),
         )
         if not page_events:
-            embed.description = "No futures markets available."
+            embed.description = "No markets available."
             return embed
         lines = []
         for ev in page_events:
@@ -2218,9 +2298,9 @@ class FuturesListView(discord.ui.View):
         page_prefix = f"Page {self.page + 1}/{total_pages} · " if total_pages > 1 else ""
         if self.parlay_legs is not None:
             n = len(self.parlay_legs)
-            embed.set_footer(text=f"{page_prefix}Parlay: {n} leg{'s' if n != 1 else ''} · Select a futures market to add legs")
+            embed.set_footer(text=f"{page_prefix}Parlay: {n} leg{'s' if n != 1 else ''} · Select a market to add legs")
         else:
-            embed.set_footer(text=f"{page_prefix}Select a futures market to see options")
+            embed.set_footer(text=f"{page_prefix}Select a market to see options")
         return embed
 
     async def on_timeout(self) -> None:
@@ -2264,6 +2344,9 @@ class FuturesSelectDropdown(discord.ui.Select["FuturesListView"]):
             "label": lv.sport_label,
             "parlay_legs": lv.parlay_legs,
             "parent_game_back": lv.game_back,
+            "category_back": lv.category_back,
+            "title_label": lv.title_label,
+            "title_emoji": lv.title_emoji,
         }
         market_view = MarketListView(
             ev["markets"],
@@ -2330,6 +2413,264 @@ class BackToSportsButton(discord.ui.Button["GameListView"]):
         embed = sport_view.build_embed()
         try:
             await interaction.response.edit_message(embed=embed, view=sport_view)
+        except discord.NotFound:
+            pass
+
+
+class CategoryView(discord.ui.View):
+    """Level-2 menu: pick a bet category (Games / Player Props / Futures /
+    Specials) within a sport. Sits between the sport picker and the event lists
+    so the old flat per-sport futures dump is broken into navigable buckets."""
+
+    def __init__(
+        self,
+        sport_markets: list[dict],
+        sport_emoji: str,
+        sport_label: str,
+        all_markets: list[dict] | None = None,
+        timeout: float = 180.0,
+        parlay_legs: list[dict] | None = None,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.sport_markets = sport_markets
+        self.sport_emoji = sport_emoji
+        self.sport_label = sport_label
+        self.all_markets = all_markets
+        self.parlay_legs = parlay_legs
+        self.message: discord.Message | None = None
+        self._partition = _partition_by_bet_type(sport_markets)
+        self._rebuild()
+
+    def category_back(self) -> dict:
+        return {
+            "kind": "category",
+            "sport_markets": self.sport_markets,
+            "emoji": self.sport_emoji,
+            "label": self.sport_label,
+            "all_markets": self.all_markets,
+            "parlay_legs": self.parlay_legs,
+        }
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        for bt in tax.BET_TYPE_ORDER:
+            markets = self._partition.get(bt)
+            if markets:
+                self.add_item(CategoryButton(bt, len(_count_events_cached(markets)), row=0))
+        if self.all_markets is not None:
+            self.add_item(BackToSportsButton(self.all_markets, row=1))
+        if self.parlay_legs is not None:
+            if self.parlay_legs:
+                self.add_item(ParlayViewSlipButton(self.parlay_legs, row=2))
+            if len(self.parlay_legs) >= 2:
+                self.add_item(ParlayPlaceFromListButton(self.parlay_legs, row=2))
+
+    def build_embed(self) -> discord.Embed:
+        is_parlay = self.parlay_legs is not None
+        embed = discord.Embed(
+            title=f"{self.sport_emoji} {self.sport_label}",
+            color=discord.Color.purple() if is_parlay else discord.Color.blue(),
+        )
+        lines = []
+        for bt in tax.BET_TYPE_ORDER:
+            markets = self._partition.get(bt)
+            if not markets:
+                continue
+            n = len(_count_events_cached(markets))
+            label = tax.BET_TYPE_LABEL[bt]
+            emoji = tax.BET_TYPE_EMOJI[bt]
+            noun = "game" if bt == tax.GAME else "market"
+            lines.append(f"{emoji} **{label}** · {n} {noun}{'s' if n != 1 else ''}")
+        embed.description = "\n".join(lines) or "No markets available."
+        embed.set_footer(text="Pick a category")
+        return embed
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            try:
+                await self.message.delete()
+            except discord.NotFound:
+                pass
+
+
+def _count_events_cached(markets: list[dict]) -> list[str]:
+    """Return the list of distinct event keys in a market list (for counting)."""
+    seen: list[str] = []
+    s: set[str] = set()
+    for m in markets:
+        key = (_extract_game_fingerprint(m.get("event_ticker", ""))
+               or m.get("event_ticker", "") or m.get("ticker", ""))
+        if key not in s:
+            s.add(key)
+            seen.append(key)
+    return seen
+
+
+class CategoryButton(discord.ui.Button["CategoryView"]):
+    """Opens the appropriate list view for one bet category."""
+
+    def __init__(self, bet_type: str, count: int, row: int) -> None:
+        label = f"{tax.BET_TYPE_LABEL[bet_type]} ({count})"
+        super().__init__(
+            label=label,
+            emoji=tax.BET_TYPE_EMOJI[bet_type],
+            style=discord.ButtonStyle.primary if bet_type == tax.GAME else discord.ButtonStyle.secondary,
+            row=row,
+        )
+        self.bet_type = bet_type
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        markets = view._partition.get(self.bet_type, [])
+        cb = view.category_back()
+        bt = self.bet_type
+
+        if bt == tax.GAME:
+            new_view = GameListView(
+                markets, view.sport_emoji, view.sport_label,
+                parlay_legs=view.parlay_legs, category_back=cb,
+            )
+        elif bt == tax.FUTURES:
+            subtypes = _group_futures_by_subtype(markets)
+            if len(subtypes) > 1:
+                new_view = FuturesSubtypeView(
+                    markets, view.sport_emoji, view.sport_label, cb,
+                    parlay_legs=view.parlay_legs,
+                )
+            else:
+                sub = next(iter(subtypes), tax.SUB_OUTRIGHT)
+                new_view = FuturesListView(
+                    markets, view.sport_emoji, view.sport_label,
+                    parlay_legs=view.parlay_legs, category_back=cb,
+                    title_label=f"{view.sport_label} · {sub}",
+                    title_emoji=tax.BET_TYPE_EMOJI[tax.FUTURES],
+                )
+        else:  # PROP or SPECIAL
+            new_view = FuturesListView(
+                markets, view.sport_emoji, view.sport_label,
+                parlay_legs=view.parlay_legs, category_back=cb,
+                title_label=f"{view.sport_label} · {tax.BET_TYPE_LABEL[bt]}",
+                title_emoji=tax.BET_TYPE_EMOJI[bt],
+            )
+        embed = new_view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=new_view)
+        except discord.NotFound:
+            pass
+
+
+class BackToCategoryButton(discord.ui.Button):
+    """Navigates back to the CategoryView (or a FuturesSubtypeView)."""
+
+    def __init__(self, category_back: dict, row: int) -> None:
+        super().__init__(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=row)
+        self._cb = category_back
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        cb = self._cb
+        if cb.get("kind") == "subtype":
+            view = FuturesSubtypeView(
+                cb["futures_markets"], cb["emoji"], cb["label"], cb["category_back"],
+                parlay_legs=cb.get("parlay_legs"),
+            )
+        else:
+            view = CategoryView(
+                cb["sport_markets"], cb["emoji"], cb["label"],
+                all_markets=cb.get("all_markets"),
+                parlay_legs=cb.get("parlay_legs"),
+            )
+        embed = view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=view)
+        except discord.NotFound:
+            pass
+
+
+class FuturesSubtypeView(discord.ui.View):
+    """Sub-menu under Futures: pick a futures sub-bucket (Championship, Awards,
+    Win Totals, …) before drilling into the event list."""
+
+    def __init__(
+        self,
+        futures_markets: list[dict],
+        sport_emoji: str,
+        sport_label: str,
+        category_back: dict,
+        timeout: float = 180.0,
+        parlay_legs: list[dict] | None = None,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.futures_markets = futures_markets
+        self.sport_emoji = sport_emoji
+        self.sport_label = sport_label
+        self._category_back = category_back
+        self.parlay_legs = parlay_legs
+        self.message: discord.Message | None = None
+        self._subtypes = _group_futures_by_subtype(futures_markets)
+        self._rebuild()
+
+    def subtype_back(self) -> dict:
+        return {
+            "kind": "subtype",
+            "futures_markets": self.futures_markets,
+            "emoji": self.sport_emoji,
+            "label": self.sport_label,
+            "category_back": self._category_back,
+            "parlay_legs": self.parlay_legs,
+        }
+
+    def _rebuild(self) -> None:
+        self.clear_items()
+        # Up to 5 subtype buttons per row; Discord allows 5 rows of 5.
+        for i, sub in enumerate(self._subtypes):
+            self.add_item(FuturesSubtypeButton(sub, len(_count_events_cached(self._subtypes[sub])), row=i // 5))
+        self.add_item(BackToCategoryButton(self._category_back, row=4))
+        if self.parlay_legs:
+            self.add_item(ParlayViewSlipButton(self.parlay_legs, row=4))
+
+    def build_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title=f"{tax.BET_TYPE_EMOJI[tax.FUTURES]} {self.sport_label} · Futures",
+            color=discord.Color.gold(),
+        )
+        lines = []
+        for sub, markets in self._subtypes.items():
+            n = len(_count_events_cached(markets))
+            lines.append(f"**{sub}** · {n} market{'s' if n != 1 else ''}")
+        embed.description = "\n".join(lines) or "No futures available."
+        embed.set_footer(text="Pick a futures type")
+        return embed
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            try:
+                await self.message.delete()
+            except discord.NotFound:
+                pass
+
+
+class FuturesSubtypeButton(discord.ui.Button["FuturesSubtypeView"]):
+    def __init__(self, subtype: str, count: int, row: int) -> None:
+        super().__init__(label=f"{subtype} ({count})", style=discord.ButtonStyle.secondary, row=row)
+        self.subtype = subtype
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if view is None:
+            return
+        markets = view._subtypes.get(self.subtype, [])
+        new_view = FuturesListView(
+            markets, view.sport_emoji, view.sport_label,
+            parlay_legs=view.parlay_legs,
+            category_back=view.subtype_back(),
+            title_label=f"{view.sport_label} · {self.subtype}",
+            title_emoji=tax.BET_TYPE_EMOJI[tax.FUTURES],
+        )
+        embed = new_view.build_embed()
+        try:
+            await interaction.response.edit_message(embed=embed, view=new_view)
         except discord.NotFound:
             pass
 
@@ -2420,13 +2761,23 @@ class SportSelectDropdown(discord.ui.Select["SportSelectorView"]):
             return
         if not await _safe_defer(interaction, edit=True):
             return
-        game_view = GameListView(
-            sport["markets"], sport["emoji"], sport["label"],
-            all_markets=self._sport_view.all_markets,
-            parlay_legs=self._sport_view.parlay_legs,
-        )
-        embed = game_view.build_embed()
-        await interaction.edit_original_response(embed=embed, view=game_view)
+        partition = _partition_by_bet_type(sport["markets"])
+        # If a sport only has game-bucket markets, skip the category menu and go
+        # straight to the game list (preserves the old one-click path).
+        if set(partition) <= {tax.GAME}:
+            new_view = GameListView(
+                sport["markets"], sport["emoji"], sport["label"],
+                all_markets=self._sport_view.all_markets,
+                parlay_legs=self._sport_view.parlay_legs,
+            )
+        else:
+            new_view = CategoryView(
+                sport["markets"], sport["emoji"], sport["label"],
+                all_markets=self._sport_view.all_markets,
+                parlay_legs=self._sport_view.parlay_legs,
+            )
+        embed = new_view.build_embed()
+        await interaction.edit_original_response(embed=embed, view=new_view)
 
 
 class SportPageButton(discord.ui.Button["SportSelectorView"]):
