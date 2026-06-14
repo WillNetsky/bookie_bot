@@ -44,7 +44,8 @@ async def _safe_defer(interaction: discord.Interaction, *, edit: bool = False) -
 def _sport_emoji(sport_key: str) -> str:
     """Return an appropriate emoji for a sport based on its ticker."""
     sk = sport_key.upper()
-    if "MLB" in sk or "WBC" in sk or "NCAABB" in sk or "COLLEGEBASEBALL" in sk:
+    if ("MLB" in sk or "WBC" in sk or "NCAABB" in sk or "COLLEGEBASEBALL" in sk
+            or "NPB" in sk or "KBO" in sk or "TEAMSINWS" in sk or "WORLDSERIES" in sk):
         return "\u26be"  # ⚾ — must be before NCAAB (basketball) check
     if "WCGROUP" in sk:
         return "\U0001f30d"  # 🌍 — World Cup
@@ -59,19 +60,23 @@ def _sport_emoji(sport_key: str) -> str:
         or "MWREG" in sk  # Mountain West Regular Season
     ):
         return "\U0001f393"  # 🎓 — College Basketball
-    if "NBA" in sk or "WNBA" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk:
+    if "NBA" in sk or "WNBA" in sk or "NBL" in sk or "EUROLEAGUE" in sk or "EUROCUP" in sk or "ACB" in sk or "BSL" in sk or "KBL" in sk or "BBL" in sk or "FIBA" in sk or "ABA" in sk or "GBL" in sk or "VTB" in sk or "CBA" in sk or "UNRIVALED" in sk or "ARGLNB" in sk or "JBLEAGUE" in sk or "BBSERIEA" in sk or "LNBELITE" in sk or "BASKETBALL" in sk:
         return "\U0001f3c0"  # 🏀
-    if "NFL" in sk or "NCAAF" in sk or "STARTINGQB" in sk or "QB" in sk:
+    if ("NFL" in sk or "NCAAF" in sk or "STARTINGQB" in sk or "QB" in sk
+            or "HEISMAN" in sk or "UFL" in sk or "USFL" in sk or "XFL" in sk
+            or "GREYCUP" in sk or "CFL" in sk or "RANKLISTFF" in sk
+            or "FANTASYFOOTBALL" in sk or sk == "KXSB" or "SBMVP" in sk
+            or "AFCSB" in sk or "NFCSB" in sk):
         return "\U0001f3c8"  # 🏈
-    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk or "NLA" in sk or "NLB" in sk or "KXNL" in sk:
+    if "NHL" in sk or "AHL" in sk or "KHL" in sk or "IIHF" in sk or "SHL" in sk or "DEL" in sk or "LIIGA" in sk or "ELH" in sk or "NCAAHOCKEY" in sk or "SWISSLEAGUE" in sk or "SWISSNL" in sk or "HOCKEYALLSVENSKAN" in sk or "NLA" in sk or "NLB" in sk or "KXNL" in sk or "CONNSMYTHE" in sk or "TEAMSINSC" in sk or "STANLEYCUP" in sk:
         return "\U0001f3d2"  # 🏒
-    if "UFC" in sk or "BOXING" in sk or "MMA" in sk or "FIGHT" in sk or "MCGREGOR" in sk:
+    if "UFC" in sk or "BOXING" in sk or "MMA" in sk or "FIGHT" in sk or "MCGREGOR" in sk or "BOUT" in sk or "DWCS" in sk:
         return "\U0001f94a"  # 🥊
     if "LAX" in sk or "LACROSSE" in sk:
         return "\U0001f94d"  # 🥍
-    if "CRICKET" in sk or "IPL" in sk or "WPL" in sk:
+    if "CRICKET" in sk or "IPL" in sk or "WPL" in sk or "COUNTY" in sk or "SSHIELD" in sk:
         return "\U0001f3cf"  # 🏏
-    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "UNITEDCUP" in sk or "SIXKINGS" in sk or "CHALLENGER" in sk or "GRANDSLAM" in sk:
+    if "TENNIS" in sk or "ATP" in sk or "WTA" in sk or "DAVISCUP" in sk or "UNITEDCUP" in sk or "SIXKINGS" in sk or "CHALLENGER" in sk or "GRANDSLAM" in sk or "ITF" in sk or "FOMEN" in sk or "FOWOMEN" in sk or "USOMEN" in sk or "USOWOMEN" in sk or "AOMEN" in sk or "AOWOMEN" in sk:
         return "\U0001f3be"  # 🎾
     if "CURL" in sk:
         return "\U0001f94c"  # 🥌
@@ -79,17 +84,21 @@ def _sport_emoji(sport_key: str) -> str:
         return "\u265f\ufe0f"  # ♟️
     if "PICKLE" in sk:
         return "\U0001f3d3"  # 🏓
-    if "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk or "AFL" in sk:
+    if "RUGBY" in sk or "SIXNATIONS" in sk or "NRL" in sk or "AFL" in sk or "SLR" in sk or "PREMRUGBY" in sk or "FRA14" in sk or "PREMCHAMP" in sk:
         return "\U0001f3c9"  # 🏉
     if "DARTS" in sk:
         return "\U0001f3af"  # 🎯
+    if "CYCLING" in sk or "TOURDEFRANCE" in sk or "GIRO" in sk or "VUELTA" in sk:
+        return "\U0001f6b4"  # 🚴 — Cycling
+    if "SQUASH" in sk:
+        return "\U0001f3f8"  # 🏸 — Squash (racquet)
     if "HOUSERACE" in sk or "SENATERACE" in sk or "PRESRACE" in sk:
         return "\U0001f5f3\ufe0f"  # 🗳️ — Politics
     if "F1" in sk or "FORMULA" in sk:
         return "\U0001f3ce\ufe0f"  # 🏎️ — Formula 1
     if "NASCAR" in sk:
         return "\U0001f3c1"  # 🏁 — NASCAR
-    if "INDYCAR" in sk or "RACE" in sk:
+    if "INDYCAR" in sk or "RACE" in sk or "MOTOGP" in sk or "MOTO2" in sk or "MOTO3" in sk or "SUPERBIKE" in sk:
         return "\U0001f697"  # 🚗 — Racing (other)
     if "GOLF" in sk or "TGL" in sk or "PGA" in sk or "RYDER" in sk or "LIV" in sk or "DPWORLDTOUR" in sk:
         return "\u26f3"  # ⛳
@@ -99,7 +108,7 @@ def _sport_emoji(sport_key: str) -> str:
         return "\U0001f52b"  # 🔫 — CS2
     if "LOL" in sk:
         return "\U0001f9d9"  # 🧙 — League of Legends
-    if "VALORANT" in sk or "DOTA" in sk or "OW" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk:
+    if "VALORANT" in sk or "DOTA" in sk or "OW" in sk or "OVERWATCH" in sk or "R6" in sk or "COD" in sk or "ESPORT" in sk or "BRAWLSTARS" in sk or "APEXLEGENDS" in sk or "ROCKETLEAGUE" in sk:
         return "\U0001f3ae"  # 🎮 — Esports
     if "BEAST" in sk or "FANATICS" in sk or "EUROVISION" in sk:
         return "\U0001f3ac"  # 🎬
@@ -146,6 +155,19 @@ def _sport_emoji(sport_key: str) -> str:
         or "VENFUT" in sk  # Venezuelan football (VENFUTVE, etc.)
         or "APFDDH" in sk  # Paraguayan APF league
         or "USL" in sk  # USL Championship (US soccer)
+        or "BALLONDOR" in sk  # Ballon d'Or (soccer award)
+        or "JOINCLUB" in sk  # soccer transfers
+        or "NEXTMANAGER" in sk or "ACQUIREREALMADRID" in sk or "LOSEREALMADRID" in sk
+        or "ALLSVENSKAN" in sk  # Swedish soccer
+        or "KNVB" in sk  # Dutch cup
+        or "BOLPDIV" in sk  # Bolivian Primera División
+        or "EKSTRAKLASA" in sk  # Polish league
+        or "CHLLDP" in sk or "ECULP" in sk  # Chilean / Ecuadorian leagues
+        or "CONMEBOL" in sk  # Copa Libertadores / Sudamericana
+        or "ISLGAME" in sk  # Indian Super League
+        or "CANPL" in sk  # Canadian Premier League
+        or "CZEFL" in sk  # Czech league
+        or "JOINRONALDO" in sk or "JOINMESSI" in sk or "JOINMBAPPE" in sk  # transfers
     ):
         return "\u26bd"  # ⚽
     return "\U0001f3c6"  # 🏆 — Other / truly unrecognized
@@ -254,6 +276,8 @@ _SPORT_EMOJI_LABEL: dict[str, str] = {
     "🏓": "Pickleball",
     "🏉": "Rugby/AFL",
     "🎯": "Darts",
+    "🚴": "Cycling",
+    "🏸": "Squash",
     "🏎️": "Formula 1",
     "🏁": "NASCAR",
     "🚗": "Racing",
@@ -716,9 +740,12 @@ def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
         emoji = _sport_emoji(_market_series_ticker(m).upper())
         sport_map.setdefault(emoji, []).append(m)
     def _count_games(ms: list[dict]) -> int:
+        # Count distinct events across ALL bet types (games + futures + props),
+        # not just dated games — otherwise futures-only sports show "0".
         return len({
-            _extract_game_fingerprint(m.get("event_ticker", "")) or m.get("event_ticker", "")
-            for m in ms if not _is_futures_market(m)
+            _extract_game_fingerprint(m.get("event_ticker", ""))
+            or m.get("event_ticker", "") or m.get("ticker", "")
+            for m in ms
         })
 
     result = []
@@ -776,10 +803,9 @@ def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
                 "markets": sport_markets,
                 "game_count": _count_games(sport_markets),
             })
-    # Sort by soonest-closing market within each sport group
-    result.sort(key=lambda x: min(
-        (_earliest_market_time(m) or "9999") for m in x["markets"]
-    ))
+    # Biggest sports first — a browse menu reads better by volume than by
+    # closing time (which scatters majors among one-off niche markets).
+    result.sort(key=lambda x: -x["game_count"])
     return result
 
 
@@ -2719,13 +2745,15 @@ class SportSelectorView(discord.ui.View):
         lines = []
         for s in self._sports:
             n = s["game_count"]
-            lines.append(f"{s['emoji']} **{s['label']}** · {n} game{'s' if n != 1 else ''}")
+            if n <= 0:
+                continue
+            lines.append(f"{s['emoji']} **{s['label']}** · {n} market{'s' if n != 1 else ''}")
         embed.description = "\n".join(lines)
         if is_parlay:
             n = len(self.parlay_legs)
             footer = f"Parlay: {n} leg{'s' if n != 1 else ''} · Select a sport to add legs"
         else:
-            footer = "Select a sport to browse games"
+            footer = "Select a sport to browse markets"
         embed.set_footer(text=footer)
         return embed
 
@@ -2749,7 +2777,7 @@ class SportSelectDropdown(discord.ui.Select["SportSelectorView"]):
             options.append(discord.SelectOption(
                 label=s["label"],
                 value=key,
-                description=f"{n} game{'s' if n != 1 else ''}",
+                description=f"{n} market{'s' if n != 1 else ''}",
                 emoji=s["emoji"],
             ))
         super().__init__(placeholder="Select a sport...", options=options, row=row)
