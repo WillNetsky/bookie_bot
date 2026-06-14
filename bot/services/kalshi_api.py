@@ -1004,6 +1004,9 @@ class KalshiAPI:
             "yes_ask_dollars": m.get("yes_ask_dollars"),
             "yes_bid_dollars": m.get("yes_bid_dollars"),
             "last_price_dollars": m.get("last_price_dollars"),
+            # Last traded price before a market finalized — used to show odds /
+            # cash-out on finalized-but-unsettled bets.
+            "previous_yes_ask_dollars": m.get("previous_yes_ask_dollars"),
             "expected_expiration_time": m.get("expected_expiration_time"),
             "close_time": m.get("close_time"),
             "open_time": m.get("open_time"),
@@ -1014,6 +1017,23 @@ class KalshiAPI:
             "settlement_value_dollars": m.get("settlement_value_dollars"),
             "result": m.get("result"),
         }
+
+    def _prune_single_market(self, data: dict) -> dict:
+        """Prune a single-market response of the form {"market": {...}}.
+
+        Applying _prune_market directly to that wrapper (as we did before) threw
+        the real market away and produced an empty dict, so cached single-market
+        lookups returned garbage (no yes_bid_dollars) and cash-out silently
+        failed. Unwrap, prune the inner market, and re-wrap. Idempotent so a
+        cache hit (already in {"market": pruned} form) re-prunes cleanly.
+        """
+        if not isinstance(data, dict):
+            return data
+        inner = data.get("market")
+        if isinstance(inner, dict):
+            return {"market": self._prune_market(inner)}
+        # Bare market dict (no wrapper) — prune it directly.
+        return self._prune_market(data)
 
     _cs2_raw_logged = False
 
@@ -1331,9 +1351,9 @@ class KalshiAPI:
             f"{BASE_URL}/markets/{ticker}",
             {},
             ttl=60,
-            prune_func=self._prune_market
+            prune_func=self._prune_single_market,
         )
-        if data and "market" in data:
+        if isinstance(data, dict) and "market" in data:
             return data["market"]
         return data
 

@@ -2905,44 +2905,69 @@ async def _execute_kalshi_bet(
     await interaction.followup.send(embed=embed)
 
 
-# How much the YES price must move (in dollars / implied prob) before we ask the
-# user to re-confirm instead of silently filling at the new number.
+# How much the YES price must move (in dollars / implied prob) before we flag it
+# as having moved on the confirmation card.
 _PRICE_MOVE_THRESHOLD = 0.03
 
 
-class PriceMovedConfirmView(discord.ui.View):
-    """Shown when the live price moved since the user opened the bet. Lets them
-    confirm at the new price or back out."""
+class BetConfirmView(discord.ui.View):
+    """Final review step for a single bet: shows pick / odds / payout / balance
+    and only places the bet once the user hits Confirm. Funds aren't touched
+    until then. Notes when the live price moved from what the user first saw."""
 
-    def __init__(self, market: dict, pick: str, amount: int, fresh_yes: float, timeout: float = 60.0) -> None:
+    def __init__(
+        self, market: dict, pick: str, amount: int, yes_ask: float,
+        balance: float, shown_yes: float | None = None, timeout: float = 60.0,
+    ) -> None:
         super().__init__(timeout=timeout)
         self.market = market
         self.pick = pick
         self.amount = amount
-        self.fresh_yes = fresh_yes
+        self.yes_ask = yes_ask
+        self.balance = balance
+        self.shown_yes = shown_yes
         self.message: discord.Message | None = None
 
-    def build_embed(self, shown_yes: float) -> discord.Embed:
-        old_dec = _decimal_from_yes(shown_yes, self.pick)
-        new_dec = _decimal_from_yes(self.fresh_yes, self.pick)
+    def build_embed(self) -> discord.Embed:
+        m = self.market
+        decimal_odds = _decimal_from_yes(self.yes_ask, self.pick)
+        american = decimal_to_american(decimal_odds)
+        payout = round(self.amount * decimal_odds, 2)
+        title = m.get("title") or "?"
+        yes_sub = m.get("yes_sub_title") or ""
+        pick_display = (f"YES — {yes_sub}" if self.pick == "yes" and yes_sub
+                        else ("YES" if self.pick == "yes" else "NO"))
+
+        moved = bool(self.shown_yes and abs(self.yes_ask - self.shown_yes) > _PRICE_MOVE_THRESHOLD)
         embed = discord.Embed(
-            title="⚠️ Price moved",
-            description="The odds changed since you opened this bet. Confirm at the new price?",
-            color=discord.Color.orange(),
+            title="Confirm your bet",
+            color=discord.Color.orange() if moved else discord.Color.blurple(),
         )
-        embed.add_field(name="Was", value=format_american_with_prob(decimal_to_american(old_dec)), inline=True)
-        embed.add_field(name="Now", value=format_american_with_prob(decimal_to_american(new_dec)), inline=True)
-        embed.add_field(name="New payout", value=f"${round(self.amount * new_dec, 2):.2f}", inline=True)
+        embed.add_field(name="Pick",             value=pick_display,                         inline=True)
+        embed.add_field(name="Wager",            value=f"${self.amount:.2f}",                inline=True)
+        embed.add_field(name="Odds",             value=format_american_with_prob(american),  inline=True)
+        embed.add_field(name="Potential Payout", value=f"${payout:.2f}",                     inline=True)
+        embed.add_field(name="Profit if won",    value=f"${payout - self.amount:.2f}",        inline=True)
+        embed.add_field(name="Balance",          value=f"${self.balance:.2f}",               inline=True)
+        embed.add_field(name="Market",           value=title[:1024],                          inline=False)
+        if moved:
+            old_am = decimal_to_american(_decimal_from_yes(self.shown_yes, self.pick))
+            embed.description = (
+                f"⚠️ Price moved since you opened this — was "
+                f"{format_american(old_am)}, now {format_american(american)}."
+            )
+        if self.amount > self.balance:
+            embed.set_footer(text=f"⚠️ This is more than your ${self.balance:.2f} balance.")
         return embed
 
-    @discord.ui.button(label="Confirm at new price", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if not await _safe_defer(interaction):
             return
         for child in self.children:
             child.disabled = True
         self.stop()
-        await _execute_kalshi_bet(interaction, self.market, self.pick, self.amount, self.fresh_yes)
+        await _execute_kalshi_bet(interaction, self.market, self.pick, self.amount, self.yes_ask)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -2953,6 +2978,9 @@ class PriceMovedConfirmView(discord.ui.View):
             await interaction.response.edit_message(content="Bet cancelled — no funds were spent.", embed=None, view=self)
         except discord.NotFound:
             pass
+
+    async def on_timeout(self) -> None:
+        await _expire_menu(self)
 
 
 class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
@@ -2986,21 +3014,21 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
         pick = self.pick
         shown_yes = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
 
-        # Pull the live price; fill at it rather than the (possibly stale) cached one.
+        # Pull the live price so the review (and the eventual fill) uses a current
+        # number, not the possibly-stale one from the list cache.
         fresh_yes = await _fresh_yes_ask(m["ticker"])
-        if fresh_yes and shown_yes and abs(fresh_yes - shown_yes) > _PRICE_MOVE_THRESHOLD:
-            # Material move — make the user re-confirm at the new number.
-            m2 = dict(m)
-            m2["yes_ask_dollars"] = f"{fresh_yes}"
-            view = PriceMovedConfirmView(m2, pick, amount, fresh_yes)
-            msg = await interaction.followup.send(embed=view.build_embed(shown_yes), view=view, ephemeral=True)
-            view.message = msg
-            return
-
         effective = dict(m)
         if fresh_yes:
             effective["yes_ask_dollars"] = f"{fresh_yes}"
-        await _execute_kalshi_bet(interaction, effective, pick, amount, fresh_yes or shown_yes)
+        eff_yes = fresh_yes or shown_yes
+
+        balance = await wallet_service.get_balance(interaction.user.id)
+        view = BetConfirmView(
+            effective, pick, amount, eff_yes, balance,
+            shown_yes=shown_yes if shown_yes else None,
+        )
+        msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
+        view.message = msg
 
 
 # ── Parlay List-Mode Views ────────────────────────────────────────────
