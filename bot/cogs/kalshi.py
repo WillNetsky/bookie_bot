@@ -803,9 +803,11 @@ def _group_markets_by_sport(markets: list[dict]) -> list[dict]:
                 "markets": sport_markets,
                 "game_count": _count_games(sport_markets),
             })
-    # Biggest sports first — a browse menu reads better by volume than by
-    # closing time (which scatters majors among one-off niche markets).
-    result.sort(key=lambda x: -x["game_count"])
+    # Sort by each sport's soonest-closing market, so the most time-sensitive
+    # sports surface first.
+    result.sort(key=lambda x: min(
+        (_earliest_market_time(m) or "9999") for m in x["markets"]
+    ))
     return result
 
 
