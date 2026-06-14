@@ -41,6 +41,26 @@ async def _safe_defer(interaction: discord.Interaction, *, edit: bool = False) -
         return False
 
 
+async def _expire_menu(view: discord.ui.View) -> None:
+    """On timeout, disable the menu and mark it expired in place — rather than
+    deleting it — so the user doesn't lose their spot mid-browse."""
+    msg = getattr(view, "message", None)
+    if msg is None:
+        return
+    for item in view.children:
+        if hasattr(item, "disabled"):
+            item.disabled = True  # type: ignore[union-attr]
+    try:
+        embed = msg.embeds[0] if msg.embeds else None
+        if embed is not None:
+            embed.set_footer(text="⏱️ Expired — run the command again to refresh.")
+            await msg.edit(embed=embed, view=view)
+        else:
+            await msg.edit(view=view)
+    except (discord.NotFound, discord.HTTPException):
+        pass
+
+
 def _sport_emoji(sport_key: str) -> str:
     """Return an appropriate emoji for a sport based on its ticker."""
     sk = sport_key.upper()
@@ -1447,11 +1467,7 @@ class GamesListView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class GamesPageButton(discord.ui.Button["GamesListView"]):
@@ -1699,11 +1715,7 @@ class MarketListView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
@@ -1845,11 +1857,7 @@ class LiveThresholdView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class LiveThresholdSelect(discord.ui.Select["LiveThresholdView"]):
@@ -2117,11 +2125,7 @@ class GameListView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class GameSelectDropdown(discord.ui.Select["GameListView"]):
@@ -2332,11 +2336,7 @@ class FuturesListView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class FuturesSelectDropdown(discord.ui.Select["FuturesListView"]):
@@ -2514,11 +2514,7 @@ class CategoryView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 def _count_events_cached(markets: list[dict]) -> list[str]:
@@ -2672,11 +2668,7 @@ class FuturesSubtypeView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class FuturesSubtypeButton(discord.ui.Button["FuturesSubtypeView"]):
@@ -2760,11 +2752,7 @@ class SportSelectorView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class SportSelectDropdown(discord.ui.Select["SportSelectorView"]):
@@ -2830,6 +2818,143 @@ class SportPageButton(discord.ui.Button["SportSelectorView"]):
             pass
 
 
+async def _fresh_yes_ask(ticker: str) -> float | None:
+    """Re-fetch a single market's live YES price (≤60s cache) so bets fill at a
+    current number, not one that may be 15-30 min stale from the list cache.
+
+    Returns the YES ask in dollars (0–1), or None if it can't be fetched.
+    """
+    try:
+        fresh = await kalshi_api.get_market(ticker)
+    except Exception:
+        return None
+    if isinstance(fresh, dict) and isinstance(fresh.get("market"), dict):
+        fresh = fresh["market"]
+    if not isinstance(fresh, dict):
+        return None
+    try:
+        v = float(fresh.get("yes_ask_dollars") or fresh.get("last_price_dollars") or 0)
+    except (ValueError, TypeError):
+        return None
+    return v if v > 0 else None
+
+
+def _decimal_from_yes(yes_ask: float, pick: str) -> float:
+    """Decimal odds for a YES/NO pick given the YES ask price."""
+    if pick == "yes":
+        return round(1.0 / yes_ask, 3) if yes_ask > 0 else 2.0
+    no_ask = 1.0 - yes_ask
+    return round(1.0 / no_ask, 3) if no_ask > 0 else 2.0
+
+
+async def _execute_kalshi_bet(
+    interaction: discord.Interaction, m: dict, pick: str, amount: int, yes_ask: float
+) -> None:
+    """Place a single Kalshi bet at the given YES price and report the result.
+
+    Assumes the interaction has already been deferred. Used by the bet modal's
+    direct path and by the price-moved re-confirm button.
+    """
+    decimal_odds = _decimal_from_yes(yes_ask, pick)
+    american = decimal_to_american(decimal_odds)
+    close_time = m.get("close_time") or m.get("expected_expiration_time")
+
+    if close_time:
+        try:
+            ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+            if ct <= datetime.now(timezone.utc):
+                await interaction.followup.send("This market has already closed.", ephemeral=True)
+                return
+        except (ValueError, TypeError):
+            pass
+
+    title    = m.get("title") or "?"
+    yes_sub  = m.get("yes_sub_title") or ""
+    pick_display = (f"YES — {yes_sub}" if pick == "yes" and yes_sub
+                    else ("YES" if pick == "yes" else "NO"))
+
+    bet_id = await betting_service.place_kalshi_bet(
+        user_id=interaction.user.id,
+        market_ticker=m["ticker"],
+        event_ticker=m.get("event_ticker", ""),
+        pick=pick,
+        amount=amount,
+        odds=decimal_odds,
+        title=title,
+        close_time=close_time,
+        pick_display=pick_display,
+    )
+
+    if bet_id is None:
+        bal = await wallet_service.get_balance(interaction.user.id)
+        await interaction.followup.send(
+            f"Insufficient funds — you only have **${bal:.2f}** available.", ephemeral=True
+        )
+        return
+
+    payout = round(amount * decimal_odds, 2)
+    new_bal = await wallet_service.get_balance(interaction.user.id)
+    embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
+    embed.add_field(name="Bet ID",           value=f"#K{bet_id}",                          inline=True)
+    embed.add_field(name="Pick",             value=pick_display,                            inline=True)
+    embed.add_field(name="Wager",            value=f"${amount:.2f}",                        inline=True)
+    embed.add_field(name="Odds",             value=format_american_with_prob(american),     inline=True)
+    embed.add_field(name="Potential Payout", value=f"${payout:.2f}",                        inline=True)
+    embed.add_field(name="New Balance",      value=f"${new_bal:.2f}",                       inline=True)
+    embed.add_field(name="Market",           value=title[:1024],                            inline=False)
+    await interaction.followup.send(embed=embed)
+
+
+# How much the YES price must move (in dollars / implied prob) before we ask the
+# user to re-confirm instead of silently filling at the new number.
+_PRICE_MOVE_THRESHOLD = 0.03
+
+
+class PriceMovedConfirmView(discord.ui.View):
+    """Shown when the live price moved since the user opened the bet. Lets them
+    confirm at the new price or back out."""
+
+    def __init__(self, market: dict, pick: str, amount: int, fresh_yes: float, timeout: float = 60.0) -> None:
+        super().__init__(timeout=timeout)
+        self.market = market
+        self.pick = pick
+        self.amount = amount
+        self.fresh_yes = fresh_yes
+        self.message: discord.Message | None = None
+
+    def build_embed(self, shown_yes: float) -> discord.Embed:
+        old_dec = _decimal_from_yes(shown_yes, self.pick)
+        new_dec = _decimal_from_yes(self.fresh_yes, self.pick)
+        embed = discord.Embed(
+            title="⚠️ Price moved",
+            description="The odds changed since you opened this bet. Confirm at the new price?",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="Was", value=format_american_with_prob(decimal_to_american(old_dec)), inline=True)
+        embed.add_field(name="Now", value=format_american_with_prob(decimal_to_american(new_dec)), inline=True)
+        embed.add_field(name="New payout", value=f"${round(self.amount * new_dec, 2):.2f}", inline=True)
+        return embed
+
+    @discord.ui.button(label="Confirm at new price", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if not await _safe_defer(interaction):
+            return
+        for child in self.children:
+            child.disabled = True
+        self.stop()
+        await _execute_kalshi_bet(interaction, self.market, self.pick, self.amount, self.fresh_yes)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        for child in self.children:
+            child.disabled = True
+        self.stop()
+        try:
+            await interaction.response.edit_message(content="Bet cancelled — no funds were spent.", embed=None, view=self)
+        except discord.NotFound:
+            pass
+
+
 class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
     amount_input = discord.ui.TextInput(
         label="Wager amount ($)",
@@ -2859,61 +2984,23 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
 
         m    = self.market
         pick = self.pick
-        yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+        shown_yes = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
 
-        if pick == "yes":
-            decimal_odds = round(1.0 / yes_ask, 3) if yes_ask > 0 else 2.0
-        else:
-            no_ask = 1.0 - yes_ask
-            decimal_odds = round(1.0 / no_ask, 3) if no_ask > 0 else 2.0
-
-        american = decimal_to_american(decimal_odds)
-        close_time = m.get("close_time") or m.get("expected_expiration_time")
-
-        if close_time:
-            try:
-                ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                if ct <= datetime.now(timezone.utc):
-                    await interaction.followup.send("This market has already closed.", ephemeral=True)
-                    return
-            except (ValueError, TypeError):
-                pass
-
-        title    = m.get("title") or "?"
-        yes_sub  = m.get("yes_sub_title") or ""
-        pick_display = (f"YES — {yes_sub}" if pick == "yes" and yes_sub
-                        else ("YES" if pick == "yes" else "NO"))
-
-        bet_id = await betting_service.place_kalshi_bet(
-            user_id=interaction.user.id,
-            market_ticker=m["ticker"],
-            event_ticker=m.get("event_ticker", ""),
-            pick=pick,
-            amount=amount,
-            odds=decimal_odds,
-            title=title,
-            close_time=close_time,
-            pick_display=pick_display,
-        )
-
-        if bet_id is None:
-            bal = await wallet_service.get_balance(interaction.user.id)
-            await interaction.followup.send(
-                f"Insufficient funds — you only have **${bal:.2f}** available.", ephemeral=True
-            )
+        # Pull the live price; fill at it rather than the (possibly stale) cached one.
+        fresh_yes = await _fresh_yes_ask(m["ticker"])
+        if fresh_yes and shown_yes and abs(fresh_yes - shown_yes) > _PRICE_MOVE_THRESHOLD:
+            # Material move — make the user re-confirm at the new number.
+            m2 = dict(m)
+            m2["yes_ask_dollars"] = f"{fresh_yes}"
+            view = PriceMovedConfirmView(m2, pick, amount, fresh_yes)
+            msg = await interaction.followup.send(embed=view.build_embed(shown_yes), view=view, ephemeral=True)
+            view.message = msg
             return
 
-        payout = round(amount * decimal_odds, 2)
-        new_bal = await wallet_service.get_balance(interaction.user.id)
-        embed = discord.Embed(title="Bet Placed!", color=discord.Color.green())
-        embed.add_field(name="Bet ID",           value=f"#K{bet_id}",                          inline=True)
-        embed.add_field(name="Pick",             value=pick_display,                            inline=True)
-        embed.add_field(name="Wager",            value=f"${amount:.2f}",                        inline=True)
-        embed.add_field(name="Odds",             value=format_american_with_prob(american),     inline=True)
-        embed.add_field(name="Potential Payout", value=f"${payout:.2f}",                        inline=True)
-        embed.add_field(name="New Balance",      value=f"${new_bal:.2f}",                       inline=True)
-        embed.add_field(name="Market",           value=title[:1024],                            inline=False)
-        await interaction.followup.send(embed=embed)
+        effective = dict(m)
+        if fresh_yes:
+            effective["yes_ask_dollars"] = f"{fresh_yes}"
+        await _execute_kalshi_bet(interaction, effective, pick, amount, fresh_yes or shown_yes)
 
 
 # ── Parlay List-Mode Views ────────────────────────────────────────────
@@ -3280,11 +3367,7 @@ class KalshiParlayView(discord.ui.View):
         return embed
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class KalshiParlayGameSelect(discord.ui.Select["KalshiParlayView"]):
@@ -3725,13 +3808,7 @@ class _KalshiCashOutView(discord.ui.View):
         self.add_item(_KalshiCashOutSelect(user_id, bets_with_cashout))
 
     async def on_timeout(self) -> None:
-        for item in self.children:
-            item.disabled = True  # type: ignore[union-attr]
-        if self.message:
-            try:
-                await self.message.delete()
-            except Exception:
-                pass
+        await _expire_menu(self)
 
 
 # ── Cog ───────────────────────────────────────────────────────────────
@@ -3955,11 +4032,7 @@ class HistoryView(discord.ui.View):
             pass
 
     async def on_timeout(self) -> None:
-        if self.message:
-            try:
-                await self.message.delete()
-            except discord.NotFound:
-                pass
+        await _expire_menu(self)
 
 
 class KalshiCog(commands.Cog):
@@ -4012,6 +4085,58 @@ class KalshiCog(commands.Cog):
                     break
 
         return choices
+
+    # ── /help ─────────────────────────────────────────────────────────
+
+    @app_commands.command(name="help", description="How to use the bot — commands and how to earn currency")
+    async def help_command(self, interaction: discord.Interaction) -> None:
+        embed = discord.Embed(
+            title="\U0001f4d6 Bookie Bot — Help",
+            description=(
+                "Bet fictional currency on real sporting events (markets from Kalshi). "
+                "Earn currency by spending time in voice channels, then put it on the line."
+            ),
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="\U0001f3b0 Betting",
+            value=(
+                "**/bet** `[search]` — Browse markets and bet YES/NO. Add a search "
+                "(e.g. `/bet hockey`, `/bet Lakers`) to jump straight there.\n"
+                "**/close** `[threshold] [sport]` — Coin-flip markets (closest odds), soonest first.\n"
+                "**/live** — Upcoming markets sorted by soonest close.\n"
+                "**/parlay** — Combine multiple picks into one higher-payout bet."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="\U0001f4bc My Account",
+            value=(
+                "**/balance** — Your current balance.\n"
+                "**/mybets** — Active/pending bets (with live cash-out values).\n"
+                "**/myparlays** — Your parlays.\n"
+                "**/myhistory** — Resolved bets and your record.\n"
+                "**/stats** — All-time betting & casino stats.\n"
+                "**/cancelbet** · **/cancelparlay** — Cancel something still pending.\n"
+                "**/leaderboard** — The 10 richest players."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="\U0001f3b2 Casino",
+            value="**/blackjack** · **/craps** · **/roulette** · **/slots** · **/baccarat**",
+            inline=False,
+        )
+        embed.add_field(
+            name="\U0001f4b0 Earning currency",
+            value=(
+                "Just hang out in a voice channel — you accrue currency automatically "
+                "for time spent connected. Check progress any time with **/balance**."
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Odds shown American-style with implied win % · Matchups read Away @ Home")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /bet ──────────────────────────────────────────────────────────
 
