@@ -1,0 +1,1565 @@
+KXNLMVP | AL MVP
+KXNEXTTEAMWESTBROOK | RUSSELL WESTBROOK NEXT TEAM
+KXWO-SKEL | Winter Olympics Skeleton
+KXNFL2HWINNER | NFL 2nd Half Winner
+KXSTARTNOSAINTS | NEW ORLEANS WEEK 1 QB
+KXNEXTCOACHOUTNFL | Next Coach Out Pro Football
+KXF1H2H | F1 Head-to-Head
+KXATPMIA | ATP Miami
+KXNCAAMB1HWINNER | College Basketball 1H Winner
+KXUCLFIRSTGOAL | UCL First Goalscorer
+KXNEXTTEAMMCLAURIN | Terry McLaurin next team
+KXSLRCHAMP | England Super League Champion
+KXNFLEXACTWINSBAL | Pro football exact wins Baltimore
+KXNBABLK | Pro Basketball Player Blocks
+KXNFLEXACTWINSNYG | Pro football exact wins New York G
+KXMLBSTAT | Pro Baseball Season Stat
+KXMARMADSEEDDIF | March Madness Biggest Upset
+KXNCAAMBUNDEFEATED | Undefeated in College Basketball Regular Season
+KXNBA4QWINNER | NBA 4th Quarter Winner
+KXTRADEOFFNFL | Pro football trades offseason
+KXRANKLISTKG | Will Ken Griffin be the top donator on <date>?
+KXNBACUPMVP | Pro Basketball Cup Tournament MVP
+KXNASCARTOP3 | NASCAR Top 5 Finishers
+KXCOPADELREY | Copa del Rey Winner
+KXUEL16AJAUSG | Europa League round of 16 - AJA USG
+KXALCARAZCOACH | Carlos Alcaraz Next Coach
+KXNFLREBOOT | Reboot Rules
+KXNBACOY | Pro Basketball Coach of the Year
+KXNBADRAFT8 | NBA Draft Eighth Pick
+KXBUNDESLIGATOP4 | Bundesliga Top 4 Finishers
+KXNFLEXACTWINSARI | Pro football exact wins Arizona
+KXLEADERNBAREB | NBA RPG Leader
+KXNCAAMBIGEAST | Big East Men's basketball tournament
+KXNBATOP5ROTY | Top 5 NBA draft ROTY
+KXWTAMIA | WTA Miami
+KXLSUCOACH | LSU Next Coach
+KXDAYTONA24 | Daytona 24 Hour Race Winner
+KXF1RACETOP10 | F1 Race Top 10 Finishers
+KXNATHANDOGS | Nathan's hot dogs
+KXBRASILEIRO | Brasileiro Winner
+KXNCAAMWRESTLING285 | College Wrestling National Champion: 285-Pound Weight Class
+KXNYGCOACH | New York G Next Coach
+KXMLBWINS-HOU | Pro baseball wins Houston
+KXNBADRAFT2 | NBA Draft Second Pick
+KXNCAAMBCOTY | Men's College Basketball Naismith Coach of the Year
+KXUEL | Europa Leauge champion
+KXNFLEXACTWINSLV | Pro football exact wins Las Vegas
+KXCAATOURNAMENT | CAA Tournament
+KXNBAFIRSTBASKET | Pro Basketball First Basket
+KXNFLWINS-TB | Pro football wins Tampa Bay
+KXSIXKINGSSEMI | Six Kings Slam Semifinals
+KXNBA1STTEAMDEF | All-NBA Defensive 1st Team
+KXUCLACOACH | UCLA Next Coach
+KXNCAAMBNEC | Northeast Conference Tournament
+KXEPLTOP2 | Top 2 Finishers
+KXNFLRECYDS | Pro Football player Receiving Yards
+KXBRYSONCOURSERECORDS | Bryson Course Records
+KXNCAAMWRESTLING157 | College Wrestling National Champion: 157-Pound Weight Class
+KXWBCPREPACK | MVE WBC pre pack
+KXACQUIREREALMADRID | Real Madrid acquire
+KXNCAAFPREPACK4ML | MVE NCAAF Pre Pack
+KXCONNSMYTHE | Conn Smythe trophy
+KXNFLWINS-CAR | Pro football wins Carolina
+KXT20SIXES | Cricket Number of Sixes
+KXSOCCERPLAYMESSI | Messi World Cup
+KXNFLCOTY | AP Pro Football Coach Of The Year
+KXNFLWINS | Pro Football Wins
+KXPGAR1LEAD | PGA Round 1 Leader
+KXUEL16VIKFTC | Europa League round of 16 - VIK FTC
+KXIPLFIRST6 | IPL First 6 Overs Winner
+KXEWCMLBB | Mobile Legends: Bang Bang Mid Season Cup at 2025 Esports World Cup
+KXPGARYDERCUPD3 | Ryder Cup Day 3 Winner
+KXTATUMRETURN | When Will Jayson Tatum Play His Next Game
+KXNFLPREPACK | MVE NFL Pre Pack
+KXLEADERNBAAST | NBA APG Leader
+KXNEXTMANAGEREPL | Next Manager
+KXNEXTTEAMMLB | MLB Player Next Team
+KXNCAAFCONF | NCAAF Championship Conference
+KXAACREG | AAC Regular Season Champions
+KXNCAAFPREPACK2ML | MVE NCAAF Pre Pack
+KXCS2QUALIFIER | CS2 Qualifier
+KXNFLEXACTWINSBUF | Pro football exact wins Buffalo
+KXWNBA7FIGS | 7 Figure WNBA salary
+KXWO-STRACK | Winter Olympics Short Track Speed Skating
+KXFLACOACH | Florida Next Coach
+KXUCL | UEFA Champions League
+KXNASCARTRUCKSERIES | NASCAR Truck Series Champion
+KXWBCHIT | World Baseball Classic Hits
+KXNCAAMWRESTLING165 | College Wrestling National Champion: 165-Pound Weight Class
+KXCHESSCANDIDATES | Chess Candidates Champion
+KXNFCAFCSB | AFC NFC SB
+KXSTARLADDERBUDAPESTMAJOR | Who wil win the StarLadder Budapest Major 2025
+KXRANKLISTFFDST | TOP FANTASY FOOTBALL D ST
+KXNCAAMBWCC | West Coast Conference Tournament
+KXUCLBTTS | Champions League BTTS
+KXMLBWINS-STL | Pro baseball wins St. Louis
+KXATPFINALS | ATP Finals Winner
+KXCOACHOUTUNC | Bill Belichick Out
+KXMULTIPREPACK | Cross Sport Prepack
+KXWO-SBOARD | Winter Olympics Snowboarding
+KXNDJOINCONF | Join Conference
+KXRANKLISTFFQB | TOP FANTASY FOOTBALL QB
+KXLEADERMLBKS | Pro Baseball Strikeouts Leader
+KXINTERNETINVITATIONAL | Who will win the Internet Invitational 
+KXOLEMISSATTENDANCE | Ole Miss Attendance Record
+KXNFLWINS-CIN | Pro football wins Cincinnati
+KXWOMHOCKEYGOAL | Olympic Hockey Goalscorer
+KXATPGRANDSLAM | ATP Grand Slam
+KXNFLFIRSTPICK | First Pick in NFL Draft
+KXSTARTCIN | Joe Burrow Week 12
+KXLCKAHRIPICK | LCK finals Ahri
+KXLIGUE1 | LIGUE 1
+KXESLPROS1 | ESL Pro League Stage 1
+KXSERIEABTTS | Serie A BTTS
+KXLEADERMLBSTRIKEOUTS | MLB Strikeouts Leader
+KXUCLW | Champions League Women's
+KXNCAAFSEC | SEC Champion
+KXMLBWINS-PIT | Pro baseball wins Pittsburgh
+KXWTAMOA | WTA Tour Merida Open Akron
+KXFIDECANDIDATES | FIDE Candidates qualifiers
+KXSPEEDCHESS | Speed Chess
+KXNFLPLAYOFF | Pro Football Playoff Qualifiers
+KXNBAPACIFIC | NBA Pacific Division Winner
+KXGREYCUP | CFL Grey Cup
+KXUFLUSFLCONF | UFL USFL Conference Champion
+KXNFLGPICKENSCONTRACT | Pro Football George Picken's Next Contract Size
+KXNBAROY | Pro Basketball Rookie of the Year
+KXMLBSEASONHR | Pro Baseball Season Home Runs
+KXMARMADSEEDWIN | March Madness Seed Win
+KXNHLRICHARD | NHL Maurice "Rocket" Richard Trophy
+KXCOACHOUTDALSTARS | Chris Koclanes out
+KXCODMAP | COD Map Winner
+KXJCOLECBA | J Cole CBA
+KXAUBCOACH | Auburn Next Coach
+KXCHESSGRENKECLASSIC | Grenke Chess Classic
+KXWEISSENHAUS | Freestyle Chess Grand Slam Weissenhaus
+KXF1FASTESTLAP | F1 Fastest Lap
+KXPGAWINNERWITHOUT | PGA Winner Without
+KXNBAPLAYOFF3D | NBA Playoff Triple-Double
+KXNFLAFCNORTH | American Football Conference North Winner
+KXKNUEPPEL3PTREC | Kon Knueppel Rookie 3pt Record
+KXNFLDRAFTPICK | NFL Draft Pick
+KXNEXTMANAGERJUV | Next Manager of Juventus
+KXTIGERMASTERS | Will Tiger Woods play in the Masters
+KXNBARETURN | NBA Player to Return
+KXGRANDSLAMJFONSECA | Wil Joao Fonseca Win a grand slam
+KXNFL2PTCONV | Pro Football 2-Point Conversions
+KXMEMCOACH | Memphis Next Coach
+KXNBAWEST1SEED | NBA Western Conference 1 Seed
+KXWOSTRACK | Winter Olympics Short Track Speed Skating
+KXNHLFIRSTGOAL | Pro Hockey First Goal
+KXIWWOMEN | Indian Wells Women's Singles
+KXUFACENT | Ultimate Frisbee Association Central Division Winner
+KXMLBALMOTY | Pro Baseball American League Manager of the Year
+KXNCAAMBSUN | Atlantic Sun Conference Tournament
+KXMLSBTTS | MLS BTTS
+KXUKCOACH | Kentucky Next Coach
+KXNASCARCUPSERIES | NASCAR Cup Series Champion
+KXFOMEN | French Open Men's
+KXLIVOCCUR | LIV Golf Event Occurrence 
+KXPGAR1TOP20 | PGA Round 1 Top 20 FInishers
+KXUEL16FTCRSO | Europa League round of 16 - FTC RSO
+KXWTAATX | WTA Tour ATX Open
+KXPGATOP10 | PGA Top 10 Finisher
+KXEWCFREEFIRE | Free Fire at 2025 Esports World Cup
+KXSIXKINGSQUARTER | Six Kings Slam Quarterfinals
+KXNFLNFCCHAMP | National Football Conference Champion
+KXCLUBWCGE | Club World Club Group E
+KXNFLWINS-NE | Pro football wins New England
+KXFOWOMEN | French Open Women's
+KXNFLTEAM1POS | What position will Team select with first pick
+KXWTADOUBLES | WTA Doubles Tennis Match
+KXNHL | Stanley Cup
+KXNFLWINS-DET | Pro football wins Detroit
+KXMLBWINS-PHI | Pro baseball wins Philadelphia
+KXNFLSBMVP | Pro Football Championship MVP
+KXWCCONGO | DR Congo World Cup
+KXPGAAGECUT | Oldest to make the cut
+KXPGASTROKEMARGIN | PGA Stroke Margin
+KXNFLPREPACKSGP | MVE NFL Pre Pack
+KXNCAAFBB10 | Big Ten Champion
+KXNORWAYCHESS | Norway Chess Tournament
+KXNHLPTS | Pro Hockey Points
+KXMLBNLRELOTY | Pro Baseball National League Reliever of the Year
+KXCITYMLBEXPAND | MLB expansion
+KXNBADRAFT10 | NBA Draft Tenth Pick
+KXWCSQUAD | World Cup Squad
+KXBOXINGMOV | Boxing Method of Victory
+KXWO-ALPSKI | Winter Olympics Alpine Skiing
+KXEWCPUBGBATTLEG | PUBG: BATTLEGROUNDS at 2025 Esports World Cup
+KXCLUBWCGA | Club World Club Group A
+KXNCAAMBNEXTCOACH | Men's College Basketball Next Coach
+KXLEBRONPLAY | LeBron Next Play
+KXNCAAMBCBC | Men's College Basketball Crown Winner
+KXNCAAFCS | FCS Football Champion
+KXRANKLISTFFWR | TOP FANTASY FOOTBALL WR
+KXINDY500DELAY | Indy 500 delay
+KXUCL16BVBSPO | Champions League round of 16 - BVB SPO
+KXNBADRAFTPICK | Pro Basketball Draft Pick
+KXDDFWOMENSINGLES | Dubai Duty Free Tennis Championships
+KXARSENALCUPS | Arsenal Cups
+KXMLBALCENT | American League Central Winner
+KXNFLRECYDSRECORD | NFL Regular Season Receiving Yards Record
+KXLALIGATOP4 | La Liga Top 4 Finishers
+KXPREMCHAMP | Gallagher Premiership Champion
+KXNCAAMBASUN | Atlantic Sun Conference Tournament
+KXNBAPA | Pro Basketball Points + Assists
+KXPGA5BALL | PGA 5-Ball
+KXLEADERNFLPTDS | NFL leader passing TDs
+KXMLBF5 | First 5 Innings Winner
+KXMLBNLCY | Pro Baseball National League Cy Young
+KXPSUCOACH | Penn State Next Coach
+KXPGAR2TOP10 | PGA Round 2 Top 10 FInishers
+KXAUSTINMAJOR | Rennsport at 2025 Esports World Cup
+KXNFLWINS-CLE | Pro football wins Cleveland
+KXPGAR2LEAD | PGA Round 2 Leader
+KXNBASERIESPTSLEADER | NBA Series Points Leader
+KXPLAYEROPTION | Player option
+KXNEXTTEAMNFL | Pro Football Player Next Team
+KXMLBALCY | Pro Baseball American League Cy Young
+KXNCAAFB10 | Big Ten Champion
+KXMOMEN | Miami Open Winner (Men's)
+KXNFLOROY | NFL Offensive Rookie of the Y ear
+KXSAGRANDSLAM | Freestyle Chess Grand Slam Final
+KXF1RACETOP5 | F1 Race Top 5 Finishers
+KXPERSONUNRETIRE | Person to Come out of Retirement
+KXMICHCOACH | Michigan Next Coach
+KXMLBAL | MLB American League Championship
+KXRYDERCUPCAPTAIN | Ryder Cup Captain
+KXSTARTNYJ | new york jets week 1 qb
+KXNIKOAWPMAJOR | NiKo AWP Major
+KXWNBAPORTNOY | WNBA Portnoy ban
+KXSELLTWINS | Minnesota Twins sale
+KXNEXTMANAGERLALIGA | La Liga Next Manager
+KXDONATEBEASTWATER | Beast Water
+KXFIRSTTIMEWINNER | First Time Winner
+KXNEXTCONTRACTSKUBAL | Tarik Skubal Next Contract Value
+KXNBA2HWINNER | Pro Basketball 2nd Half Winner
+KXNEWCOACHLV | Las Vegas Raiders New Coach
+KXSTEPHDEAL | Steph Curry Endorsement Deal
+KXNFLNFCWEST | National Football Conference West Winner
+KXNCAABSEC | SEC Men's Basketball Tournament
+KXNCAAMBSWAC | Southwestern Atlantic Conference Tournament
+KXUFCBANTAMWEIGHTTITLE | UFC Bantamweight Title
+KXUSOPEN | US Open
+KXSYNTHETIXTRADINGCOMP | Synthetix Trading Competition
+KXMBLNLEAST | National League East Winner
+KXNCAAFSBELT | Sun Belt Champion
+KXLAVERCUP | Laver Cup
+KXNHL1STTEAM | All NHL First Team
+KXA10REG | A10 Regular Season Champions
+KXNFLDRAFTWR | Pro Football Wide Receiver Drafted 
+KXNBAWFINMVP | Pro Basketball Western Conference Finals MVP
+KXNFLWINS-NYJ | Pro football wins New York J
+KXNFLAFCSOUTH | American Football Conference South Winner
+KXMLSWEST | MLS Western Conference winner?
+KXNYKCOACH | KNICKS
+KXBUNDESLIGA | BUNDESLIGA
+KXNFLAFCCHAMP | American Football Conference Champion
+KXMLBWINS-DET | Pro baseball wins Detroit
+KXSOCCERBTTS | Soccer Both Team to Score
+KXMCMMEN | ATP Monte-Carlo Masters Winner
+KXPGAWINNINGSCORE | PGA Winning Score
+KXATPTOTALSETS | ATP Total Sets
+KXQOWOMENSINGLES | Qatar Open Women's Singles
+KXNFLEXACTWINSDET | Pro football exact wins Detroit
+KXNCAAFAPRANK | College Football AP Rank
+KXNFLEXACTWINSSF | Pro football exact wins San Francisco
+KXUFLCHAMP | UFL Champion
+KXBOXINGDISTANCE | Boxing To Go The Distance
+KXWOCURL | Winter Olympics Curling
+KXWOHOCKEY | Winter Olympics Hockey
+KXSTARTCLEBROWNS | Cleveland Browns starter
+KXCROSSFIRE | Crossfire Tournament Winner
+KXNCAAMWRESTLING133 | College Wrestling National Champion: 133-Pound Weight Class
+KXTEAMSINSC | Teams in Stanley Cup
+KXNCAAFD3 | D3 College Football Champion
+KXMOTOGP | Moto GP World Champion
+KXNEXTTEAMNHL | Next Team NHL
+KXJOINSANE | Leroy Sane transfer
+KXSHAI20PTREC | Shai 20+ Point Streak
+KXUFCWHITEHOUSE | UFC at White House
+KXNCAAMBBSKY | Big Sky Conference Tournament
+KXSWIFTATTEND | NFL Attendance Swift
+KXUFCMWEIGHT | UFC Middleweight Champion
+KXSCOTTIESLAM | Scottie grand slam
+KXLEADERMLBSAVES | MLB Saves Leader
+KXPGAMAJORWIN | PGA Major Winner
+KXR6 | R6 Tournament Winner
+KXCOACHOUTMLBDATE | Coach Out Date
+KXCFPSEED | College Football Playoff Seed
+KXNEXTMANAGERMANU | Next Man U Manager
+KXDAVISCUPADVANCE | Davis Cup Advance
+KXPGAMASTERS | Golfers to Participate in the Masters
+KXNATHANSHD | Nathan's Hot Dog Eating Contest winner?
+KXSIXKINGSSLAM | Six Kings Slam Winner
+KXF1RACESPRINT | F1 Sprint Race
+KXLEADERPINT | Pro Football Passing Interceptions Leader
+KXWBCLIGHTWEIGHTTITLE | Boxing Lightweight Title
+KXNCAAMBPAT | Patriot League Conference Tournament
+KXHOLEINONE | Golf Hole in One
+KXUFA | Ultimate Frisbee Association Champion
+KXMLBWORSTRECORD | Pro Baseball Best Record
+KXNHLSERIESSCORE | NHL Series Exact Score
+KXVALGCSEOUL | Game Changers : Championship Seoul
+KXARKCOACH | Arkansas Next Coach
+KXWOFSKATE | Winter Olympics Figure Skating
+KXNFLDRAFTCAT | Pro Football Draft Category
+KXEREDIVISIE | Eredivisie League Winner
+KXNBAREB | Pro Basketball Player Rebounds
+KXUFCMOV | UFC Method of Victory
+KXWONORDIC | Winter Olympics Nordic Combined
+KXBELICHICKUNC | Will Bill Belichick coach a UNC game
+KXF1TOP5 | F1 Top 5 Finishers
+KXWNBAROY | WNBA Rookie of the Year
+KXFANATICSGAMESFIRSTPLACE | Who will come in 1st place at Fanatics Games?
+KXJOINMESSI | Messi
+KXMLSADVANCE | MLS To Advance
+KXNASCAR | NASCAR Cup Series playoffs
+KXLEADERNFLRTDS | NFL leader receiving TDs
+KXCS2MAP | Counter-Strike 2 Map Winner 
+KXMLBWINS-CLE | Pro baseball wins Cleveland
+KXYTDAILYTOPVIDEO | DAILY TOP YOUTUBE VIDEO
+KXNBAALLSTARMVP | NBA All-Star Game MVP
+KXPGAMAJOR | PGA Major Wins
+KXATPNEXTGEN | ATP Next Gen Finals
+KXCHOVYMVP | Will Chovy be the MVP of the Worlds finals
+KXMLBWINS-LAA | Pro baseball wins Los Angeles A
+KXUCL16PSVJUV | Champions League round of 16 - PSV JUV
+KXNHLAST | Pro Hockey Assists
+KXFCSOUTHAFRICA | Freestyle Chess Grand Slam South Africa
+KXATP1RANK | ATP #1 Ranked Player
+KXTNCBASKETBALL | TNC Basketball
+KXUEL16RSCFEN | Europa League round of 16 - RSC FEN
+KXEWCDOTA2 | Dota 2 at 2025 Esports World Cup
+KXCHRISTMASHORNETS | Christmas Hornets
+KXNASCARTOP10 | NASCAR Top 10 Finishers
+KXEPLGOAL | EPL Goalscorer
+KXEPLTOP4 | EPL top 4 teams
+KXOHTANIMVPCY | Shohei Ohtani MVP and Cy Young
+KXSPORTSIGNLBJ | LeBron James sign
+KXNPB | NPB Champion
+KXNHLFINALSEXACT | NHL Championship Series Score
+KXWO-FIGSKATE | Winter Olympics Figure Skating
+KXMIDSEASONINVITATIONALB | 2025 Mid-Season Invitational
+KXNCAAWBWBIT | WBIT Winner
+KXNHLRETIRE | NHL Retire
+KXR6MAP | R6 Map Winner
+KXMLBNLMOTY | Pro Baseball National League Manager of the Year
+KXATPMC | ATP Monte Carlo
+KXUCLTCORNERS | Champions League Team Corners
+KXLIGUE1BTTS | Ligue 1 BTTS
+KXFURYJOSHUA | Tyson Fury to fight Anthony Joshua
+KXWOFREESKI | Winter Olympics Freestyle Skiing
+KXNBASLAMDUNK | NBA Slam Dunk Contest Winner
+KXNCAAFAAC | American Athletic Conference Champion
+KXUSOPENCUP | US Open Cup Soccer
+KXNFLREDZONEBRANDADS | Redzone week 1 brand ads
+KXUCL8 | Champion's League to Round of 8
+KXNFLWINS-IND | Pro football wins Indianapolis
+KXLIGUE11H | Ligue 1 First Half Winner
+KXNBA2D | Pro Basketball Double Double
+KXCHESSTTLATE | Chess Titled Tuesday Late
+KXT20FIRST6 | T20 First 6 Overs Winner
+KXNCAAMWRESTLING197 | College Wrestling National Champion: 197-Pound Weight Class
+KXURYPD | Uruguayan Premier Division
+KXNCAABBIGTEN | Big Ten Men's Basketball Tournament
+KXWNBADRAFT2 | WNBA Draft 2nd Pick
+KXWSNL | MLB National League champion
+KXBRASILEIRORELEGATION | Brasileiro Relegation
+KXWNBAPLAYOFF | Women's Pro Basketball Playoff Qualifiers
+KXATPRANK | ATP #1 Ranked Player
+KXMLBPLAYEROTM | Pro Baseball Player of the Month
+KXNFLEXACTWINSSEA | Pro football exact wins Seattle
+KXWO-FREESKI | Winter Olympics Freestyle Skiing
+KXNBAALLSTAR | NBA All-Star game
+KXRANKLISTREALSPORTS | Real Sports Top 10 App
+KXNBAEAST | NBA Eastern Conference Championship
+KXPUBG | PUBG Tournament Winner
+KXNFLEXACTWINSMIA | Pro football exact wins Miami
+KXFRA14CHAMP | France Top 14 Champion
+KXNEXTTEAMNBA | Next NBA Team
+KXMESSIRETIRE | Messi retirement
+KXROMENSDOUBLES | Rio Open men Doubles
+KXNFC | NFC Championship
+KXTENCOACH | Tennessee Next Coach
+KXNCAAF | NCAAF Championship
+KXWNBADRAFTTOP3 | WNBA Draft Top 3
+KXCS2TOTALMAPS | CS2 Total Maps
+KXMLB500 | MLB teams at .500
+KXPGA3BALL | PGA 3-Ball
+KXNCAAMBNAISMITH | Men's College Basketball Naismith
+KXMANTISFREETHROWS | MANTIS FREE THROWS
+KXNEWCOACHNYJ | New York Jets new coach
+KXBUNDESLIGARELEGATION | Bundesliga Relegation
+KXNCAAMIVYLEAGUE | Ivy League MEN'S BASKETBALL TOURNAMENT
+KXMLBNLWEST | National League West Winner
+KXCOACHOUTNFL | NFL Coach Out
+KXBIGEASTREG | Big East Regular Season Champions
+KXNCAAMBMAA | Metro Atlantic Conference Tournament
+KXBUNDESLIGABTTS | Bundesliga BTTS
+KXNFLREC | Pro Football Player Receptions
+KXPSASQUASH | Professional Squash Association (PSA) World Championships
+KXEWCVALORANT | VALORANT featured at 2025 Esports World Cup
+KXLEADERMLBWAR | MLB WAR Leader
+KXCHARCOUNTLOLWORLDS | LOL worlds
+KXNBA1STTEAM | All-NBA 1st Team
+KXFIRSTUSOPEN | First time US open winner
+KXWO-SWEEPS | Winter Olympics Total Podium Sweeps
+KXDPWORLDTOURR1LEAD | DP World Tour R1 Leader
+KXNHLPACIFIC | NHL Pacific Division Winner
+KXNASCARRACEOLD | NASCAR Race winner
+KXEFLCHAMPIONSHIP | EFL Championship League Winner
+KXNBAPTS | Pro Basketball Player Points
+KXNFLDRAFTEDGE | Pro Football Edge Drafted
+KXWOLUGE | Winter Olympics Luge
+KXLEADERNBA3PT | NBA 3PM Leader
+KXNCAAMBACC | ACC Conference Tournament
+KXMWORLDCUP | Men's World Cup winner
+KXNFLHIGHSCOREQ | Pro Football Highest Scoring Quarter
+KXPGARYDERTOP3 | Ryder Cup Top 3 Points Scorer
+KXNFLWINS-GB | Pro football wins Green Bay
+KXNFLWINS-BAL | Pro football wins Baltimore
+KXKYLEMILETIME | Will Nelk's Kyle Forgeard first mile be completed in 8 minutes
+KXBUNDESLIGA1H | Bundesliga First Half Winner
+KXNFLFANTASYMOST | Pro Football Most Fantasy Points
+KXT20SIX | T20 Total Sixes
+KXNFL4QWINNER | Pro Football 4th Quarter Winner
+KXKELCERETIRE | Travis Kelce Retire
+KXNHLPRES | NHL President's Trophy Winner
+KXUFCFLYWEIGHTTITLE | UFC Flyweight Title
+KXCOPPAITALIA | Coppa Italia Winner
+KXWINSTREAKMANU | Man United Win Streak
+KXPGAROUNDBIRDIES | Golf Round Birdies
+KXMLBALCPOTY | Pro Baseball American League Comeback Player of the Year
+KXNEXTCOACHOUTNBA | Next coach out NBA
+KXPGAR1TOP5 | PGA Round 1 Top 5 FInishers
+KXMANAGERSOUT | Managers Out
+KXLEADERMLBWINS | MLB Wins Leader
+KXHEISMANFINALIST | Defensive Heisman Finalist
+KXNFLWINS-HOU | Pro football wins Houston
+KXF1 | Formula 1
+KXEWCCHESS2025 | Chess – Esports World Cup Winner?
+KXF1POLEPOSITION | Qualify in Pole Position
+KXNCAAFPAC12 | Pac-12 Champion
+KXNEWCOACHNO | New Orleans Saints new coach
+KXNBADRAFTTOP15 | NBA Draft Top 15 Pick
+KXNFLWINS-PIT | Pro football wins Pittsburgh
+KXBOXINGKNOCKOUT | Boxing Knockout
+KXQUADRUPLEDOUBLE | Quadruple Double
+KXDENSUPERLIGA | Danish Superliga Champion
+KXRANKLISTBONK | Bonk top 100 currencies by end of year
+KXMLBWINS-TOR | Pro baseball wins Toronto
+KXTHAIL1 | Thai 1 League
+KXCHNSL | Chinese Super League
+KXWO | Winter Olympics Medals
+KXRANKLISTCS2PLAYER | HLTV Player of Year
+KXEPLPOY | EPL Player Of The Year 
+KXUEFACL | UEFA Champions League
+KXCHESSNORWAY | Norway Chess Tournament
+KXNFLDRAFTOU | Will Player be drafted before or after pick?
+KXNCAAWBNIT | Women's NIT Tournament Champion
+KXFRASUPERCUPADVANCE | France Super Cup to Advance
+KXNBA1HWINNER | Pro Baskeball 1st Half Winner
+KXNCAAMBIGTEN | big ten MEN'S BASKETBALL TOURNAMENT
+KXJOINEKITIKE | Hugo Ekitike
+KXAOMEN | Australian Open Mens
+KXWO-SILVER | Winter Olympics Most Silver Medals
+KXWNBAROTY | Pro Women's Basketball Rookie of the Year
+KXNFLEXACTWINSNYJ | Pro football exact wins New York J
+KXLBJRETIRE | LBJ retire
+KXPGAWINNERREGION | PGA Tournament Winner Region
+KXLEADERMLBERA | MLB ERA Leader
+KXCOD | COD Tournament Winner
+KXNBA3PT | Pro Basketball Player Threes
+KXNFL2QWINNER | Pro Football 2nd Quarter Winner
+KXNCAAMBIG12 | Big 12 MEN'S BASKETBALL TOURNAMENT
+KXEWCRB6 | Rainbow Six at 2025 Esports World Cup
+KXNBADRAFTTRADE | NBA Draft Trade
+KXNASCARTOP5 | NASCAR Top 5 Finishers
+KXMIDSEASONINVITATIONAL | 2025 Mid-Season Invitational
+KXIMOCOUNTRY |  International Mathematical Olympiad Country Winner
+KXESPORTSTEST | TESTING
+KXNEXTTEAMVERSTAPPEN | Will Max Verstappen go to Mercedes?
+KXCLUBWC | Club World Cup Championship
+KXUFCTITLE | UFC Title
+KXMLBALWEST | American League West Winner
+KXRANKLISTAICODE | AI Coding
+KXLEADERNFLPYDS | NFL leader passing yards
+KXNBAOVERTIME | NBA Overtime
+KXWOWHOCKEY | Winter Olympics Women's Hockey
+KXNBADRAFTTOP10 | NBA Draft Top 10 Pick
+KXNFLEXACTWINSDAL | Pro football exact wins Dallas
+KXMLBWINS-KC | Pro baseball wins Kansas City
+KXNFLDRAFTTE | Pro Football Tight End Drafted
+KXEWCCALLOFDUTYBLOPS6 | Call of Duty: Black Ops 6 at 2025 Esports World Cup
+KXNCAAMBSBELT | Sun Belt Conference Tournament
+KXLEADERNBASTL | NBA SPG Leader
+KXMLBNL | MLB National League Championship
+KXNBAFINALSVIEWER | NBA finals viewership
+KXMARMADPTS | Men's March Madness Points
+KXNASCARFASTLAP | NASCAR Fastest Lap
+KXBSOUTOURNAMENT | Big South Tournament
+KXNFLCOMBINE40 | Pro Football Combine Fastest 40 Time
+KXSOCCERTRANSFER | Soccer Transfer
+KXGRANDSLAMSINNERALCARAZ | Sinner Alcaraz grand slam
+KXWTASERENA | Serena Williams WTA
+KXMLBALHAARON | Pro Baseball American League Hank Aaron
+KXNCAAMBSOCON | Southern Conference Tournament
+KXNCAAMBBIGEAST | Big East Conference Tournament
+KXEPLFIRSTGOAL | EPL 1st Goalscorer
+KXUEFAISRAELBAN | UEFA Israel Ban
+KXCOACHOUTAUB | HUGH FREEZE OUT 2026
+KXEUROVISIONISRAELBAN | Eurovision Israel ban
+KXCHESSTTEARLY | Chess Titled Tuesday Early
+KXNFLPRIMETIME | Pro Football Primetime Games
+KXNFLEXACTWINSNO | Pro football exact wins New Orleans
+KXRANKLISTSUI | Sui top 10
+KXMWREG | Mountain West Regular Season Champions
+KXMLBHR | Pro Baseball Home Runs
+KXMLSEAST | MLS Western Conference winner?
+KXWBCRFI | World Baseball Class Run in First Inning
+KXWTAMAD | WTA Madrid
+KXNFLEXACTWINSATL | Pro football exact wins Atlanta
+KXTUSHPUSH | Tush Push ban
+KXMLBNLMVP | Pro Baseball National League MVP
+KXNFLMOSTRECYDS | Pro Football Most Receiving Yards
+KXTEAMSINWS | Teams in MLB Finals
+KXNCAABBIG12 | Big 12 Men's Basketball Tournament
+KXHEISMAN | Heisman Trophy Winner
+KXUECLADVANCE | Conference League Advance
+KXSERIEA1H | Serie A First Half Winner
+KXWOMHOCKEYMVP | Men's Winter Olympics Hockey MVP
+KXMASTERS | Masters Tournament
+KXMLBPITCHEROTM | Pro Baseball Pitcher of the Month
+KXNFLAFCEAST | American Football Conference East Winner
+KXJOINMBAPPE | Kylian Mbappe next team
+KXBOXING1MIN | Boxing 1 Minute Fight
+KXNASCARCUPCHAMP | Nascar Cup Series Championship
+KXNFLEXACTWINSKC | Pro football exact wins Kansas City
+KXNHLADAMS | NHL Jack Adams Award
+KXWNBACOY | WNBA Coach of the Year
+KXPGAMAJORTOP10 | PGA Top 10 for All 4 Majors
+KXUCLRO4 | UCL Advance to Round of 4
+KXFOMENSINGLES | French Open men's singles
+KXDFBPOKALADVANCE | DFB Pokal Advance
+KXNCAAPLAYOFF | College Football Playoff Qualifiers
+KXEFLCUPADVANCE | EFL Cup Advance
+KXNCAAMACC | ACC MEN'S BASKETBALL TOURNAMENT
+KXLEADERUCLGOALS | UCL Top Goalscorer
+KXMLBHIT | Pro Baseball Hits
+KXLPGATOUR | PGA Tour
+KXMLBHRDERBY | Pro Baseball Homerun Derby
+KXNBASERIESSCORE | NBA Series Exact Score
+KXNFLREDZONEADS | NFL Redzone ads
+KXOLDESTCUT | Oldest Player to make the Cut
+KXNFLRSHYDS | Pro Football player Rushing Yards
+KXNBATRADE | NBA Trade
+KXEWCRSS | Rainbow Six at 2025 Esports World Cup
+KXNFLEXACTWINSLA | Pro football exact wins Los Angeles R
+KXCHESSSINQUEFIELD | sinquefield chess winner
+KXLIVR1LEAD | Liv Round 1 Leader
+KXRANKLISTCS2TEAM | HLTV Team of the Year
+KXUABCOACH | UAB Next Coach
+KXUSFCOACH | USF Next Coach
+KXLALIGABTTS | La Liga BTTS
+KXNFLDEPTHPOSITIONCLEQB2 | QB2 CLE
+KXNFLCOACH | NFL Coach of the Year
+KXNEXTEAMTYREEK | Tyreek Hill next team
+KXF1CHINA | F1 team from China
+KXNCAAMBCAA | Coastal Athletic Association Conference Tournament
+KXNBA2NDTEAM | All-NBA 2nd Team
+KXMLBWINS-ATL | Pro baseball wins Atlanta
+KXSORONDO | Rajon Rando Summer Olympics Flag Football
+KXUCLFINALIST | UCL Advance to the Finals
+KXPGAR3LEAD | PGA Round 3 Leader
+KXATPMCO | Movistar Chile Open
+KXMLBWINS-NYM | Pro baseball wins New York M
+KXMLBWINS-NYY | Pro baseball wins New York Y
+KXKNVBCUP | KNVB Cup Winner
+KXNHLANYGOAL | Pro Hockey Goalscorer
+KXNFLEXACTWINSDEN | Pro football exact wins Denver
+KXNBA3QWINNER | NBA 3rd Quarter Winner
+KXNFLDRAFTTEAMPOS | Which team will draft a quarterback in specific round?
+KXCS2QUALIFY | CS2 Qualifier
+KXWBCFLYWEIGHTTITLE | Boxing Flyweight Title
+KXDPWORLDTOURMAKECUT | DP World Tour To Make Cut
+KXAOMENSINGLES | Argentina Open men's singles
+KXNBA2QWINNER | NBA 2nd Quarter Winner
+KXNFLWINS-LAC | Pro football wins Los Angeles C
+KXNCAAMBBIG12 | Big 12 Conference Tournament
+KXNHLCALDER | NHL Calder Memorial Trophy
+KXWCCODWARZONE | Call of Duty: Warzone at 2025 Esports World Cup
+KXCLUBWCGG | Club World Club Group G
+KXIEMCHEN | Who will win the IEM Chengdu 2025
+KXDFBPOKAL | DFB Pokal Winner
+KXUFCDISTANCE | UFC To Go The Distance
+KXT20WORLDCUP | T20 World Cup Winner
+KXTENNISEXHIBITION | Tennis Exhibition Match
+KXWCIRAN | Iran World Cup
+KXNFLCOMBO | NFL COMBO
+KXNBASIXTH | Pro Basketball Sixth Man of the Year
+KXUNITEDCUP | United Cup Champions
+KXLEADERMLBTRIPLES | MLB Triples Leader
+KXNASCARH2H | NASCAR Head-to-Head
+KXATPMAD | ATP Madrid
+KXCALCOACH | California Next Coach
+KXMARMADCONFWIN | March Madness Conference Winner
+KXSBMENTION | SB mention
+KXWBCFEATHERWEIGHTTITLE | Boxing Featherweight Title
+KXNCAAMBTOPAPRANK | College Basketball AP Poll Top Rank
+KXNCAAMBAE | American East Conference Tournament
+KXSERIEATOP4 | Serie A Top 4 Finishers
+KXNEXTNFLCOACH | Next Pro Football Coach
+KXSALMONRUN | Seattle Mariners Salmon Run
+KXEWCSTARCRAFTII | StarCraft II at 2025 Esports World Cup
+KXEWCAPEXLEGENDS | Apex Legends at 2025 Esports World Cup
+KXNBADRAFT1 | NBA Draft First Pick
+KXSTEPHSHOEDEAL | Steph Curry Shoe Deal
+KXLIGAMX | Liga MX Winner
+KXMARMADSEEDSUM | March Madness Sum of Seeds
+KXWBCCRUISERWEIGHTTITLE | Boxing Cruiserweight Title
+KXEWCCS2 | ESPORTS WORLD CUP COUNTER STRIKE 2
+KXNCAAMBMW | Mountain West Conference Tournament
+KXWTAIWO | Indian Wells Open
+KXRANKLISTFFRB | TOP FANTASY FOOTBALL RB
+KXNBADRAFTTOP20 | NBA Draft Top 20 Pick
+KXKYLE100MRUN | Kyle Foregeard 100 Mile Run
+KXNFLWINS-KC | Pro football wins Kansas City
+KXPLAYTOGETHERJBJT | Tatum and Brown Celtics
+KXTEAMSINUCL | Champions League Final Matchup
+KXWOSKIMTN | Winter Olympics Ski Mountaineering
+KXPPL | Pro Padel League
+KXNBADRAFT5 | NBA Draft Fifth Pick
+KXNFLWINS-LV | Pro football wins Las Vegas
+KXSOCCERPLAYCRON | Cristiano Ronaldo world cup
+KXNBADRAFT4 | NBA Draft Fourth Pick
+KXWTAFINALS | WTA Finals Champion
+KXNFL4DCONV | Pro Football 4th Down Conversions
+KXCSGOADVANCE | CSGO Advance
+KXNBADRAFTTOP30 | NBA Draft Top 30 Pick
+KXWO-TOTALMEDALS | Winter Olympic Country Medal Count
+KXMOTOGPTEAMS | Moto GP Teams' World Champion
+KXIPLSIX | IPL Total Sixes
+KXF1POLE | Qualify in Pole Position
+KXLOSEREALMADRID | Real Madrid lose
+KXNCAAMBFIRST50 | College Basketball Race to 50 Points
+KXPFAPOY | PFA Player of The Year
+KXBALLONDORNATION | Ballon d'Or nationality
+KXWCGOALLEADER | World Cup Goal Leader
+KXNEWCOACHLAL | New Lakers coach
+KXCHOVYMVPWF | Will Chovy be the MVP of the Worlds finals
+KXNBASOUTHWEST | NBA Southwest Division Winner
+KXNCAAFBSEC | SEC Champion
+KXNCAAMBNIT | Men's NIT Tournament Champion
+KXBIG10REG | Big Ten Regular Season Champions
+KXGENESISINVITATIONAL | Genesis Invitational Winner?
+KXNFLWINS-LA | Pro football wins Los Angeles R
+KXMCGREGORFIGHTNEXT | McGregor fight next
+KXF1QUALIFY | Formula 1 Qualify
+KXNCAAMBTEAMMOSTPTS | College Basketball Team with the Most Points Scored
+KXMLBLSTREAK | Longest Losing Streak
+KXWOXC | Winter Olympics Cross Country Skiing
+KXWO-LUGE | Winter Olympics Luge
+KXTRINITYRODMANNWSL | Trinity Rodman NWSL
+KXPGAMAKECUT | PGA To Make Cut
+KXNBACUP | Pro Basketball Cup Champion
+KXNEXTTEAMLEBRON | Lebron's Next Team
+KXCLUBWCGC | Club World Club Group C
+KXNBAWINRECORD | OKC NBA Win Record
+KXASIACUPCRICKET | Asia Cup Winner
+KXNASCARAUTOPARTSSERIES | NASCAR Auto Parts Series Champion
+KXNCAAFIVY | Ivy League Champion
+KXLALIGA1H | La Liga First Half Winner
+KXMLBWINS-TEX | Pro baseball wins Texas
+KXWOTW | Wave of the Winter
+KXNEWCASTLEUBADGE | Newcastle United badge
+KXBOXINGROUNDS | Boxing Total Rounds
+KXTABLETENNIS | Table Tennis Match
+KXNBAAST | Pro Basketball Player Assists
+KXNFLWINS-DAL | Pro football wins Dallas
+KXNCAAMBBIG10 | Big 10 Conference Tournament
+KXARGPREMDIVADVANCE | Argentina Primera Division To Advance
+KXNBAPLAYOFFWINS | NBA Playoff Wins by Team
+KXRECORDNFLBEST | best football record
+KXUSOWOMENSINGLES | US Open women's singles
+KXNBADPOY | Pro Basketball Defensive Player of the Year
+KXNCAAWB | Women's March Madness Champion
+KXNCAAMWRESTLING149 | College Wrestling National Champion: 149-Pound Weight Class
+KXSPELLINGBEE | Who will win the SF Inaugural Spelling Bee
+KXNBASPORTSMANSHIP | NBA Sportsmanship Award
+KXWNBA | WNBA Championship
+KXMLBNLROTY | Pro Baseball National League Rookie of the Year
+KXTHEOPEN | The Open Championship
+KXNFLDRAFTOL | Pro Football Offensive Line Drafted 
+KXNFLSACKRECORD | NFL Regular Season Sack Record
+KXNFLDRAFTQB | Pro Football Quarterback Drafted
+KXNCAABBIGEAST | Big East Men's Basketball Tournament
+KXMLBDIVWINNER | MLB divisions
+KXSFSPELLINGBEE | SF Inaugural Spelling Bee Winner?
+KXDAYTONA24H | Daytona 24 Hour Race
+KXJOINCLUB | Soccer Join Club
+KXNFL1QWINNER | Pro Football 1st Quarter Winner
+KXNCAAMSEC | SEC MEN'S BASKETBALL TOURNAMENT
+KXWO-SKIJUMP | Winter Olympics Ski Jump
+KXRANKLISTFFTE | TOP FANTASY FOOTBALL TE
+KXNFLSAFETY | Pro Football Safeties
+KXNBAPTSLEADER | NBA Points Leader
+KXEPLANYGOAL | EPL Anytime Goalscorer
+KXWNBADRAFT1 | WNBA Draft 1st Pick
+KXATPEXACTSETS | testing
+KXMLBWINS-TB | Pro baseball wins Tampa Bay
+KXNEXTTEAMGIANNIS | Giannis next team
+KXNEWCOACHNE | New England Patriots new coach
+KXWOSSKATE | Winter Olympics Speed Skating
+KXWOBOB | Winter Olympics Bobsled
+KXMLBEOTY | Pro Baseball Executive of the Year
+KXNCAAMBAMER | American Conference Tournament
+KXNFLDRAFTDB | Pro Football Defensive Back Drafted
+KXSERIEARELEGATION | Serie A Relegation
+KXWO-SSKATE | Winter Olympics Speed Skating
+KXTENNCOACH | Tennessee Pro Football Team Next Coach
+KXNBA3D | Pro Basketball Triple Double
+KXF1RETIRE | F1 Retire
+KXMLBWINS-ATH | Pro baseball wins A's
+KXPGACAT | PGA Golf Category Leader
+KXKBO | KBO Champion
+KXNCAAFB12 | Big 12 Champion
+KXEPLTOP6 | Top 6 Finishers
+KXDAVISCUP | Davis Cup Champions
+KXIPLFIRST15 | IPL First 15 Overs Winner
+KXEFLPROMO | EFL Promotion
+KXLOLMAP | League of Legends Map Winner
+KXWO-SKIMTN | Winter Olympics Ski Mountaineering
+KXSPORTSIGNPEREZ | Perez
+KXDONATEMRBEAST | WILL MR BEAST DONATE
+KXNCAAMBMAMER | Mid-American Conference Tournament
+KXMLBPLAYOFFS | Pro Baseball Playoff Qualifiers
+KXNFLSBMVPPOS | Pro Football Championship MVP Position
+KXNFLWINS-ARI | Pro football wins Arizona
+KXNFLWINS-SEA | Pro football wins Seattle
+KXUEFASUPERCUP | UEFA Super Cup Winner
+KXUCLGOAL | UCL Goalscorer
+KXWNBADELAY | WNBA Season Delay
+KXNBAPREPACK2ML | 2 ML Basketball Combo
+KXMLBALEAST | American League East Winner
+KXNFLCONTRACTSIZE | Pro Football Next Contract Size
+KXF1TOPCONSTRUCTOR | F1 Top Constructor
+KXMLBRBI | Pro Baseball RBIs
+KXNBADRAFTTOP25 | NBA Draft Top 25 Pick
+KXIPLFOUR | IPL Total Fours
+KXCOACHOUTNFLFIRST | First NFL Coach Out
+KXNFLPROBOWLWIN | Pro Football Pro Bowl Game
+KXNBADRAFTCONF | Pro Basketball Players Drafted by Conference
+KXNHLNORRIS | NHL James Norris Memorial Trophy
+KXBOXING | Boxing Match Champion
+KXNFLTRADE | NFL Trade
+KXITASUPERCUPADVANCE | Italy Super Cup Winner
+KXNEXTTEAMSKUBAL | Tarik Skubal Next Team
+KXPGAREGION | PGA Region Winner
+KXLEADERNFLRUSHYDS | NFL leader rushing yards
+KXLOSEBARCA | Barcelona lose
+KXWOBIATH | Winter Olympics Biathalon
+KXNFLSBMVPDEF | Defensive Player Championship MVP
+KXNCAAMBMOP | Men's College Basketball Most Outstanding Player
+KXJOINNEYMARMIAMI | Inter Miami Neymar
+KXNFLNOSCOREQ | Pro Football Scoreless Quarter
+KXWO-MEDALS | Winter Olympics Most Medals
+KXF1SPRINTFASTLAP | F1 Sprint Race Fastest Lap
+KXVALPL | Valorant Predator League
+KXCS2 | CS2 Tournament Winner
+KXMLBKS | Pro Baseball Strikeouts
+KXNCAABACC | ACC Men's Basketball Tournament
+KXNCAALAXFINAL | College Lacrosse National Championship
+KXNHLMETROPOLITAN | NHL Metropolitan Division Winner
+KXFFQBALLENMAHOMES | allen v mahomes
+KXVALPLPHIL | Valorant Predator League Phillippines
+KXFANATICSWINNER | Fanatics winner type
+KXZYWOOMVP | Will ZywOo be the MVP at the Budapest Major
+KXTEAMSINNBAEF | Teams in NBA Eastern Conference Finals
+KXMLBSTATCOUNT | Pro Baseball Season Stat
+KXACQUIRELADSKENES | Los Angeles D acquire Paul Skenes
+KXBRASILEIROTOP | Brasileiro Serie A
+KXT20FIRST10 | T20 First 10 Overs Winner
+KXEGYPL | Egyptian Premier League 
+KXMARMADCONF | March Madness Conference
+KXVALPLIND | Valorant Predator League Indonesia
+KXNCAAF1HWINNER | College Football 1st Half Winner
+KXBIG12REG | Big 12 Regular Season Champions
+KXMARMADSEED | March Madness Winner Seed
+KXUNTCOACH | North Texas Next Coach
+KXNEWCOACHUNC | University of North Carolina new coach
+KXWINSTREAKOKC | OKC Win Streak
+KXLEADERNFLSACKS | NFL Sacks Leader
+KXCS2IEMCOLOGNE | CS2: IEM Cologne
+KXLEADERMLBSTEALS | MLB Steals Leader
+KXJOINRONALDO | Cristiano Ronaldo
+KXATPDOUBLES | ATP Doubles Tennis Match
+KXCS2QUALIFIERS | CS2 Qualifier
+KXNCAANIT | NIT Champion
+KXSPORTSIGNAHOR | Al Horford
+KXNFLDPOTY | AP Pro Football Defensive Player Of The Year
+KXNCAAMBSLC | Southland Conference Tournament
+KXLAMINEYAMAL | Lamine Yamal
+KXQEMOMENSSINGLES | Qatar ExxonMobil Open
+KXSINQUEFIELDCHESS | CHESS SINQUEFIELD
+KXNCAAHOCKEY | College Hockey National Champion
+KXMADMEN | Men's Madrid Open Winner
+KXMOWOMEN | Miami Open Winner (Women's)
+KXUSOMENSINGLES | US Open men's singles
+KXPGATOUR | PGA Tour
+KXCOACHOUTMLB | Baseball Managers Out
+KXROWING | Rowing race winner
+KXGOLFTENNISMAJORS | More Major Wins, Tennis vs Golf
+KXACCREG | ACC Regular Season Champions
+KXLEADERMLBDOUBLES | MLB Doubles Leader
+KXCOACHOUTDALWINGS | Chris Koclanes out
+KXUEL16TWEVIK | Europa League round of 16 - TWE VIK
+KXMLBPLAYEROTW | Pro Baseball Player of the Week
+KXNBATEAM | NBA team
+KXBELGIANPL | Belgian Pro League Champion
+KXUFASEMI | Ultimate Frisbee Association Championship Qualifiers
+KXLEADERNFLINT | NFL leader interceptions
+KXALPHAARENAAWARE | Situational Awareness
+KXNFLEXACTWINSMIN | Pro football exact wins Minnesota
+KXNBACELEBRITY3PT | NBA Celebrity 3PT Contest
+KXPGATIGER | Tiger Woods PGA
+KXBRAD100MRUN | Brad Kraut 100 Mile Challenge
+KXUCLTOP | UCL League Phase Top of Table
+KXNFLWINS-ATL | Pro football wins Atlanta
+KXNCAAMBIVY | Ivy League Conference Tournament
+KXDOTA2 | Dota 2 Tournament Winner
+KXMLBWINS-CWS | Pro baseball wins Chicago W
+KXT20FIRST15 | T20 First 15 Overs Winner
+KXNFLWINS-PHI | Pro football wins Philadelphia
+KXARGPREMDIV | Argentina Primera Division Game
+KXMLBWINS-LAD | Pro baseball wins Los Angeles D
+KXNFL3QWINNER | Pro Football 3rd Quarter Winner
+KXPSL | Pakistan Super League (PSL) Winner
+KXWOMHOCKEYFIRSTGOAL | Winter Olympics Hockey First Goal
+KXFIFAUSPULL | FIFA us pull
+KXCALCFO | Will Carlos Alcaraz play in French Open
+KXEWCCHESS | Chess – Esports World Cup winner
+KXUCLCORNERS | UCL Corners
+KXNCAAMBHOR | Horizon League Conference Tournament
+KXINDYCARSERIES | IndyCar Series Champion
+KXROMENSSINGLES | Rio Open
+KXWBCKS | World Baseball Classic Strikeouts
+KXLEAGUEWORLDS | League of Legends Worlds
+KXATHLETEUNRETIRE | Athlete to Come out of Retirement
+KXPGATOP20 | PGA Top 20 Finisher
+KXBATTLEOFSEXES | Battle of the Sexes Tennis Match
+KXNRLCHAMP | National Rugby League Champion
+KXATPGRANDSLAMFIELD | ATP Grand Slam Field Winner
+KXNBANEWCHAMP | NBA First-Time Champion
+KXMARMADHIGHSEED | March Madness Highest Seed to Reach Round
+KXCHLLDP | Chilean Primer Division
+KXMLBWSMVP | Pro Baseball Championship MVP
+KXGOLFH2H | Golf Head-to-Head
+KXOVERWATCH | Overwatch Tournament Winner
+KXIPL | IPL Winner
+KXNCAAMPAC12 | PAC-12 MEN'S BASKETBALL TOURNAMENT
+KXALPHAARENAMONK | AlphaArena Monk
+KXNFLEXACTWINSWAS | Pro football exact wins Washington
+KXNBAEAST1SEED | NBA Eastern Conference 1 Seed
+KXNBADRAFTTOP5 | NBA Draft Top 5 Pick
+KXNFLCOMBINE | NFL Combine
+KXODINVCTFINALS | Odin VCT finals
+KXUFAEAST | Ultimate Frisbee Association East Division Winner
+KXTENNISMAJORDJOKOVIC | Djokovic major
+KXPREMIERLEAGUE | PREMIER LEAGUE
+KXPGAHOLEINONE | PGA Hole in One
+KXNBACLUTCH | Pro Basketball Clutch Player of the Year
+KXCFBDOBRIEN | Davey O'Brien Award
+KXWTADDF | WTA Tour Dubai Duty Free
+KXLEADERMLBHR | MLB Home Runs Leader
+KXEWCFATALFURY | FATAL FURY: City of the Wolves at 2025 Esports World Cup
+KXNFLWINS-JAC | Pro football wins Jacksonville
+KXNWSL | NWSL Champion
+KXMLBWINS-CIN | Pro baseball wins Cincinnati
+KXCLUBWCGF | Club World Club Group F
+KXNFLDRAFT1ST | Make the 1st pick in NFL Draft
+KXWO-HOCKEY | Winter Olympics Hockey
+KXNFLDROTY | AP Pro Football Defensive Rookie of the Year
+KXNFLEXACTWINSLAC | Pro football exact wins Los Angeles C
+KXNCAABBGS | College Baseball Golden Spikes Award
+KXNFLPREPACK3ML | MVE NFL Pre Pack
+KXPHILIPRIVERSNFL | Philips Rivers Play This Year
+KXNFLCPOTY | AP Pro Football Comeback Player of the Year
+KXSECREG | SEC Regular Season Champions
+KXMLBRFI | Pro Baseball Run in First Inning
+KXNFLWINS-DEN | Pro football wins Denver
+KXWCGROUPWIN | World Cup Group Winner
+KX | m
+KXNBA3PTCONTEST | NBA 3-Point Contest Winner
+KXWNBASERIES | Professional Women's Basketball Series
+KXUCLTOP8 | UCL League Phase Top 8 Finishers
+KXNCAAFPREPACK3ML | MVE NCAAF Pre Pack
+KXNCAAFFINALIST | College Football Finalist
+KXCHOVYMVPBP | Will Chovy be the MVP of the Worlds finals
+KXMLBTRADE | Pro Baseball trades
+KXUCL16 | Champions League round of 16
+KXUFASOUTH | Ultimate Frisbee Association South Division Winner
+KXWBCHEAVYWEIGHTTITLE | Boxing Heavyweight Title
+KXNFLLEADERPINT | Pro Football P INT Leader
+KXMLBWINS-BOS | Pro baseball wins Boston
+KXNBATOPPICK | Pro Basketball Draft Lottery Winner
+KXNBAECFQUAL | Pro Basketball Eastern Conference Finals Qualifiers
+KXMLBWINS-SEA | Pro baseball wins Seattle
+KXNFLNFCEAST | National Football Conference East Winner
+KXNCAAFCUSA | Conference USA Champion
+KXMLBHRR | Pro Baseball Hits Runs RBIs
+KXNFLWINS-MIN | Pro football wins Minnesota
+KXUSAF1 | 4th USA F1 race
+KXWCLOCATION | World Cup Game Location
+KXSTARTNOTREDAME | NOTREDAME WEEK 1 QB
+KXWPL | WPL Champion
+KXATPIT | ATP Italian Open
+KXNFL1HWINNER | NFL 1st Half Winner
+KXUCLBOTTOM | UCL League Phase Bottom of Table
+KXLIGUE1TOP4 | Ligue 1 Top 4 Finishers
+KXNCAAFTOPAPRANK | College Football AP Poll Top Rank
+KXNFLOT | Pro Football Overtime
+KXMLBALMVP | Pro Baseball American League MVP
+KXWOMHOCKEY | Winter Olympics Men's Hockey
+KXWINSTREAKHOUMLB10 | Houston winning 10 games
+KXPGAH2H | PGA Head-to-Head Matchups
+KXMENWORLDCUP | Men's World Cup winner
+KXPGAPLAYERCAT | PGA Player Category
+KXLEADERMLBOPS | MLB OPS Leader
+KXNFLEXACTWINSCHI | Pro football exact wins Chicago
+KXMLBWINS-SF | Pro baseball wins San Francisco
+KXNCAAMBWAC | Western Athletic Conference Tournament
+KXPGLBUCH | Who will win the PGL Masters Bucharest 2025
+KXNCAAMWRESTLING125 | College Wrestling National Champion: 125-Pound Weight Class
+KXLALIGA | LA LIGA
+KXNCAAFBACC | ACC Champion
+KXNBADRAFT7 | NBA Draft Seventh Pick
+KXNFLWINS-CHI | Pro football wins Chicago
+KXPGAROUNDSCORE | Golf Round Scores
+KXBALLONDOR | Ballon d'Or
+KXNFLHIRECOACH | NFL hire coach
+KXNCAAFACC | ACC Champion
+KXSTANCOACH | Stanford Next Coach
+KXFIFAADVANCE | Fifa To Advance
+KXTGLCHAMPION | TGL Champion
+KXCITYNBAEXPAND | Cities NBA expand
+KXVENFUTVE | Venezuela Primera Division
+KXNBATOP3 | Pro Basketball Draft Lottery Top 3
+KXLEADERNBABLK | NBA BPG Leader
+KXNBADRAFT9 | NBA Draft Ninth Pick
+KXWSAL | MLB American League champion
+KXNBADRAFTINT | Pro Basketball International Players Drafted
+KXEKSTRAKLASA | Ekstraklasa Champion
+KXTEAMSINNBAF | Teams in NBA Finals
+KXF1RACEPODIUM | F1 Race Podium Finisher
+KXNBAWEST | NBA Western Conference Championship
+KXWOMHOCKEYFGOAL | Winter Olympics Hockey First Goal
+KXNHLHART | NHL Hart Memorial Trophy
+KXALLSTARROSTER | All Star Roster
+KXNFLWINMARGIN | Pro Football Win Margin
+KXWO-XC | Winter Olympics Cross Country Skiing
+KXLOL1STTIMEWIN | LOL First time winner
+KXCHESSGRENKEOPEN | Grenke Chess Open
+KXROSTERT1 | Roster T1
+KXIIHFCHAMP | IIHF World Championship winner
+KXWBCMIDDLEWEIGHTTITLE | Boxing Middleweight Title
+KXUELADVANCE | Europa League Advance
+KXIWMENDOUBLES | Indian Wells Men's Doubles
+KXVALORANT | Valorant Tournament Winner
+KXCOACHOUTNBA | NBA Coach Out
+KXDOTA2MAP | Dota 2 Map Winner
+KXPGARYDERTOP | Ryder Cup Top Points Scorer
+KXNBASERIES | Professional Basketball Series
+KXALMVP | NL MVP
+KXNCAAMBSGP | College Basketball Same Game Parlay
+KXMLBALRELOTY | Pro Baseball American League Reliever of the Year
+KXMLBWINS-BAL | Pro baseball wins Baltimore
+KXLIVTOP5 | Liv Top 5 Finisher
+KXCHAMPTOUR | PGA Champions Tour
+KXMLBWINS-AZ | Pro baseball wins Arizona
+KXNCAAMBACHAMP | College Baseball Championship
+KXUFAWEST | Ultimate Frisbee Association East Division Winner
+KXNCAAMBSEC | SEC Conference Tournament
+KXEWCHONOROFKINGS | Honor of Kings World Cup at 2025 Esports World Cup
+KXNBASOUTHEAST | NBA Southeast Division Winner
+KXUCL1H | Champions League First Hal Winner
+KXT20FOUR | T20 Total Fours
+KXFIRSTPICKNBA | NBA first pick
+KXNBAROOKIE1STTEAM | NBA All-Rookie 1st Team
+KXDPWORLDTOUR | DP World Tour Tournament Winner
+KXNFLWINS-NO | Pro football wins New Orleans
+KXNFLNONQBPASS | Pro Football Non-QB Passes
+KXMLB | World Series
+KXUEL16BOGTWE | Europa League round of 16 -  BOG TWE
+KXMLBSERIES | Professional Baseball Series
+KXAFCON | AFCON Champion
+KXCARDPRESENCEUFCWH | UFC White House event
+KXNHLVEZINA | NHL Vezina Trophy
+KXF1FASTLAP | F1 Fastest Lap
+KXNBALOTTERYODDS | NBA Lottery Winner Odds
+KXNASCARTOP20 | NASCAR Top 20 Finishers
+KXNCAAWBUNDEFEATED | Undefeated in Women's College Basketball Regular Season
+KXLIVTOUR | LIV Tour
+KXMLBAWARDCOMBO | Pro Baseball Award Combo
+KXPGAHOLESCORE | PGA Hole Score
+KXNBASERIESROADWIN | NBA Series 1st Road Win
+KXNFLDRAFTLB | Pro Football Linebacker Drafted
+KXUNITEDCUPADVANCE | United Cup Advance
+KXNBAMVP | Pro Basketball MVP
+KXNBAATLANTIC | NBA Atlantic Division Winner
+KXEXHIBITIONMEN | Men's Tennis Exhibition Match
+KXUFLXFLCONF | UFL XLF Conference Champion
+KXPGABOGEYFREE | Will Golfer Record a bogey free round
+KXACQUIREMANU | ManU acquire
+KXNFLEXACTWINSTB | Pro football exact wins Tampa Bay
+KXWBCMVP | WBC MVP
+KXNEXTTEAMMICAH | Micah Parsons next team
+KXFANATICSGAMESSECONDPLACE | Who will come in 2nd place at Fanatics Games?
+KXNFLDRAFTCOMPARE | NFL Draft Comparison
+KXMLBNLEAST | National League East Winner
+KXGOLFMAJORS | Golf Majors Won
+KXDEFHEISMAN | Defensive Heisman Candidate
+KXNBAPR | Pro Basketball Points + Rebounds
+KXNFLDRAFTRB | Pro Football Running Back Drafted
+KXLAXTEWAARATON | College Lacrosse Tewaaraton Award
+KXMLBNLHAARON | Pro Baseball American League Hank Aaron
+KXWO-FSKATE | Winter Olympics Figure Skating
+KXNCAABIVY | Ivy League Men's Basketball Tournament
+KXLBJRTEAM | XYZ
+KXWO-NORDIC | Winter Olympics Nordic Combined
+KXKNVBCUPADVANCE | KNVB Cup Advance
+KXWBCGROUP | WBC Pool Winner
+KXTENNISGRANDSLAM | Tennis Grand Slam
+KXPHOENIXOPEN | Phoenix Open
+KXNFLLARGESTLEAD | Pro Football Largest Lead
+KXMANTIS | Mantis time
+KXCLUBWCGB | Club World Club Group B
+KXEWCLEAGUEOFLEGENDS | League of Legends featured at 2025 Esports World Cup
+KXINTERCUPADVANCE | Intercontinental Cup To Advance
+KXWBCF5 | First 5 Winner
+KXLIGAPORTUGAL | Liga Portugal Winner
+KXPGAHOLE | Will the player win the hole matchup
+KXWOALPSKI | Winter Olympics Alpine Skiing
+KXATPSETWINNER | ATP Set Winner
+KXEFLCUP | EFL Cup Winner
+KXREBOOT | Reboot
+KXCOACHOUTMSU | Jonathan Smith Out
+KXNBAPLAYOFF | Pro Basketball Playoff Qualifier
+KXMARMADREGION | March Madness Region Winner
+KXUFCWELTERWEIGHTTITLE | UFC Welterweight Title
+KXNBACENTRAL | NBA Central Division Winner
+KXMLBTB | Pro Baseball Total Bases
+KXWCGROUPQUAL | World Cup Group Qualifiers
+KXAOWOMEN | Australian Open Womens
+KXSOCCERJOIN | Soccer Next Team
+KXWNBADRAFT3 | WNBA Draft 3rd Pick
+KXWNBAGAMESPLAYED | WNBA Games Played in a Season
+KXOKSTCOACH | Oklahoma State Next Coach
+KXNBANORTHWEST | NBA Northwest Division Winner
+KXJOINSALAH | Mo Salah next team
+KXNHLWEST | Western Conference Champion
+KXNCAAFUNDEFEATED | Undefeated in College Football Regular Season
+KXBRAWLSTARS | Brawl Stars Tournament Winner
+KXUFCFEATHERWEIGHTTITLE | UFC Featherweight Title
+KXEVENTTIMES | NFL games times
+KXKFTOUR | Korn Ferry Tour
+KXNFLPASSTDS | Pro Football player Passing Touchdowns
+KXRELOCATIONCHI | Chicago Football Relocation
+KXNFLDRAFTMATCHUP | Pro Football Draft Matchup
+KXF1RACETOPX | F1 Race Top Finishers
+KXSPORTSIGNINSPIRED | Inspired
+KXRANKLISTAPPREALSPORTS | Will 'Real Sports' be a top 10 sports app before Nov 15th, 2025?
+KXAPFDDH | APF Division de Honor
+KXFACUPADVANCE | FA Cup Advance
+KXMLBWSTREAK | Longest Winning Streak
+KXMAKEMARMAD | Make March Madness Tournament
+KXLEADERMLBRBI | MLB RBIs Leader
+KXMLBWINS-CHC | Pro baseball wins Chicago C
+KXSTARTIND | iNDIANAPOLIS WEEK 1 QB
+KXNBAEFINMVP | Pro Basketball Eastern Conference Finals MVP
+KXNFLEXACTWINSGB | Pro football exact wins Green Bay
+KXPGACUTLINE | PGA What Will the Cut Line Be
+KXWMENSINGLES | WIMBLEDON men's singles
+KXUEL16RSOFCM | Europa League round of 16 - RSO FCM
+KXFOPENMENSINGLE | French Open men's singles
+KXCS2MAPWINNER | CS2 Map Winner
+KXNFLWINS-SF | Pro football wins San Francisco
+KXUFCLHEAVYWEIGHTTITLE | UFC Light Heavyweight Title
+KXNBAWINS | Pro basketball wins
+KXNFLOPOTY | AP Pro Football Offensive Player Of The Year
+KXUFCHEAVYWEIGHTTITLE | UFC Heavyweight Title
+KXALPHAARENA | Alpha Arena
+KXRECORDNFLWORST | worst football record
+KXMLBSERIESEXACT | Professional Baseball Series Exact Result
+KXNFLEXACTWINSNE | Pro football exact wins New England
+KXWNBADPOY | WNBA Defensive Player of the Year
+KXNFL4DOWNCONV | Pro Football 4th Down Conversions
+KXPLAYEROPTIONNBA | player option nba
+KXCSGO | CSGO
+KXIWMEN | Indian Wells Men's Singles
+KXSTARTNO | NEW ORLEANS WEEK 1 QB
+KXATPAMT | ATP Tour Abierto Mexican Telcel presentado por HSBC
+KXARODGRETIRE | Aaron Rodgers Retire
+KXSLGREECE | Super League Greece Winner
+KXLEAGUE | League of Legends World Championship
+KXFOPENWMENSINGLE | French Open women's singles
+KXNBARISINGSTARS | Pro Basketball Rising Stars Tournament
+KXO13MENSINGLES | Open 13 (Marseille) Mens' Singles
+KXNCAAMBHL | Horizon League conference tournament winner
+KXNBAPIADVANCE | NBA Play-In Team to Advance
+KXNBAFINALSMVP | Finals MVP
+KXZYWOOMVPBP | Will ZywOo be the MVP at the Budapest Major
+KXNFLLEADCHANGE | Pro Football Lead Changes
+KXNFLMVP | AP Pro Football Regular Season MVP
+KXAFCONADVANCE | AFCON To Advance
+KXSTEPHPARTERNSHIP | Stephen Curry Partnership
+KXNFLPASSYDS | Pro Football player Passing Yards
+KXEXHIBITIONWOMEN | Women's Tennis Exhibition Match
+KXNCAAFMWC | Mountain West Champion
+KXNBAALLSTARS | Pro Basketball All Stars
+KXPGALOWSCORE | PGA Lowest Round Score
+KXIPLFIRST10 | IPL First 10 Overs Winner
+KXEPL1H | Premier League First Half Winner
+KXNFLAFCWEST | American Football Conference West Winner
+KXNBADRAFTCOMP | Pro Basketball Draft Comparison
+KXCOACHOUTNCAAFB | NCAAFB Coaches Out
+KXCSGOMAP | CSGO Map Winner
+KXCHESS | Chess Tournament Winner
+KXNCAABASEBALL | College Baseball Champion
+KXGOLFCAT | a
+KXDJOKOVICRETIRE | Djkovoic
+KXNHLSERIES | NHL Series Winner
+KXPGARYDERCUPD1 | Ryder Cup Day 1 Winner
+KXNBALASVEGAS | Las Vegas NBA team
+KXMASTERSCUT | Masters Cut
+KXMLSCUP | MLS Cup champion
+KXPGAEAGLE | Will player record an eagle in round?
+KXCLUBWCGH | Club World Club Group H
+KXTULNCOACH | Tulane Next Coach
+KXLOLTOTALMAPS | League of Legends Total Maps
+KX4MINMILEW | Women's Sub 4-Minute Mile
+KXNFLPREPACK2ML | MVE NFL Pre Pack
+KXCLUBWCGD | Club World Club Group D
+KXNFLEXACTWINSJAC | Pro football exact wins Jacksonville
+KXNHL4NATIONS | 4 nations face off
+KXNFLDRAFTTEAM | Pro Football Team Draft
+KXEPLRELEGATION | English Premier League Relegation
+KXNCAAMBFIRST25 | College Basketball Race to 25 Points
+KXNFLEXACTWINSTEN | Pro football exact wins Tennessee
+KXCOUPEDEFRANCEADVANCE | Coupe de France To Advance
+KXNCAAMBMVAL | Missouri Valley Conference Tournament
+KXNFLOPOY | NFL Offensive Player of the Year
+KXNFLWINS-NYG | Pro football wins New York G
+KXPGAR1TOP10 | PGA Round 1 Top 10 FInishers
+KXPERLIGA1 | Peru Liga 1
+KXNCAAMB2ML | College Basketball 2-Moneyline Combo
+KXUFCLIGHTWEIGHTTITLE | UFC Lightweight Title
+KXNCAAFWINS | College football wins?
+KXTACAPORTADVANCE | Taca de Portugal To Advance
+KXSTARTNYG | NEW YORK G WEEK 1 QB
+KXBRASILEIROTOPX | Brasileiro Top X
+KXNBA3RDTEAM | All-NBA 3rd Team
+KXNFLDRAFTDT | Pro Football Defensive Tackle Drafted
+KXPGAPLAYOFF | Golf Playoff
+KXNBAFINALSEXACT | Pro Basketball Championship Series Score
+KXWMARMAD | March Tournament (W)
+KXMLBALROTY | Pro Baseball American League Rookie of the Year
+KXNCAAMBSUM | Summit League Conference Tournament
+KXMLBWINS-SD | Pro baseball wins San Diego
+KXEWCRENNSPORT | 2025 Mid-Season Invitational
+KXEUROLEAGUE | EuroLeague Champion
+KXPGARYDER | Ryder Cup
+KXESPSUPERCUPADVANCE | Spain Super Cup Advance
+KXNBAMIMP | Pro Basketball Most Improved Player
+KXPGARYDERCUPD2 | Ryder Cup Day 2 Winner
+KXF1CONSTRUCTORS | Formula 1 Constructors
+KXMLBWINS-WSH | Pro baseball wins Washington
+KXPGAR2TOP5 | PGA Round 2 Top 5 Finishers
+KXSONICS | Blazers become Sonics
+KXUEL16ROMFCP | Europa League round of 16 - ROM FCP
+KXNHLROSS | NHL Art Ross Trophy
+KXWBCHR | World Baseball Classic Homerun
+KXTRANSFERCOUNTRM | Real Madrid transfer count
+KXNCAAMBMEAC | Mid-Eastern Conference Tournament
+KXNFLEXACTWINSCAR | Pro football exact wins Carolina
+KXF1SPRINTTOP5 | F1 Sprint Race Top 5 Finishers
+KXATLCOACH | Next Atlanta Coach
+KXNBA1QWINNER | NBA 1st Quarter Winner
+KXNCAAFCOTY | College Football Coach of the Year
+KXNCAAFMAC | MAC Champion
+KXGRANDSLAM | Grand Slam Wins by Year
+KXMLBWINS-MIA | Pro baseball wins Miami
+KXLEADERNBAPTS | NBA PPG Leader
+KXNFLPROBOWL | Pro Football Pro Bowl
+KXPGAGOLFERSCORE | Golf Round Strokes
+KXATPWDDF | ATP Tour Dubai Duty Free
+KXCOPPAITALIAADVANCE | Coppa Italia To Advance
+KXSB | Super Bowl
+KXNFLMOSTRSHYDS | Pro Football Most Rushing Yards
+KXECULP | Ecuador Liga Pro
+KXJONJONESRETIREMENT | Jon Jones retirement end
+KXSTARTINGQBWEEK1 | NFL Starting QB Week 1
+KXNBAPRA | Pro Basketball Points + Rebounds + Assists
+KXUCLADVANCE | Champions League Advance
+KXJOINDAVID | Jonathan David transfer
+KXNCAAFPAC10 | Pac-10 Champion
+KXUECL | UEFA Conference League Winner
+KXLIVMAKECUT | DONT USE
+KXKLEAGUE | Korea K League Winner
+KXMLBWORLD | World Baseball Classic
+KXNCAAWBMOP | Women's College Basketball Most Outstanding Player
+KXALPHAARENABASE | Alpha Arena Baseline
+KXNHLWINS | NHL wins 
+KXUEFACLTOPGOAL | UEFA CL Top Goal Scorer
+KXNFLPREPACK1HFT | MVE NFL Pre Pack
+KXNBASTL | Pro Basketball Player Steals
+KXNFLEXACTWINSCIN | Pro football exact wins Cincinnati
+KXNBADRAFTTOP | Pro Basketball Top Draft
+KXNEWCOACHCHIBEARS | Chicago Bears new coach
+KXWWOMENSINGLES | Wimbledon women's singles
+KXNCAABBPLAYOFFS | College Baseball Playoff Qualifiers
+KXNFLDPOY | NFL Defensive Player of the Year
+KXLEADERNFLRYDS | NFL leader receiving yards
+KXLIVH2H | LIV Head-to-Head Matchups
+KXLEADERNFLPINT | Pro Football Pass INT 
+KXUFCROUNDS | UFC Total Rounds
+KXLEADERMLBAVG | MLB Batting Average Leader
+KXGUINNESSWRCOUNT | Guinness World Record count
+KXNCAAMBUSA | Conference USA Conference Tournament
+KXUCLRO16 | UCL Advance to Round of 16
+KXNBADRAFT6 | NBA Draft Sixth Pick
+KXWNBADRAFT4 | WNBA Draft 4th Pick
+KXNCAAMWRESTLING184 | College Wrestling National Champion: 184-Pound Weight Class
+KXMLBWINS-COL | Pro baseball wins Colorado
+KXNCAAMBA10 | Atlantic-10 Conference Tournament
+KXMCMEN | ATP Monte-Carlo Winner
+KXBLASTRIVALS2 | BLAST Rivals 2025 Season 2
+KXNBADRAFTCAT | Pro Basketball Draft Category
+KXWOSKIJUMP | Winter Olympics Ski Jump
+KXNEXTTEAMCHRISPAUL | Next Team Chris Paul
+KXPLAYWC | Player World Cup
+KXNCAAFCOTW | College Football Coach of the Week
+KXWO-CURL | Winter Olympics Curling
+KXVCCHAMPIONSPARIS | VALORANT Champions 2025 PARIS
+KXWCCREG | West Coast Conference Regular Season Champions
+KXMLBNLCENT | National League Central Winner
+KXALPHAARENALEV | Max Leverage
+KXLEADERNFLRUSHTDS | NFL leader rushing TDs
+KXNFLNFCNORTH | National Football Conference North Winner
+KXPICKLEBALL | pickleball
+KXWBCWELTERWEIGHTTITLE | Boxing Welterweight Title
+KXNCAAMBOV | Ohio Valley Conference Tournament
+KXNLMOTY | DO NOT USE
+KXNCAAMWRESTLING174 | College Wrestling National Champion: 174-Pound Weight Class
+KXPGACURRY | Steph Curry PGA
+KXVTCOACH | Virginia Tech Next Coach
+KXIPLFINAL | IPL Final
+KXWCMESSIRONALDO | Goal Contributions Messi and Ronaldo
+KXNHLSAVES | Pro Hockey Saves
+KXNHLPLAYOFF | Playoff Qualifier
+KXCOACHOUTOLEMISS | Coach Out Ole Miss
+KXNEXTTEAMTYREEK | Tyreek Hill next team
+KXVALORANTGAMETEAMVSMIBR | TEAM VS. MIBR
+KXMLBBESTRECORD | Pro Baseball Best Record
+KXCHESSWORLDCHAMPION | World Chess Champion
+KXCRYPTOFIGHTNIGHT | Crypto Fight Night
+KXEPLBTTS | EPL Both Teams to Score
+KXSURF | Surfing
+KXNFLWINS-MIA | Pro football wins Miami
+KXNCAAMWRESTLING141 | College Wrestling National Champion: 141-Pound Weight Class
+KXTRUMPGOLF | Trump US gold championship
+KXEWCRAINBOW6SEIGE | Rainbow Six at 2025 Esports World Cup WINNER
+KXNFLWINS-TEN | Pro football wins Tennessee
+KXTOP3NBADRAFT | NBA Draft Top 3
+KXNBA2NDTEAMDEF | All-NBA Defensive 2nd Team
+KXNEXTMANAGERCHELSEA | Next Manager Chelsea
+KXFANATICSGAMESTHIRDPLACE | Who will come in 3rd place at Fanatics Games?
+KXMADWOMEN | Madrid Open Winner (Women's)
+KXNCAABBIG10 | Big Ten Men's Basketball Tournament
+KXNFLWINS-WAS | Pro football wins Washington
+KXF1TOP10 | F1 Top 10 Finishers
+KXWNBAMVP | Pro Women's Basketball MVP
+KXNHLNEXTGM | Next NHL GM
+KXNBAPLAYOFFPTS | NBA Playoffs Player Points
+KXUCL16RMAMCI | Champions League round of 16 - RMA MCI
+KXWORLDSMVP | Worlds MVP?
+KXNEXTMANAGERMIL | Next Manager of AC Milan
+KXNFLSBMVPQB | Non QB Championship MVP
+KXF1OCCUR | Formula 1 Event Occurrence
+KXLIGUE1RELEGATION | Ligue 1 Relegation
+KXPGAR3TOP5 | PGA Round 3 Top 5 Finishers
+KXWOSKEL | Winter Olympics Skeleton
+KXNCAAMBAPRANK | College Basketball AP Poll
+KXSIXNATIONS | Six Nations Champion
+KXWBCGROUPQUAL | WBC Pool Qualifiers
+KXPGA | PGA Championship
+KXTEAMSINSB | Teams in Super Bowl
+KXFOODCONSUMEDSOURAJI | X
+KXNCAAFPREPACKSGP | MVE NCAAF Pre Pack
+KXFIDECHESSCHAMPION | FIDE Chess Championship
+KXNFLEXACTWINSPIT | Pro football exact wins Pittsburgh
+KXPGLMASTERSBUCHAREST | Who will win the PGL Masters Bucharest 2025
+KXNBASWEEP | NBA Teams to Have a Series Sweep
+KXNFLDRAFTEAMPOS | Will team draft a position across round
+KXEWCEASPORTSFC | EA SPORTS FC 25 at 2025 Esports World Cup WINNER
+KXNFLPREPACK1Q1H | MVE NFL Pre Pack
+KXNCAAMBBWEST | Big West Conference Tournament
+KXRECORDNBABEST | Best Pro Basketball Record
+KXWO-GOLD | Winter Olympics Most Gold Medals
+KXAFC | AFC Championship
+KXPGAR3TOP10 | PGA Round 3 Top 10 Finishers
+KXNHLPLAYOFFGOALS | NHL Playoffs Goal Leader (by Round)
+KXNFLOROTY | AP Pro Football Offensive Rookie of the Year
+KXSAILGP | SailGP Championship
+KXBOUNTY2025S2 | Bounty 2025 Season 2
+KXRANKLISTFFK | TOP FANTASY FOOTBALL K
+KXCFBCOTY | College Football Coach of the Year
+KXCANADACUP | Canada winning Stanley Cup
+KXVALORANTMASTERSFINALS | Who will win the VALORANT Masters Finals
+KXNHLATLANTIC | NHL Atlantic Division Winner
+KXLEADERMLBRUNS | MLB Runs Leader
+KXTOURDEFRANCE | Tour de France winner
+KXUFCMIDDLEWEIGHTTITLE | UFC Middleweight Title
+KXNBAPREPACK3ML | 3ML Basketball Combo
+KXTRADEOFFNBA | Pro basketball trades offseason
+KXNFLASSCOACH | NFL Assistant Coach of the Year
+KXNHLEAST | Eastern Conference Championship
+KXSUPERLIG | Turkish Super Lig Champion
+KXNFLFIRSTTDTIME | Pro Football First Touchdown Time
+KXTEAMSINNBAWF | Teams in NBA Western Conference Finals
+KXTORONTOULTRACHAMPIONSHIP | Dota 2 at 2025 Esports World Cup
+KXNCAAMBBSOU | Big South Conference Tournament
+KXNBASEATTLE | Seattle NBA team
+KXNFLNFCSOUTH | National Football Conference South Winner
+KXNBAFINALSVIEWERGAME7 | NBA finals viewership
+KXWO-BIATH | Winter Olympics Biathalon
+KXNCAAFBB12 | Big 12 Champion
+KXLIVTOP10 | Liv Top 10 Finisher
+KXNFLWINS-BUF | Pro football wins Buffalo
+KXEWCMOBILELEGENDSBBWOMENS | Mobile Legends: Bang Bang Women's Invitational at 2025 Esports World Cup
+KXATPIWO | Indian Wells Open
+KXLALIGARELEGATION | La Liga Relegation
+KXNBAPLAYIN | Which Team Will Make the Play-In Tournament
+KXMARMAD | College Basketball Champion
+KXWO-BOB | Winter Olympics Bobsled
+KXWO-BRONZE | Winter Olympics Most Bronze Medals
+KXWTAGRANDSLAM | WTA Grand Slam
+KXNHLMVP | NHL Hart Memorial Trophy Winner
+KXNBAFINMVP | Pro Basketball Finals MVP
+KXNEWCOACHDAL | Dallas Cowboys new coach
+KXWNBARAISE | WNBA raise
+KXRYDERCUP | Ryder Cup 
+KXCONNCOACH | UConn Next Coach
+KXPUBGGC | PUBG Global Championship 2025
+KXSERIEA | Serie A 
+KXMARMAD1SEED | March Madness 1 Seeds
+KXMLBNLCPOTY | National League Comeback Player of the Year
+KXPGASOLHEIM | Solheim Cup
+KXNCAAMBFIRST10 | College Basketball Race to 10 Points
+KXAFRICAF1 | Africa F1 grand prix
+KXNFLCOMEBACK | Pro Football Comeback
+KXNFLDROY | NFL Defensive Rookie of the Year
+KXPGABIRDIES | PGA Golf Birdies
+KXWOSBOARD | Winter Olympics Snowboarding
+KXFOWOMENSINGLES | French Open women's singles
+KXJOINLEAGUE | Soccer Join League
+KXMLBWS | MLB World Series
+KXPGATOP40 | PGA Top 40 Finisher
+KXNFLDRAFT1 | NFL Draft First Pick
+KXMLBWINS-MIN | Pro baseball wins Minnesota
+KXDDFMENSINGLES | Dubai Duty Free Tennis Championships
+KXMLBWINS-MIL | Pro baseball wins Milwaukee
+KXNFLEXACTWINSIND | Pro football exact wins Indianapolis
+KXNBAGAME7 | NBA Series that Go to a Game 7
+KXMARMAD3D | Men's March Madness Triple Double
+KXNEWCOACHJAX | JACKSONVILLE JAGUARS new coach
+KXGOLFMAJOR | How many majors will golfer win in a year?
+KXUEL16FCSBPAOK | Europa League round of 16 - FCSB PAOK
+KXUEL16GALAZA | Europa League round of 16 - GAL AZA
+KXNFLEXACTWINSCLE | Pro football exact wins Cleveland
+KXMARATHON | Marathon Winner
+KXNHLGOAL | Pro Hockey Goalscorer
+KXINDY500 | Indy 500 Winner
+KXMLBSS | Pro Baseball Silver Slugger
+KXFACUP | FA cup
+KXWNBADRAFTTOP5 | WNBA Draft Top 5
+KXLEADERMLBHITS | MLB Hits Leader
+KXNFL1YDPASS | Seattle 1 Yard Pass
+KXNBARA | Pro Basketball Rebounds + Assists
+KXPGATOP5 | PGA Top 5 Finisher
+KXWSOPENTRANTS | How many Entrants in a WSOP Main Event
+KXMLSJOIN | MLS Transfers
+KXPGARETURN | PGA Returning Players
+KXACQUIREBARCA | Barcelona acquire
+KXDWCS79 | DWCS 79
+KXUCLRO8 | UCL Advance to Round of 8
+KXWTAIT | WTA Italian Open
+KXNFLDRAFTTOP | Pro Football Top Draft
+KXNFLEXACTWINSPHI | Pro football exact wins Philadephia
+KXSPORTSOWNERLBJ | LBJ owning team
+KXNBA | NBA Championship
+KXNBASHOOTINGSTARS | Pro Basketball Shooting Stars Contest
+KXUSL | USL Championship
+KXNFLEXACTWINSHOU | Pro football exact wins Houston
+KXNFLLARGELEAD | Pro Football Largest Lead
+KXWNBADRAFT5 | WNBA Draft 5th Pick
+KXPGAWINMARGIN | PGA Win Margin
+KXNCAAFPLAYOFF | College Football Playoff Qualifiers
+KXNBADRAFT3 | NBA Draft Third Pick
+KXCCARCOACH | Coastal Carolina Next Coach
+KXNBAMATCHUP | Pro Basketball Who Will Team Match Up With
+KXNEXTNBACOACH | Who is the Next NBA Coach of Team
+KXWBCBANTAMWEIGHTTITLE | Boxing Bantamweight Title
+KXUCL16PSGSTB | Champions League round of 16 - PSG STB
+KXNHLCENTRAL | NHL Central Division Winner
+KXVALORANTMAP | Valorant Map Winner
+KXPREMDARTS | Premier League Darts Champion
+KXUFCMOF | UFC Method of Finish
+KXUFC | UFC Weightclass Champion
+KXCOPADELREYADVANCE | Copa Del Rey To Advance
+KXWNBAWEST | Women's Pro Basketball Western Conference Champion
+KXWNBA40PTS | Women's Pro Basketball Player to Score 40 Points
+KXNHLDRAFTPICK | Pro Hockey Draft Pick
+KXCLUBCHANGEMBAPPE | Club Change Mbappe
+KXKBORFI | KBO First Inning Run
+KXEPLSOA | EPL Score or Assist
+KXNBADRAFTOU | Pro Basketball Players Draft Position
+KXUECLBTTS | Conference League BTTS
+KXUCLSOT | UCL Shots or Target
+KXWNBADUNK | Women's Pro Basketball Player to Dunk
+KXLIVCOMPETE | Golfers to Compete in a LIV Event
+KXUCLSHOT | UCL Shots
+KXWNBAAST | Women's Pro Basketball Player Assists
+KXEPLCORNERS | EPL Corners
+KXUCLTEAMSOT | UCL Team Shots on Target
+KXMLBEXTRAS | MLB Extra Innings
+KXWCCONTINENT | World Cup Continent
+KXUCLTEAMSHOT | UCL Team Shots
+KXCHESSGRANDTOUR | Grand Chess Tour
+KXNCAAMBWINS | College Basketball Win Totals
+KXINDYCARTOP3 | IndyCar Top 3 Finishers
+KXWCHOSTKO | World Cup All Host Nations to Reach Knockout Round
+KXEPLTCORNERS | EPL Team Corners
+KXPGAWIN | Golfer to Win
+KXWNBAEAST | Women's Pro Basketball Eastern Conference Champion
+KXNBARETIRE | NBA Retirement
+KXCHESSOLYMPIADUSA | USA Team for Chess Olympiad
+KXSUMOWIN | Sumo Tournament Winner
+KXMLBDRAFTPICK | Pro Baseball Draft Pick
+KXWNBAMIMP | WNBA Most Improved Player of the Year
+KXWNBA1HWINNER | Women's Pro Basketball 1st Half Winner
+KXLIGAMXADVANCE | Liga MX Advance
+KXATPMEN | Mens ATP Tournament Winner
+KXATP | Men's Tournament Winner
+KXUCLSOA | UCL Score or Assist
+KXNBADRAFTMATCHUP | Pro Basketball Draft Matchup
+KXCHESSFIDERATINGTOP | Fide Chess Rating Top Ranked Players
+KXWNBA3PT | Women's Pro Basketball Player Threes
+KXOWGRRANK | Will Player be ranked Top 10 on OWGR rankings
+KXWCSTAGEOFELIM | World Cup Stage of Elimination
+KXWCSTAGE | World Cup Furthest Stage Advanced
+KXPAVIAPRESEASON | Pavia Preseason
+KXUEL1H | Europa League 1st Half
+KXWNBAEAST1 | Women's Pro Basketball Eastern Conference #1 Seed
+KXNBA30COMEBACK | NBA 3-0 Series Comeback
+KXCHESSOLYMPIAD | Chess Olympiad Winner
+KXNCAAMLAXF4 | College Lacrosse Final Four Qualifiers
+KXNFLSEASONPASSYDS | Pro Football Season Passing Yards
+KXBUNDESLIGA1HBTTS | 1st Half BTTS
+KXIPLPLAYOFF | IPL Cricket Playoff Qualifiers
+KXNBADRAFTTEAM | Pro Basketball Team to Draft
+KXWNBACCUPMVP | WNBA Commissioner's Cup MVP
+KXSUPDRAFTPICK | Will player announce that he will enter Supplemental Draft
+KXCHESSPOLAND | Grand Chess Tour: Super Rapid & Blitz Poland
+KXWCGROUPGOALS | Group Stage Goals
+KXNHL30COMEBACK | NHL 3-0 Series Comeback
+KXMLBDRAFTTOP | Pro Baseball Top Pick
+KXEPL1HBTTS | EPL 1st Half BTTS
+KXRMALEAVE | Leave Real Madrid
+KXWNBAROOKAS | Women's Pro Basketball Rookie to be an All-Star
+KXLIGUE11HBTTS | 1st Half BTTS
+KXNFLSEASONRUSHYDS | Pro Football Season Rushing Yards
+KXWT20WORLDCUP | Women's T20 World Cup Winner
+KXWNBA6POY | WNBA Sixth Player of the Year
+KXNFLSEASONRECYDS | Pro Football Season Receiving Yards
+KXSOCCERLEAVE | Soccer Leave Role
+KXCODTOTALMAPS | COD Maps
+KXMLBDEBUT | Pro Baseball Debut
+KXLALIGA1HBTTS | 1st Half BTTS
+KXWC1STTIMEWIN | World Cup First Time Winner
+KXNFLSDRAFTTOP | Will player be drafted Top X in Supplemental Draft
+KXCLIMBING | Climbing Winner
+KXLEADERWNBAREB | WNBA RPG Leader
+KXIIHF | Who will win IIHF championship?
+KXMLBRETURN | Pro Baseball Player Return
+KXUCLMOV | UCL Method of Advancing
+KXF1SPRINTTOPCONSTRUCTOR | F1 Sprint Race Top Constructor
+KXPLL | PLL Champion
+KXPRESCUP | President's Cup
+KXLEADERWNBA3PT | WNBA Total 3-Pointers Made Leader
+KXCYCLING | Cycling Race Winner
+KXATPRETURN | ATP Player to Return by Date
+KXWNBAFINALSMVP | WNBA Finals MVP
+KXUCL1HBTTS | UCL Half BTTS
+KXCHESSFIDERATING | Chess Fide Rating (by Month)
+KXSINNERFINISH | Jannik Sinner to Complete Tennis
+KXWNBA1SEED | Women's Pro Basketball #1 Seed
+KXCOACHONDATE | coach on date
+KXLEADERWNBAPTS | WNBA PPG Leader
+KXITTFWOMEN | ITTF Women Tournament Champion
+KXNASCARPOLE | NASCAR Pole Position
+KXWTASETWINNER | WTA Set Winner
+KXWNBAREB | Women's Pro Basketball Player Rebounds
+KXWMARMAD1SEED | Women's March Madness 1 Seeds
+KXWNBAWINS | WNBA Win Totals
+KXNBALOTTERY | NBA Draft Lottery Picks
+KXWCHOSTSTAGE | World Cup Farthest Stage Advanced to by a Host Nation
+KXNFLLASTPICKPOS | NFL Last Pick of the Draft Position
+KXOW | Overwatch Tournament Champion
+KXF1SPRINTTOP10 | F1 Sprint Race Top 10 Finishers
+KXNFLSUPDRAFTPICK | Will Player declare for supplemental draft
+KXUECL1H | Conference League 1H
+KXNBAUNBEATEN | NBA Playoffs Team to go Undefeated
+KXARGPREMDIVBTTS | Argentina Premier Division BTTS
+KXWNBAWORSTREC | Women's Pro Basketball Worst Record
+KXATPSETSWEEP | Winner without dropping a set
+KXWNBAPTS | Women's Pro Basketball Player Points
+KXCOACHOUTNBADATE | NBA Coach Out Date
+KXNFLPROOTY | Pro Football Protector of the Year
+KXRANKLISTIBD | IBD League Tables
+KXLEADERWNBAAST | WNBA APG Leader
+KXINDYCARTOP10 | IndyCar Top 10 Finishers
+KXWTA | Women's Tournament Winner
+KXROCKETLEAGUE | Rocket League Tournament Winner
+KXWCBESTHOST | World Cup Best Performing Host Nation
+KXITTFMEN | ITTF Men Tournament Winner
+KXWCAWARD | World Cup Award
+KXUCLAST | UCL Assists
+KXPGAC | Golfers to Participate in the PGA championship
+KXF1DELAY | F1 Delay
+KXWNBA2HWINNER | Women's Pro Basketball 2nd Half Winner
+KXWNBA2H | Women's Pro Basketball 2nd Half Winner
+KXMLBCOACH | Pro Baseball Next Manager
+KXIPLFINALS | IPL Final Qualifiers
+KXWNBAWEST1 | Women's Pro Basketball Western Conference #1 Seed
+KXNFLSEASONRSHYDS | Pro Football Season Rushing Yards
+KXUELBTTS | Europa League BTTS
+KXF1SPRINTPOLE | F1 Sprint Qualifying Pole Position
+KXSERIEA1HBTTS | 1st Half BTTS
+KXNASCARTOPTEAM | NASCAR Top Team
+KXNHLOVERTIME | NHL Overtime
+KXRMAPLAYTOGETHER | Real Madrid Play Together
+KXMLR | Major League Rugby Champion
+KXEFLCHAMPIONSHIPADVANCE | EFL Championship Advance
+KXWNBA1H | Women's Pro Basketball 1st Half Winner
+KXWNBACCUP | WNBA Commissioner's Cup Winner
+KXBALLERLEAGUE | Baller League
+KXUCLSAVE | UCL Goalkeeper Saves
+KXNFLEXECOTY | Pro Football Executive of the Year
+KXWCGROUPWINNER | World Cup Group to Win
+KXNEXTMANAGERMLB | Next Manager
+KXOTDBASKETBALL | Off The Dribble Basketball
+KXCYCLINGTEAM | Cycling Team Winner
+KXNBAAPOLOGY | Pro Basketball Apology
