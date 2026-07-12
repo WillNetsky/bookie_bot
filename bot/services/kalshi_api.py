@@ -1000,6 +1000,11 @@ class KalshiAPI:
             "series_ticker": series_ticker,
             "title": m.get("title"),
             "subtitle": m.get("subtitle"),
+            # Parent event's human-written title/sub_title (e.g. "Toronto vs
+            # San Diego" / "TOR vs SD (Jul 12)"). Only present on markets
+            # ingested via /events; the authoritative game label.
+            "event_title": m.get("event_title"),
+            "event_sub_title": m.get("event_sub_title"),
             "yes_sub_title": m.get("yes_sub_title"),
             "yes_ask_dollars": m.get("yes_ask_dollars"),
             "yes_bid_dollars": m.get("yes_bid_dollars"),
@@ -1223,12 +1228,18 @@ class KalshiAPI:
                         st = et.split("-")[0] if "-" in et else et
                     if st not in sports_series:
                         continue
+                    event_title = event.get("title")
+                    event_sub_title = event.get("sub_title")
                     for m in event.get("markets") or []:
                         if not (_is_market_active(m) and _is_market_bettable(m)):
                             continue
                         # /events sometimes omits series_ticker on nested markets — backfill
                         if not m.get("series_ticker"):
                             m["series_ticker"] = st
+                        # Carry the parent event's title down to each market —
+                        # it's the cleanest available label for the game.
+                        m["event_title"] = event_title
+                        m["event_sub_title"] = event_sub_title
                         all_markets.append(self._prune_market(m))
 
                 page_cursor = page_data.get("cursor")

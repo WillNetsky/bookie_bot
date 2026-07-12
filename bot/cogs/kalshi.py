@@ -987,7 +987,10 @@ def _group_markets_by_game(markets: list[dict]) -> list[dict]:
     deduped: list[dict] = []
     for g in game_groups:
         sorted_ms = sorted(g["markets"], key=lambda m: _earliest_market_time(m) or "9999")
-        if g["teams"]:
+        event_label = _label_from_event_title(sorted_ms)
+        if event_label:
+            norm = event_label.lower()
+        elif g["teams"]:
             norm = "@".join(sorted(g["teams"]))
         else:
             norm = _best_game_label(sorted_ms).lower()
@@ -1072,18 +1075,53 @@ def _extract_matchup(title: str) -> str | None:
     return None
 
 
+def _label_from_event_title(markets: list[dict]) -> str | None:
+    """Label a game from Kalshi's event-level title, when ingestion preserved it.
+
+    The /events endpoint gives each event a human-written title that IS the
+    matchup (e.g. "Toronto vs San Diego", "McGregor vs. Holloway 2") — far more
+    reliable than reconstructing team names from market titles. Moneyline
+    markets' event titles are bare matchups, so prefer those; derivative
+    series suffix the matchup ("Toronto vs San Diego: Total Runs"), which we
+    strip only when the part before the colon is itself a matchup (so titles
+    like "329: Saint-Denis vs Pimblett" survive intact).
+    """
+    candidates = [m for m in markets if _is_moneyline_market(m) and (m.get("event_title") or "").strip()]
+    if not candidates:
+        candidates = [m for m in markets if (m.get("event_title") or "").strip()]
+    if not candidates:
+        return None
+    title = min((m["event_title"].strip() for m in candidates), key=len)
+    if ":" in title:
+        head = title.rsplit(":", 1)[0].strip()
+        if re.search(r'\s(?:vs\.?|at|@)\s', head, re.IGNORECASE):
+            title = head
+    # Only trust titles that read as a matchup — legacy day-level events
+    # (e.g. KXMLBGAME-26MAR28) bundle several games under one generic event
+    # title, and outright events ("Belgian Grand Prix Winner?") aren't games.
+    if not re.search(r'\s(?:vs\.?|at|@)\s', title, re.IGNORECASE):
+        return None
+    return title
+
+
 def _best_game_label(markets: list[dict]) -> str:
     """Build the cleanest possible game label from a group of related markets.
 
     Strategy (in order):
-    0. If any moneyline markets exist, label from them — team names from
-       yes_sub_title, or a bare matchup extracted from the moneyline title.
+    0. Use the event-level title from Kalshi's /events response if ingestion
+       preserved it — it's the authoritative matchup name.
+       Otherwise, if any moneyline markets exist, label from them — team names
+       from yes_sub_title, or a bare matchup extracted from the moneyline title.
        Prop/threshold markets often share the same group but have misleading
        titles ("Total Runs?").
     1. Use yes_sub_title values as team names (most reliable — e.g. "JD Gaming", "BLG")
     2. Extract the "X vs. Y" portion out of verbose market titles
     3. Fall back to the shortest title, stripped of leading map/set qualifiers
     """
+    event_label = _label_from_event_title(markets)
+    if event_label:
+        return event_label
+
     # 0. Prefer moneyline markets if present in the group
     moneyline_ms = [m for m in markets if _is_moneyline_market(m)]
     if moneyline_ms:
