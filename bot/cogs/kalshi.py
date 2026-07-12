@@ -2949,9 +2949,11 @@ _PRICE_MOVE_THRESHOLD = 0.03
 
 
 class BetConfirmView(discord.ui.View):
-    """Final review step for a single bet: shows pick / odds / payout / balance
-    and only places the bet once the user hits Confirm. Funds aren't touched
-    until then. Notes when the live price moved from what the user first saw."""
+    """Price-moved re-confirm step for a single bet. Only shown when the live
+    price shifted more than _PRICE_MOVE_THRESHOLD from what the user saw on the
+    pick screen; otherwise bets place directly from the amount modal. Shows
+    pick / odds / payout / balance and places the bet on Confirm — funds aren't
+    touched until then."""
 
     def __init__(
         self, market: dict, pick: str, amount: int, yes_ask: float,
@@ -3060,10 +3062,18 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
             effective["yes_ask_dollars"] = f"{fresh_yes}"
         eff_yes = fresh_yes or shown_yes
 
+        # Place immediately. The confirm card only appears when the live price
+        # moved meaningfully from what the user saw on the pick screen, so they
+        # never get silently filled at worse odds.
+        moved = bool(shown_yes) and abs(eff_yes - shown_yes) > _PRICE_MOVE_THRESHOLD
+        if not moved:
+            await _execute_kalshi_bet(interaction, effective, pick, amount, eff_yes)
+            return
+
         balance = await wallet_service.get_balance(interaction.user.id)
         view = BetConfirmView(
             effective, pick, amount, eff_yes, balance,
-            shown_yes=shown_yes if shown_yes else None,
+            shown_yes=shown_yes,
         )
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         view.message = msg
