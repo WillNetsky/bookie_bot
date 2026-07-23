@@ -42,21 +42,12 @@ async def _safe_defer(interaction: discord.Interaction, *, edit: bool = False) -
 
 
 async def _expire_menu(view: discord.ui.View) -> None:
-    """On timeout, disable the menu and mark it expired in place — rather than
-    deleting it — so the user doesn't lose their spot mid-browse."""
+    """On timeout, delete the menu message."""
     msg = getattr(view, "message", None)
     if msg is None:
         return
-    for item in view.children:
-        if hasattr(item, "disabled"):
-            item.disabled = True  # type: ignore[union-attr]
     try:
-        embed = msg.embeds[0] if msg.embeds else None
-        if embed is not None:
-            embed.set_footer(text="⏱️ Expired — run the command again to refresh.")
-            await msg.edit(embed=embed, view=view)
-        else:
-            await msg.edit(view=view)
+        await msg.delete()
     except (discord.NotFound, discord.HTTPException):
         pass
 
