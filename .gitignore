@@ -26,3 +26,6 @@ env/
 
 # Generated at runtime by the bot (unrecognized Kalshi series)
 unknown_series.txt
+
+# Server-side systemd EnvironmentFile (holds secrets)
+bookie-bot.env
