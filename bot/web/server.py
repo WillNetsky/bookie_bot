@@ -10,7 +10,7 @@ import logging
 
 from aiohttp import web
 
-from bot.web import fragments, routes
+from bot.web import api, fragments, routes
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class DashboardServer:
         app["bot"] = self.bot
         routes.register(app)
         fragments.register(app)
+        api.register(app)
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
         self._site = web.TCPSite(self._runner, host=self.host, port=self.port)

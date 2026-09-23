@@ -1355,6 +1355,24 @@ async def get_money_supply_summary() -> dict:
 
 
 @db_retry()
+async def get_active_kalshi_summary() -> dict:
+    """Counts and amounts at risk for pending Kalshi single bets and parlays."""
+    db = await get_connection()
+    try:
+        cursor = await db.execute(
+            """SELECT
+                (SELECT COUNT(*)                 FROM kalshi_bets    WHERE status = 'pending') AS bet_count,
+                (SELECT COALESCE(SUM(amount), 0) FROM kalshi_bets    WHERE status = 'pending') AS bet_total,
+                (SELECT COUNT(*)                 FROM kalshi_parlays WHERE status = 'pending') AS parlay_count,
+                (SELECT COALESCE(SUM(amount), 0) FROM kalshi_parlays WHERE status = 'pending') AS parlay_total"""
+        )
+        r = await cursor.fetchone()
+        return {k: int(r[k] or 0) for k in ("bet_count", "bet_total", "parlay_count", "parlay_total")}
+    finally:
+        await db.close()
+
+
+@db_retry()
 async def get_voice_minutes_leaderboard(limit: int = 50) -> list[dict]:
     db = await get_connection()
     try:
