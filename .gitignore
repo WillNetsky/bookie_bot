@@ -23,3 +23,6 @@ env/
 *.swp
 *.swo
 *~
+
+# Generated at runtime by the bot (unrecognized Kalshi series)
+unknown_series.txt
