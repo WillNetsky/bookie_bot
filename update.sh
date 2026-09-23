@@ -2,18 +2,17 @@
 set -e
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-SERVICE="ai.bookie_bot"
+SERVICE="bookie-bot.service"
 
 echo "==> Pulling latest code..."
 cd "$REPO_DIR"
 git pull
 
 echo "==> Installing dependencies..."
-pip install -r requirements.txt -q
+venv/bin/pip install -r requirements.txt -q
 
 echo "==> Restarting $SERVICE..."
-launchctl stop "$SERVICE"
-sleep 1
-launchctl start "$SERVICE"
+systemctl --user restart "$SERVICE"
+systemctl --user is-active --quiet "$SERVICE"
 
 echo "==> Done."
