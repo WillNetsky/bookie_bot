@@ -82,7 +82,7 @@ KALSHI_CATEGORY_MAP: dict[str, str] = {
 # ── Auth ──────────────────────────────────────────────────────────────
 
 def _load_key():
-    path = os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")
+    path = os.path.expanduser(os.environ.get("KALSHI_PRIVATE_KEY_PATH", ""))
     if not path or not Path(path).exists():
         return None
     try:

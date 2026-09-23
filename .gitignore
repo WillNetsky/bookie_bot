@@ -29,3 +29,6 @@ unknown_series.txt
 
 # Server-side systemd EnvironmentFile (holds secrets)
 bookie-bot.env
+
+# Serena MCP tool state
+.serena/

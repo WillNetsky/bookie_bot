@@ -7,7 +7,7 @@ DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN", "")
 
 # Kalshi API authentication (key ID + path to PEM private key file)
 KALSHI_API_KEY_ID = os.environ.get("KALSHI_API_KEY_ID", "")
-KALSHI_PRIVATE_KEY_PATH = os.environ.get("KALSHI_PRIVATE_KEY_PATH", "")
+KALSHI_PRIVATE_KEY_PATH = os.path.expanduser(os.environ.get("KALSHI_PRIVATE_KEY_PATH", ""))
 
 # Voice reward settings — $2/hour, paid every 30 minutes
 VOICE_PAYOUT_INTERVAL = 30  # minutes between payouts
