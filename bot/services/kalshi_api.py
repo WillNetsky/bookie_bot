@@ -413,6 +413,56 @@ def _parse_game_from_markets(
 
 
 
+# A YES bid/ask gap wider than this means there's no real two-sided market —
+# the ask is just a resting placeholder (e.g. 2¢ bid / 99¢ ask on a zero-volume
+# prop), so those markets are shown as unavailable and can't be bet.
+MAX_SPREAD = 0.15
+
+
+def _price(v) -> float | None:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def side_ask(m: dict, pick: str) -> float | None:
+    """Price (0–1) to buy YES or NO — what a bet on that side fills at.
+
+    YES buys at the YES ask; NO buys at the NO ask, which is 1 − YES bid.
+    Returns None when that side has no usable offer.
+    """
+    if pick == "yes":
+        p = _price(m.get("yes_ask_dollars"))
+    else:
+        p = _price(m.get("no_ask_dollars"))
+        if p is None:
+            bid = _price(m.get("yes_bid_dollars"))
+            p = 1.0 - bid if bid is not None else None
+    return p if p is not None and 0 < p < 1 else None
+
+
+def is_illiquid(m: dict) -> bool:
+    """True when the YES bid/ask spread is too wide to price a bet honestly."""
+    bid = _price(m.get("yes_bid_dollars")) or 0.0
+    ask = _price(m.get("yes_ask_dollars"))
+    if ask is None or ask <= 0:
+        ask = 1.0
+    return ask - bid > MAX_SPREAD
+
+
+def bet_price(m: dict, pick: str) -> float | None:
+    """Fill price for a bet on this side, or None if it can't be bet."""
+    return None if is_illiquid(m) else side_ask(m, pick)
+
+
+def _odds_entry(price: float | None) -> dict | None:
+    if price is None:
+        return None
+    decimal_odds = round(1.0 / price, 3)
+    return {"decimal": decimal_odds, "american": decimal_to_american(decimal_odds)}
+
+
 def _extract_spread_team(yes_sub_title: str) -> str | None:
     """Extract team name from spread yes_sub_title.
 
@@ -433,12 +483,14 @@ def _pick_best_spread(markets: list[dict]) -> dict | None:
     if not markets:
         return None
 
-    # Find the single market closest to even (yes_ask ≈ 0.50)
+    # Find the single liquid market closest to even (yes_ask ≈ 0.50)
     best = None
     best_diff = 999.0
 
     for m in markets:
-        yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+        yes_price = side_ask(m, "yes")
+        if yes_price is None or is_illiquid(m):
+            continue
         diff = abs(yes_price - 0.5)
         if diff < best_diff:
             best_diff = diff
@@ -448,7 +500,6 @@ def _pick_best_spread(markets: list[dict]) -> dict | None:
         return None
 
     strike = float(best.get("floor_strike") or 0)
-    yes_price = float(best.get("yes_ask_dollars") or best.get("last_price_dollars") or "0.5")
     ticker = best.get("ticker")
 
     # YES side: the named team covers at -strike
@@ -456,13 +507,9 @@ def _pick_best_spread(markets: list[dict]) -> dict | None:
     if not yes_team:
         return None
 
-    yes_decimal = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-    yes_american = decimal_to_american(yes_decimal)
-
+    yes_odds = _odds_entry(side_ask(best, "yes"))
     # NO side: opposing team covers at +strike
-    no_price = 1.0 - yes_price
-    no_decimal = round(1.0 / no_price, 3) if no_price > 0 else 2.0
-    no_american = decimal_to_american(no_decimal)
+    no_odds = _odds_entry(side_ask(best, "no"))
 
     # Find the opposing team name from other markets in this game
     other_team = None
@@ -476,22 +523,14 @@ def _pick_best_spread(markets: list[dict]) -> dict | None:
         # Can't find opposing team — still return with placeholder
         other_team = "Opponent"
 
-    return {
-        yes_team: {
-            "decimal": yes_decimal,
-            "american": yes_american,
-            "point": -strike,  # negative = favorite
-            "_market_ticker": ticker,
-            "_kalshi_pick": "yes",
-        },
-        other_team: {
-            "decimal": no_decimal,
-            "american": no_american,
-            "point": strike,  # positive = underdog
-            "_market_ticker": ticker,
-            "_kalshi_pick": "no",
-        },
-    }
+    result = {}
+    if yes_odds:
+        # negative point = favorite
+        result[yes_team] = {**yes_odds, "point": -strike, "_market_ticker": ticker, "_kalshi_pick": "yes"}
+    if no_odds:
+        # positive point = underdog
+        result[other_team] = {**no_odds, "point": strike, "_market_ticker": ticker, "_kalshi_pick": "no"}
+    return result or None
 
 
 def _pick_best_total(markets: list[dict]) -> dict | None:
@@ -499,12 +538,14 @@ def _pick_best_total(markets: list[dict]) -> dict | None:
     if not markets:
         return None
 
-    # Pick the total line where yes_ask is closest to 0.50
+    # Pick the liquid total line where yes_ask is closest to 0.50
     best = None
     best_diff = 999.0
 
     for m in markets:
-        yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
+        yes_price = side_ask(m, "yes")
+        if yes_price is None or is_illiquid(m):
+            continue
         diff = abs(yes_price - 0.5)
         if diff < best_diff:
             best_diff = diff
@@ -514,21 +555,13 @@ def _pick_best_total(markets: list[dict]) -> dict | None:
         return None
 
     strike = float(best.get("floor_strike") or 0)
-    yes_price = float(best.get("yes_ask_dollars") or best.get("last_price_dollars") or "0.5")
-    over_decimal = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-    over_american = decimal_to_american(over_decimal)
-
-    no_price = 1.0 - yes_price
-    under_decimal = round(1.0 / no_price, 3) if no_price > 0 else 2.0
-    under_american = decimal_to_american(under_decimal)
-
     ticker = best.get("ticker")
-    return {
-        "over": {"decimal": over_decimal, "american": over_american, "point": strike,
-                 "_market_ticker": ticker, "_kalshi_pick": "yes"},
-        "under": {"decimal": under_decimal, "american": under_american, "point": strike,
-                   "_market_ticker": ticker, "_kalshi_pick": "no"},
-    }
+    result = {}
+    for key, pick in (("over", "yes"), ("under", "no")):
+        odds = _odds_entry(side_ask(best, pick))
+        if odds:
+            result[key] = {**odds, "point": strike, "_market_ticker": ticker, "_kalshi_pick": pick}
+    return result or None
 
 
 MAX_CONCURRENT = 5  # Max simultaneous Kalshi API requests
@@ -1457,10 +1490,9 @@ class KalshiAPI:
             m = kalshi_markets.get(side)
             if not m:
                 continue
-            yes_price = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or "0.5")
-            decimal_odds = round(1.0 / yes_price, 3) if yes_price > 0 else 2.0
-            american = decimal_to_american(decimal_odds)
-            parsed[side] = {"decimal": decimal_odds, "american": american, "point": None}
+            odds = _odds_entry(bet_price(m, "yes"))
+            if odds:
+                parsed[side] = {**odds, "point": None}
 
         # Fetch spread and total markets concurrently
         spread_key = None

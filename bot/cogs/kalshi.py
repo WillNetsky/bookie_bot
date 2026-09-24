@@ -11,7 +11,7 @@ from bot.config import BET_RESULTS_CHANNEL_ID
 from bot.services import betting_service, leaderboard_notifier, wallet_service
 from bot.services.kalshi_api import (
     kalshi_api, SPORTS, FUTURES,
-    _parse_event_ticker_date
+    _parse_event_ticker_date, bet_price, is_illiquid,
 )
 from bot.services import kalshi_taxonomy as tax
 from bot.constants import PICK_EMOJI, PICK_LABELS
@@ -1533,31 +1533,16 @@ GAMES_PER_PAGE = 10
 
 
 def _market_odds_str(m: dict) -> tuple[str, str]:
-    """Return (yes_american, no_american) strings for display using mid-price.
-
-    Mid-price = (bid + ask) / 2 gives a cleaner implied probability than
-    ask-only, which inflates cost by the full spread.  Falls back to ask,
-    then last_price when bid/ask are unavailable.
+    """Return (yes_american, no_american) display strings at the price each
+    side would actually fill at (YES ask / NO ask), so what the buttons show
+    is what the bet gets. "—" when that side can't be bet (no offer, or the
+    spread is too wide to be a real market).
     """
-    try:
-        bid = m.get("yes_bid_dollars")
-        ask = m.get("yes_ask_dollars")
-        last = m.get("last_price_dollars")
-        if bid is not None and ask is not None:
-            yes_price = (float(bid) + float(ask)) / 2
-        elif ask is not None:
-            yes_price = float(ask)
-        elif last is not None:
-            yes_price = float(last)
-        else:
-            return "?", "?"
-    except (TypeError, ValueError):
-        return "?", "?"
-    if 0 < yes_price < 1:
-        yes_am = format_american(decimal_to_american(round(1.0 / yes_price, 3)))
-        no_am  = format_american(decimal_to_american(round(1.0 / (1.0 - yes_price), 3)))
-        return yes_am, no_am
-    return "?", "?"
+    yes_p, no_p = bet_price(m, "yes"), bet_price(m, "no")
+    return (
+        _price_to_american(yes_p) if yes_p else "—",
+        _price_to_american(no_p) if no_p else "—",
+    )
 
 
 def _price_to_american(price: float) -> str:
@@ -1710,23 +1695,12 @@ class MarketListView(discord.ui.View):
                 if league:
                     header += f" — {league}"
                 # Build per-outcome American odds string (e.g. "Lakers -120 · Warriors +100")
-                # Use mid-price for consistency with _market_odds_str
+                # at the YES fill price, consistent with _market_odds_str
                 parts = []
                 for mkt in item["markets"][:3]:
                     sub = mkt.get("yes_sub_title") or ""
-                    bid = mkt.get("yes_bid_dollars")
-                    ask = mkt.get("yes_ask_dollars")
-                    last = mkt.get("last_price_dollars")
-                    if bid is not None and ask is not None:
-                        price = (float(bid) + float(ask)) / 2
-                    elif ask is not None:
-                        price = ask
-                    else:
-                        price = last
-                    try:
-                        am = _price_to_american(float(price)) if price is not None else None
-                    except (TypeError, ValueError):
-                        am = None
+                    price = bet_price(mkt, "yes")
+                    am = _price_to_american(price) if price else None
                     if sub and am is not None:
                         parts.append(f"{sub} {am}")
                     elif sub:
@@ -1773,11 +1747,8 @@ class MarketGroupedDropdown(discord.ui.Select["MarketListView"]):
                 parts = []
                 for mkt in item["markets"][:3]:
                     sub = mkt.get("yes_sub_title") or ""
-                    price = mkt.get("yes_ask_dollars") or mkt.get("last_price_dollars")
-                    try:
-                        am = _price_to_american(float(price)) if price is not None else None
-                    except (TypeError, ValueError):
-                        am = None
+                    price = bet_price(mkt, "yes")
+                    am = _price_to_american(price) if price else None
                     if sub and am is not None:
                         parts.append(f"{sub} {am}")
                     elif sub:
@@ -1972,8 +1943,10 @@ class RawMarketBetView(discord.ui.View):
         self.market   = market
 
         yes_am, no_am = _market_odds_str(market)
-        self.add_item(RawMarketPickButton("yes", f"YES  {yes_am}", market, row=0))
-        self.add_item(RawMarketPickButton("no",  f"NO   {no_am}",  market, row=0))
+        for pick, label in (("yes", f"YES  {yes_am}"), ("no", f"NO   {no_am}")):
+            btn = RawMarketPickButton(pick, label, market, row=0)
+            btn.disabled = bet_price(market, pick) is None
+            self.add_item(btn)
         self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1, game_back=getattr(list_view, '_game_back', None)))
 
     def build_embed(self) -> discord.Embed:
@@ -1993,7 +1966,10 @@ class RawMarketBetView(discord.ui.View):
         embed.add_field(name="Closes",  value=time_str, inline=True)
         embed.add_field(name="YES",     value=yes_am,   inline=True)
         embed.add_field(name="NO",      value=no_am,    inline=True)
-        embed.set_footer(text="Pick YES or NO, then enter your wager")
+        if is_illiquid(m):
+            embed.set_footer(text="No active market — the bid/ask spread is too wide to bet right now")
+        else:
+            embed.set_footer(text="Pick YES or NO, then enter your wager")
         return embed
 
 
@@ -2847,44 +2823,33 @@ class SportPageButton(discord.ui.Button["SportSelectorView"]):
             pass
 
 
-async def _fresh_yes_ask(ticker: str) -> float | None:
-    """Re-fetch a single market's live YES price (≤60s cache) so bets fill at a
-    current number, not one that may be 15-30 min stale from the list cache.
-
-    Returns the YES ask in dollars (0–1), or None if it can't be fetched.
-    """
+async def _fresh_market(ticker: str) -> dict | None:
+    """Re-fetch a single market (≤60s cache) so bets fill at a current price,
+    not one that may be 15-30 min stale from the list cache."""
     try:
         fresh = await kalshi_api.get_market(ticker)
     except Exception:
         return None
     if isinstance(fresh, dict) and isinstance(fresh.get("market"), dict):
         fresh = fresh["market"]
-    if not isinstance(fresh, dict):
-        return None
-    try:
-        v = float(fresh.get("yes_ask_dollars") or fresh.get("last_price_dollars") or 0)
-    except (ValueError, TypeError):
-        return None
-    return v if v > 0 else None
+    return fresh if isinstance(fresh, dict) else None
 
 
-def _decimal_from_yes(yes_ask: float, pick: str) -> float:
-    """Decimal odds for a YES/NO pick given the YES ask price."""
-    if pick == "yes":
-        return round(1.0 / yes_ask, 3) if yes_ask > 0 else 2.0
-    no_ask = 1.0 - yes_ask
-    return round(1.0 / no_ask, 3) if no_ask > 0 else 2.0
+def _decimal_from_price(price: float) -> float:
+    """Decimal odds for a side bought at `price` (0–1)."""
+    return round(1.0 / price, 3)
 
 
 async def _execute_kalshi_bet(
-    interaction: discord.Interaction, m: dict, pick: str, amount: int, yes_ask: float
+    interaction: discord.Interaction, m: dict, pick: str, amount: int, price: float
 ) -> None:
-    """Place a single Kalshi bet at the given YES price and report the result.
+    """Place a single Kalshi bet at the given fill price for its side and
+    report the result.
 
     Assumes the interaction has already been deferred. Used by the bet modal's
     direct path and by the price-moved re-confirm button.
     """
-    decimal_odds = _decimal_from_yes(yes_ask, pick)
+    decimal_odds = _decimal_from_price(price)
     american = decimal_to_american(decimal_odds)
     close_time = m.get("close_time") or m.get("expected_expiration_time")
 
@@ -2934,8 +2899,8 @@ async def _execute_kalshi_bet(
     await interaction.followup.send(embed=embed)
 
 
-# How much the YES price must move (in dollars / implied prob) before we flag it
-# as having moved on the confirmation card.
+# How much the fill price must differ (in dollars / implied prob) from what the
+# user was shown before we stop and ask them to re-confirm.
 _PRICE_MOVE_THRESHOLD = 0.03
 
 
@@ -2947,21 +2912,21 @@ class BetConfirmView(discord.ui.View):
     touched until then."""
 
     def __init__(
-        self, market: dict, pick: str, amount: int, yes_ask: float,
-        balance: float, shown_yes: float | None = None, timeout: float = 60.0,
+        self, market: dict, pick: str, amount: int, price: float,
+        balance: float, shown_price: float | None = None, timeout: float = 60.0,
     ) -> None:
         super().__init__(timeout=timeout)
         self.market = market
         self.pick = pick
         self.amount = amount
-        self.yes_ask = yes_ask
+        self.price = price
         self.balance = balance
-        self.shown_yes = shown_yes
+        self.shown_price = shown_price
         self.message: discord.Message | None = None
 
     def build_embed(self) -> discord.Embed:
         m = self.market
-        decimal_odds = _decimal_from_yes(self.yes_ask, self.pick)
+        decimal_odds = _decimal_from_price(self.price)
         american = decimal_to_american(decimal_odds)
         payout = round(self.amount * decimal_odds, 2)
         title = m.get("title") or "?"
@@ -2969,7 +2934,7 @@ class BetConfirmView(discord.ui.View):
         pick_display = (f"YES — {yes_sub}" if self.pick == "yes" and yes_sub
                         else ("YES" if self.pick == "yes" else "NO"))
 
-        moved = bool(self.shown_yes and abs(self.yes_ask - self.shown_yes) > _PRICE_MOVE_THRESHOLD)
+        moved = bool(self.shown_price and abs(self.price - self.shown_price) > _PRICE_MOVE_THRESHOLD)
         embed = discord.Embed(
             title="Confirm your bet",
             color=discord.Color.orange() if moved else discord.Color.blurple(),
@@ -2982,7 +2947,7 @@ class BetConfirmView(discord.ui.View):
         embed.add_field(name="Balance",          value=f"${self.balance:.2f}",               inline=True)
         embed.add_field(name="Market",           value=title[:1024],                          inline=False)
         if moved:
-            old_am = decimal_to_american(_decimal_from_yes(self.shown_yes, self.pick))
+            old_am = decimal_to_american(_decimal_from_price(self.shown_price))
             embed.description = (
                 f"⚠️ Price moved since you opened this — was "
                 f"{format_american(old_am)}, now {format_american(american)}."
@@ -2998,7 +2963,7 @@ class BetConfirmView(discord.ui.View):
         for child in self.children:
             child.disabled = True
         self.stop()
-        await _execute_kalshi_bet(interaction, self.market, self.pick, self.amount, self.yes_ask)
+        await _execute_kalshi_bet(interaction, self.market, self.pick, self.amount, self.price)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -3043,28 +3008,38 @@ class RawMarketBetModal(discord.ui.Modal, title="Place Bet"):
 
         m    = self.market
         pick = self.pick
-        shown_yes = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
+        # Exactly the price the pick button displayed (see _market_odds_str).
+        shown_price = bet_price(m, pick)
 
-        # Pull the live price so the review (and the eventual fill) uses a current
-        # number, not the possibly-stale one from the list cache.
-        fresh_yes = await _fresh_yes_ask(m["ticker"])
+        # Pull the live market so the fill uses a current price, not the
+        # possibly-stale one from the list cache.
+        fresh = await _fresh_market(m["ticker"])
         effective = dict(m)
-        if fresh_yes:
-            effective["yes_ask_dollars"] = f"{fresh_yes}"
-        eff_yes = fresh_yes or shown_yes
+        if fresh:
+            for k in ("yes_ask_dollars", "yes_bid_dollars", "no_ask_dollars"):
+                if fresh.get(k) is not None:
+                    effective[k] = fresh[k]
+        price = bet_price(effective, pick)
+        if price is None:
+            await interaction.followup.send(
+                "This market has no active offer on that side right now (the bid/ask "
+                "spread is too wide), so it can't be bet. No funds were spent.",
+                ephemeral=True,
+            )
+            return
 
-        # Place immediately. The confirm card only appears when the live price
-        # moved meaningfully from what the user saw on the pick screen, so they
-        # never get silently filled at worse odds.
-        moved = bool(shown_yes) and abs(eff_yes - shown_yes) > _PRICE_MOVE_THRESHOLD
+        # Place immediately only when the fill matches what the user was shown;
+        # otherwise stop at the confirm card so they never get silently filled
+        # at different odds.
+        moved = shown_price is None or abs(price - shown_price) > _PRICE_MOVE_THRESHOLD
         if not moved:
-            await _execute_kalshi_bet(interaction, effective, pick, amount, eff_yes)
+            await _execute_kalshi_bet(interaction, effective, pick, amount, price)
             return
 
         balance = await wallet_service.get_balance(interaction.user.id)
         view = BetConfirmView(
-            effective, pick, amount, eff_yes, balance,
-            shown_yes=shown_yes,
+            effective, pick, amount, price, balance,
+            shown_price=shown_price,
         )
         msg = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
         view.message = msg
@@ -3085,8 +3060,10 @@ class ParlayMarketDetailView(discord.ui.View):
         legs = list_view.parlay_legs or []
         game_back = getattr(list_view, '_game_back', None)
         yes_am, no_am = _market_odds_str(market)
-        self.add_item(ParlayPickButton("yes", f"YES  {yes_am}", market, list_view.markets, list_view.page, legs, row=0, game_back=game_back))
-        self.add_item(ParlayPickButton("no",  f"NO   {no_am}",  market, list_view.markets, list_view.page, legs, row=0, game_back=game_back))
+        for pick, label in (("yes", f"YES  {yes_am}"), ("no", f"NO   {no_am}")):
+            btn = ParlayPickButton(pick, label, market, list_view.markets, list_view.page, legs, row=0, game_back=game_back)
+            btn.disabled = bet_price(market, pick) is None
+            self.add_item(btn)
         self.add_item(RawMarketBackButton(list_view.markets, list_view.page, row=1, parlay_legs=legs, game_back=game_back))
 
     def build_embed(self) -> discord.Embed:
@@ -3137,12 +3114,14 @@ class ParlayPickButton(discord.ui.Button):
             await interaction.response.send_message(f"Maximum {MAX_PARLAY_LEGS} legs allowed.", ephemeral=True)
             return
 
-        yes_ask = float(m.get("yes_ask_dollars") or m.get("last_price_dollars") or 0)
-        if self.pick == "yes":
-            decimal_odds = round(1.0 / yes_ask, 3) if yes_ask > 0 else 2.0
-        else:
-            no_ask = 1.0 - yes_ask
-            decimal_odds = round(1.0 / no_ask, 3) if no_ask > 0 else 2.0
+        price = bet_price(m, self.pick)
+        if price is None:
+            await interaction.response.send_message(
+                "This market has no active offer on that side right now, so it can't be added.",
+                ephemeral=True,
+            )
+            return
+        decimal_odds = _decimal_from_price(price)
 
         american = decimal_to_american(decimal_odds)
         title   = m.get("title") or "?"
